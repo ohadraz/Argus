@@ -15,7 +15,7 @@ from functools import partial
 from typing import Final
 
 from code_host.github import GitHubReads, GitHubReadSettings
-from core import DatabaseSettings, SettingsSlice, TelemetrySettings, get_settings
+from core import DatabaseSettings, SettingsSlice, TelemetrySettings, get_settings, the_clock
 from core.models import CodeSearch
 from embedding_fastembed import an_embedder
 from postgres import open_pool, require_schema
@@ -75,6 +75,8 @@ def main(argv: list[str] | None = None) -> None:
     spent the whole build and left the index looking as though it had never
     run.
     """
+
+    the_clock()
     parser = ArgumentParser(description="Keeps the index describing what is deployed.")
     parser.add_argument(
         "--once",

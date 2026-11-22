@@ -2,16 +2,26 @@ from __future__ import annotations
 
 import os
 from datetime import UTC, datetime
-from typing import Final
+from functools import cache
 
 from core.clock import Clock, the_clock_named_by
 
 TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
-# This process's clock, named once, as it starts. A stack sets the epoch and
-# speed before it starts anything, and a clock that could change under a running
-# walk would have two readings of one instant disagree.
-_THE_CLOCK: Final[Clock] = the_clock_named_by(os.environ)
+
+@cache
+def the_clock() -> Clock:
+    """This process's clock, named by the environment the first time it is
+    asked for, and the same clock every time after.
+
+    Named once: a stack sets the epoch and speed before it starts anything, and
+    a clock that could change under a running walk would have two readings of
+    one instant disagree. On first use rather than at import, so that naming
+    the kernel reads nothing - and each process's root asks for it first thing
+    in `main`, so that a stack configured by half is refused as the process
+    starts, not at the first timestamp a walk writes.
+    """
+    return the_clock_named_by(os.environ)
 
 
 def utc_now() -> datetime:
@@ -26,19 +36,19 @@ def utc_now() -> datetime:
     otherwise, and a faster one where a stack runs on simulated time - see
     `core.clock`.
     """
-    return _THE_CLOCK.now()
+    return the_clock().now()
 
 
 def sleep_on_the_clock(seconds: float) -> None:
     """Waits `seconds` of the stack's clock - see `Clock.sleep` for which waits
     those are."""
-    _THE_CLOCK.sleep(seconds)
+    the_clock().sleep(seconds)
 
 
 def in_real_time(seconds: float) -> float:
     """How long `seconds` of the stack's clock lasts on the real one - see
     `Clock.in_real_time`."""
-    return _THE_CLOCK.in_real_time(seconds)
+    return the_clock().in_real_time(seconds)
 
 
 def to_iso(moment: datetime) -> str:

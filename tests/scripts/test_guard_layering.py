@@ -31,11 +31,17 @@ from argus_testkit import Assertion, Scenario, the_answer_was
 from grimp import ImportGraph
 
 from scripts.guard_layering import (
+    TELEMETRY_API,
     the_admissions_made_outside_the_walk,
     the_chains_to_a_store_the_fence_cannot_reach,
     the_environment_read_outside_a_root,
+    the_kernel_s_dependencies_past_its_own,
+    the_kernel_s_imports_past_its_third_parties,
+    the_kernel_s_imports_past_the_telemetry_api,
     the_kernel_settings_an_adapter_declares_too,
+    the_modules_installed_by,
     the_processes_reaching_past_their_extra,
+    the_roots_reading_the_clock_late,
     the_stale_allowances,
     the_stale_readers,
     the_vendors_named_outside_their_adapter,
@@ -48,8 +54,9 @@ from scripts.guard_layering import (
 # what the walk is handed, the store it searches included.
 THE_WALK = {"apps.worker", "orchestrator"}
 
-# The packages that are somebody else's, which the rule is about reaching.
-THIRD_PARTIES = {"qdrant_client", "slack_sdk"}
+# The packages that are somebody else's, which the rules are about reaching - and
+# one of the standard library's, which a graph built with externals may hold too.
+THIRD_PARTIES = {"qdrant_client", "slack_sdk", "psycopg", "pydantic", "json"}
 
 
 @pytest.mark.unit
@@ -480,12 +487,13 @@ def test_where_a_reader_is_defined_it_may_name_itself(module: str) -> None:
 
 @pytest.mark.unit
 def test_the_clock_the_stack_runs_on_may_be_named_by_the_environment() -> None:
-    # Named once, before anything runs: every module's timestamps read it as
-    # they are imported, which is before any root has read anything.
+    # Named once, on first use: every module's timestamps read it, and the root
+    # asking for it first thing is what makes that use the process's start.
     Scenario() \
         .given(sources := {"core.timestamps": _a_module_reading(
             "import os",
-            "_THE_CLOCK = the_clock_named_by(os.environ)")}) \
+            "def the_clock() -> Clock:",
+            "    return the_clock_named_by(os.environ)")}) \
         .when(lambda: the_environment_read_outside_a_root(sources)) \
         .then(_the_reads_refused_are_on_lines([]))
 
@@ -970,6 +978,175 @@ def _these_admissions_are_refused(expected: list[tuple[str, int]]
         return True
 
     return assertion
+
+
+@pytest.mark.unit
+def test_the_kernel_importing_a_third_party_beyond_its_own_is_refused() -> None:
+    # The kernel is installed by every module, so a driver it imported would be
+    # in every process - the web page as much as the walk.
+    Scenario() \
+        .given(a_graph := _a_graph_with(("core.events", "psycopg"))) \
+        .when(lambda: the_kernel_s_imports_past_its_third_parties(a_graph)) \
+        .then(_these_are_refused([("core.events", "psycopg")]))
+
+
+@pytest.mark.unit
+def test_the_kernel_importing_its_own_third_parties_and_the_standard_library_passes() -> None:
+    Scenario() \
+        .given(a_graph := _a_graph_with(("core.config", "pydantic"), ("core.clock", "json"))) \
+        .when(lambda: the_kernel_s_imports_past_its_third_parties(a_graph)) \
+        .then(_these_are_refused([]))
+
+
+@pytest.mark.unit
+def test_a_third_party_imported_outside_the_kernel_is_not_the_kernel_s() -> None:
+    # The package that speaks the driver is where the driver belongs.
+    Scenario() \
+        .given(a_graph := _a_graph_with(("postgres.db", "psycopg"))) \
+        .when(lambda: the_kernel_s_imports_past_its_third_parties(a_graph)) \
+        .then(_these_are_refused([]))
+
+
+# The modules OpenTelemetry's API installs, as far as these cases need them - one
+# of its propagators among them, which share a package with others'.
+THE_TELEMETRY_API = frozenset({"opentelemetry.trace", "opentelemetry.metrics",
+                               "opentelemetry.propagators.textmap"})
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("source", "refused"), [
+    pytest.param(("from opentelemetry import trace",
+                  "from opentelemetry.metrics import Meter",
+                  "import opentelemetry.trace",
+                  "from opentelemetry.propagators import textmap"), [],
+                 id="the-api"),
+    pytest.param(("from opentelemetry.sdk.trace import TracerProvider",), [1],
+                 id="the-sdk"),
+    pytest.param(("import opentelemetry.exporter.otlp",), [1],
+                 id="an-exporter"),
+    pytest.param(("from opentelemetry.instrumentation.logging import LoggingInstrumentor",), [1],
+                 id="an-instrumentation"),
+    # Installed wherever the SDK is, and declared by nobody who imports it.
+    pytest.param(("from opentelemetry.semconv.attributes import service_attributes",), [1],
+                 id="the-semantic-conventions"),
+    pytest.param(("from opentelemetry.propagators import b3",), [1],
+                 id="a-propagator-past-the-api"),
+    # The package is named as what is imported, not as the module it is
+    # imported from.
+    pytest.param(("from opentelemetry import sdk",), [1],
+                 id="a-package-imported-from-the-namespace"),
+    pytest.param(("from opentelemetry import sdk, semconv",), [1],
+                 id="once-per-statement")
+])
+def test_the_kernel_naming_opentelemetry_past_its_api_is_refused(source: tuple[str, ...],
+                                                                 refused: list[int]) -> None:
+    # The graph reads all of OpenTelemetry as one name, so the SDK in the
+    # kernel would pass it - and be installed into every module.
+    Scenario() \
+        .given(sources := {"core.telemetry": _a_module_reading(*source)}) \
+        .when(lambda: [line for _, line, _
+                       in the_kernel_s_imports_past_the_telemetry_api(sources,
+                                                                      THE_TELEMETRY_API)]) \
+        .then(the_answer_was(refused))
+
+
+@pytest.mark.unit
+def test_opentelemetry_s_sdk_named_outside_the_kernel_is_not_the_kernel_s() -> None:
+    # The package that installs the SDK is where it belongs.
+    Scenario() \
+        .given(sources := {"telemetry.wiring": _a_module_reading(
+            "from opentelemetry.sdk.trace import TracerProvider")}) \
+        .when(lambda: the_kernel_s_imports_past_the_telemetry_api(sources, THE_TELEMETRY_API)) \
+        .then(the_answer_was([]))
+
+
+@pytest.mark.unit
+def test_what_opentelemetry_s_api_installs_is_read_off_its_distribution() -> None:
+    # The kernel is held to this, so a reading that lost the API would refuse
+    # the kernel, and one that took in the SDK would pass it.
+    Scenario() \
+        .when(lambda: the_modules_installed_by(TELEMETRY_API)) \
+        .then(_holding_and_leaving_out("opentelemetry.trace", "opentelemetry.sdk"))
+
+
+def _holding_and_leaving_out(held: str, left_out: str) -> Assertion[frozenset[str]]:
+    """That the modules read off hold `held` and not `left_out`."""
+    def assertion(modules: frozenset[str]) -> bool:
+        if held not in modules or left_out in modules:
+            raise AssertionError(
+                f"Expected [{held}] among the modules installed and [{left_out}] not, "
+                f"got {sorted(modules)}."
+            )
+
+        return True
+
+    return assertion
+
+
+# The kernel's configuration, declaring its own three and nothing else.
+THE_KERNEL_S_OWN = ["pydantic>=2.0", "pydantic-settings>=2.0", "opentelemetry-api>=1.45"]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("configuration", "refused"), [
+    pytest.param({"project": {"dependencies": THE_KERNEL_S_OWN}}, [],
+                 id="its-own-three"),
+    pytest.param({"project": {"dependencies": [*THE_KERNEL_S_OWN, "psycopg[binary]>=3.1"]}},
+                 ["psycopg"],
+                 id="a-driver-beside-them"),
+    pytest.param({"project": {"dependencies": THE_KERNEL_S_OWN,
+                              "optional-dependencies": {"migrations": ["alembic>=1.20.0"]}}},
+                 ["alembic"],
+                 id="an-extra")
+])
+def test_the_kernel_declaring_a_third_party_beyond_its_own_is_refused(
+    configuration: dict[str, object], refused: list[str]
+) -> None:
+    # A dependency nothing imports is installed all the same, and an extra is
+    # one an importer opts into: the kernel has neither to offer.
+    Scenario() \
+        .when(lambda: the_kernel_s_dependencies_past_its_own(configuration)) \
+        .then(the_answer_was(refused))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("root", "late"), [
+    pytest.param(("def main() -> None:",
+                  "    the_clock()",
+                  "    serve()"), [],
+                 id="the-clock-first"),
+    pytest.param(("def main() -> None:",
+                  "    \"\"\"The process.\"\"\"",
+                  "    the_clock()",
+                  "    serve()"), [],
+                 id="the-clock-first-after-the-docstring"),
+    pytest.param(("def main() -> None:",
+                  "    settings = get_settings()",
+                  "    the_clock()"), ["apps.web"],
+                 id="something-before-the-clock"),
+    pytest.param(("def main() -> None:",
+                  "    serve()"), ["apps.web"],
+                 id="no-clock-at-all")
+])
+def test_a_root_does_nothing_before_it_asks_for_the_clock(root: tuple[str, ...],
+                                                          late: list[str]) -> None:
+    # A stack configured by half is refused when the clock is first asked for,
+    # so asking first is what makes the refusal the process's first word.
+    Scenario() \
+        .given(sources := {"apps.web": _a_module_reading(*root)}) \
+        .when(lambda: the_roots_reading_the_clock_late(sources)) \
+        .then(the_answer_was(late))
+
+
+@pytest.mark.unit
+def test_a_main_outside_the_roots_is_not_held_to_the_clock() -> None:
+    # A script's or a library's `main` is no process's start.
+    Scenario() \
+        .given(sources := {"orchestrator.worker": _a_module_reading(
+            "def main() -> None:",
+            "    serve()")}) \
+        .when(lambda: the_roots_reading_the_clock_late(sources)) \
+        .then(the_answer_was([]))
 
 
 def _a_graph_with(*imports: tuple[str, str]) -> ImportGraph:

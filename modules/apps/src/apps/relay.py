@@ -18,7 +18,7 @@ from communication.saying import (
     a_destination_per_register,
 )
 from communication.watching import watch_forever
-from core import DatabaseSettings, TelemetrySettings, get_settings
+from core import DatabaseSettings, TelemetrySettings, get_settings, the_clock
 from incident_record import events_since, place_for
 from postgres import Connections, open_pool
 from telemetry import start_telemetry
@@ -46,6 +46,8 @@ def main() -> None:
     Telemetry is started before that is decided, so the warning saying so is in
     this run's logs as well as on the console.
     """
+
+    the_clock()
     settings = get_settings()
     slack = SlackSettings()
 

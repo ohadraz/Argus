@@ -17,6 +17,7 @@ from core import (
     TelemetrySettings,
     WriteMcpEndpoint,
     get_settings,
+    the_clock,
 )
 from incident_record import ended_by_a_person_via
 from mitigation import an_undo_over
@@ -66,6 +67,8 @@ def main() -> None:
     The walk's collaborators are assembled here, once, and handed to the graph,
     which compiles them on the first run: assembling them reaches nothing.
     """
+
+    the_clock()
     settings = get_settings()
     vendors = Vendors.read()
     database = DatabaseSettings.of(settings)

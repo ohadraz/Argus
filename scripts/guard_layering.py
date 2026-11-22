@@ -67,16 +67,24 @@ field any adapter's settings declare - a model's name or a namespace as much as
 a `SLACK_` token - since a field in both is a second place to configure the
 vendor, and one every slice of the kernel's could reach.
 
+And it holds the kernel to the three third parties it is written in - pydantic,
+its settings and the OpenTelemetry API - both in what it imports and in what its
+configuration declares, since a dependency nothing imports is installed into
+every module all the same. And every process's root asks for the clock first
+thing in `main`, so that a stack configured by half fails as the process starts.
+
 A script rather than the `lint-imports` shim, for the reason every other tool
 here is invoked as a module: going through the interpreter avoids the
 locally-generated `.exe` stubs in `.venv/Scripts/`, which Windows Smart App
 Control has blocked before. See the `smart-app-control-blocks` skill.
 """
 import ast
+import copy
 import re
 import sys
 import tomllib
 from collections.abc import Collection, Iterable, Iterator, Mapping
+from importlib import metadata
 from io import TextIOWrapper
 from pathlib import Path
 from typing import Any
@@ -112,9 +120,12 @@ def _say_it_in_utf8() -> None:
     for stream in (sys.stdout, sys.stderr):
         if isinstance(stream, TextIOWrapper):
             stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 CONFIGURATION = REPOSITORY / "pyproject.toml"
 
 KERNEL = "core"
+KERNEL_CONFIGURATION = MODULES / KERNEL / "pyproject.toml"
 FRONT_DOOR_CONTRACT = "the kernel is reached through its front doors, not by module path"
 INDEPENDENCE_CONTRACT = "an agent knows the kernel and its own sources, never another agent"
 WALK_CONTRACT = "the walk writes to no store the fence cannot reach"
@@ -144,6 +155,30 @@ SPOKEN_ONLY_BY_ITS_ADAPTER = {
     "anthropic": "llm_anthropic",
     "fastembed": "embedding_fastembed"
 }
+
+# What the kernel may import beyond the standard library, and so all it may
+# install: the library its models and settings are written in, and the API
+# instrumented code is written against. `pydantic_core` is pydantic's own, which
+# pydantic pins and a custom type's schema is written in. A driver, an SDK, a
+# server is the package that speaks it - and a kernel that imported one would
+# install it into every module in the workspace.
+THE_KERNEL_S_THIRD_PARTIES = frozenset({"opentelemetry", "pydantic", "pydantic_core",
+                                        "pydantic_settings"})
+
+# OpenTelemetry's namespace, and the distribution that is its API - all of it the
+# kernel may name. The graph cannot tell the API from the rest: grimp squashes a
+# third party to its top-level name, so the SDK, an exporter, an instrumentation
+# and the semantic conventions all read as `opentelemetry`. The API is what
+# instrumented code names; the rest is a process's to install (`telemetry`).
+# Held by what the API installs rather than by a list of what it does not, which
+# is every other distribution that ever ships into the namespace.
+TELEMETRY_NAMESPACE = "opentelemetry"
+TELEMETRY_API = "opentelemetry-api"
+
+# The same three as the kernel's configuration declares them, by distribution.
+# Held apart from the imports because a dependency nothing imports is still
+# installed: what the kernel declares is what every module gets.
+THE_KERNEL_S_DEPENDENCIES = frozenset({"opentelemetry-api", "pydantic", "pydantic-settings"})
 
 # The kernel's own suite, exempt for the reason the kernel itself is: it tests
 # the modules behind the front doors, and a test that could only reach them
@@ -227,8 +262,8 @@ ANNOTATED = "Annotated"
 READ_WHERE_DEFINED = {
     "core.__init__": "the kernel's export list, which names `get_settings`",
     "core.config": "defines `get_settings` and the settings it reads",
-    "core.timestamps": "the clock the stack runs on, named once, before anything runs - "
-                       "every module's timestamps read it at import",
+    "core.timestamps": "the clock the stack runs on, named once, on first use - which "
+                       "each process's root makes first thing in `main`",
     "postgres.__init__": "the database's export list, which names `connect_from_env`",
     "postgres.db": "defines `connect_from_env`, the suites' and the scripts' connection - "
                    "named by no shipped module but this one and the database's export list",
@@ -237,6 +272,12 @@ READ_WHERE_DEFINED = {
                                "no root at all, and under the schema job it reads the settings "
                                "`apps.schema` already read, `get_settings` being cached"
 }
+
+# What each process's root asks for first thing in its entry point: the clock the
+# stack runs on, so that a stack configured by half is refused as the process
+# starts rather than at the first timestamp a walk writes.
+THE_CLOCK = "the_clock"
+ENTRY_POINT = "main"
 
 # Each process's root, and everything beneath it: where adapters are built and
 # handed out as their ports, which is the one job that has to name every vendor
@@ -460,9 +501,9 @@ def _the_whole_graph() -> ImportGraph:
     )
 
 
-def _every_vendor_is_spoken_by_its_adapter_alone() -> None:
+def _every_vendor_is_spoken_by_its_adapter_alone(graph: ImportGraph) -> None:
     """Refuses a module that reaches a vendor's SDK past the port."""
-    spoken = the_vendors_spoken_past_their_adapter(_the_whole_graph())
+    spoken = the_vendors_spoken_past_their_adapter(graph)
 
     if spoken:
         print(
@@ -477,10 +518,136 @@ def _every_vendor_is_spoken_by_its_adapter_alone() -> None:
         sys.exit(1)
 
 
-def _the_walk_reaches_no_store_the_fence_cannot_reach(walk: set[str]) -> None:
+def the_kernel_s_imports_past_its_third_parties(graph: ImportGraph) -> list[tuple[str, str]]:
+    """Every module of the kernel that imports a third party beyond its own, with
+    the third party.
+
+    A third party is what a graph built with externals squashes, and the
+    standard library is none. Direct imports only: a third party reached through
+    one of the kernel's own is that one's dependency. Empty where the kernel
+    imports nothing but its own three.
+    """
+    kernel = {KERNEL} | (graph.find_descendants(KERNEL) if KERNEL in graph.modules else set())
+
+    return sorted(
+        (importer, imported)
+        for imported in graph.modules
+        if graph.is_module_squashed(imported)
+        and imported not in THE_KERNEL_S_THIRD_PARTIES
+        and imported not in sys.stdlib_module_names
+        for importer in graph.find_modules_that_directly_import(imported)
+        if importer in kernel
+    )
+
+
+def the_kernel_s_imports_past_the_telemetry_api(
+    sources: Mapping[str, str], api: Collection[str]
+) -> list[tuple[str, int, str]]:
+    """Every import statement in the kernel's sources that names OpenTelemetry
+    past its API, as the module, the line and the first such name - once per
+    statement. `api` is every module the API installs.
+
+    Read from the sources rather than the graph, which squashes every
+    OpenTelemetry package to one name. A name is past the API where it is in
+    the namespace and is neither within one of the API's modules nor a package
+    they sit in - `opentelemetry.propagators` holds the API's propagators and
+    others' too. Empty where the kernel names the API alone.
+    """
+    def past_the_api(name: str) -> bool:
+        return (_is_within(name, {TELEMETRY_NAMESPACE})
+                and not _is_within(name, api)
+                and not any(_is_within(module, {name}) for module in api))
+
+    return sorted(
+        (module, node.lineno, past[0])
+        for module, tree in _the_trees_of(
+            {module: source for module, source in sources.items() if _is_within(module, {KERNEL})}
+        ).items()
+        for node in ast.walk(tree) if isinstance(node, ast.Import | ast.ImportFrom)
+        if (past := [name for name in _the_modules_named_by(node) if past_the_api(name)])
+    )
+
+
+def _the_modules_named_by(node: ast.Import | ast.ImportFrom) -> list[str]:
+    """What an import statement may import, by module - none for a relative one.
+
+    A from-import names its module and, for each name it imports, that name
+    beneath the module, since the name may be a module of its own:
+    `from opentelemetry import sdk` imports `opentelemetry.sdk`.
+    """
+    match node:
+        case ast.Import(names=names):
+            return [alias.name for alias in names]
+        case ast.ImportFrom(module=str(module), level=0, names=names):
+            return [module, *(f"{module}.{alias.name}" for alias in names if alias.name != "*")]
+
+    return []
+
+
+def the_modules_installed_by(distribution: str) -> frozenset[str]:
+    """Every module `distribution` installs, by its dotted name - a package by
+    its own name rather than its `__init__`'s - read off its installed record."""
+    return frozenset(
+        ".".join(path.parts[:-1] if path.stem == "__init__" else path.with_suffix("").parts)
+        for path in metadata.files(distribution) or []
+        if path.suffix == ".py"
+    )
+
+
+def the_kernel_s_dependencies_past_its_own(configuration: Mapping[str, Any]) -> list[str]:
+    """Every distribution the kernel's configuration installs beyond its own
+    three - a dependency, or one an extra adds - read from its `pyproject.toml`,
+    as `configuration`.
+
+    An extra counts: it is a dependency an importer opts into, and the kernel
+    has none to offer - each is the package that speaks it.
+    """
+    project = configuration.get("project", {})
+    requirements = [
+        *project.get("dependencies", []),
+        *(requirement for extra in project.get("optional-dependencies", {}).values()
+          for requirement in extra)
+    ]
+
+    return sorted({_the_distribution_named_by(requirement) for requirement in requirements}
+                  - THE_KERNEL_S_DEPENDENCIES)
+
+
+def _the_kernel_installs_its_own_three_alone(graph: ImportGraph) -> None:
+    """Refuses a kernel that imports or declares a third party beyond its own."""
+    modules = _the_shipped_modules()
+    imported = [
+        *the_kernel_s_imports_past_its_third_parties(graph),
+        *((f"{module}:{line}", past)
+          for module, line, past in the_kernel_s_imports_past_the_telemetry_api(
+              {module: path.read_text(encoding="utf-8")
+               for module, path in modules.items() if _is_within(module, {KERNEL})},
+              the_modules_installed_by(TELEMETRY_API)))
+    ]
+
+    with KERNEL_CONFIGURATION.open("rb") as configuration:
+        declared = the_kernel_s_dependencies_past_its_own(tomllib.load(configuration))
+
+    if imported or declared:
+        declared_in = KERNEL_CONFIGURATION.relative_to(REPOSITORY).as_posix()
+
+        print(
+            "the kernel reaches past its own three third parties:\n"
+            + "".join(f"  {importer} -> {third_party}\n" for importer, third_party in imported)
+            + "".join(f"  {declared_in} declares {distribution}\n" for distribution in declared)
+            + f"The kernel installs {', '.join(sorted(THE_KERNEL_S_DEPENDENCIES))} and "
+              "nothing else; move what needs more into a package of its own.",
+            file=sys.stderr
+        )
+        sys.exit(1)
+
+
+def _the_walk_reaches_no_store_the_fence_cannot_reach(graph: ImportGraph,
+                                                      walk: set[str]) -> None:
     """Refuses a walk that can write somewhere the fence cannot stop it, over the
-    graph of the whole workspace with the third parties in it."""
-    reached = the_chains_to_a_store_the_fence_cannot_reach(_the_whole_graph(), walk)
+    graph of the whole workspace with the third parties in it - a copy, since
+    the rule takes recall's one read out of the graph it is handed."""
+    reached = the_chains_to_a_store_the_fence_cannot_reach(copy.deepcopy(graph), walk)
 
     if reached:
         print(
@@ -1012,12 +1179,18 @@ def the_workspace_packages_named_by(requirements: Iterable[str]) -> set[str]:
     named: set[str] = set()
 
     for requirement in requirements:
-        distribution = re.split(r"[\[<>=!~;\s]", requirement.strip(), maxsplit=1)[0]
+        distribution = _the_distribution_named_by(requirement)
 
         if distribution.startswith(WORKSPACE_DISTRIBUTION):
             named.add(distribution.removeprefix(WORKSPACE_DISTRIBUTION))
 
     return named
+
+
+def _the_distribution_named_by(requirement: str) -> str:
+    """The distribution a requirement installs, without its extras, version or
+    marker."""
+    return re.split(r"[\[<>=!~;\s]", requirement.strip(), maxsplit=1)[0]
 
 
 def what_each_process_installs(configuration: Mapping[str, Any]) -> dict[str, set[str]]:
@@ -1061,12 +1234,13 @@ def the_processes_reaching_past_their_extra(
     )
 
 
-def _every_root_imports_what_its_process_installs() -> None:
-    """Refuses a root that imports a workspace package its extra does not name."""
+def _every_root_imports_what_its_process_installs(graph: ImportGraph) -> None:
+    """Refuses a root that imports a workspace package its extra does not name,
+    over the graph of the whole workspace - its third parties are in it, and
+    the rule reads only the workspace's packages."""
     with APPS_CONFIGURATION.open("rb") as configuration:
         installs = what_each_process_installs(tomllib.load(configuration))
 
-    graph = grimp.build_graph(*sorted(_the_modules_the_contracts_see()), cache_dir=None)
     reaching = the_processes_reaching_past_their_extra(
         graph, installs, _the_modules_the_contracts_see()
     )
@@ -1346,12 +1520,59 @@ def _only_a_root_reads_the_environment() -> None:
         sys.exit(1)
 
 
+def the_roots_reading_the_clock_late(sources: Mapping[str, str]) -> list[str]:
+    """Every root whose entry point does anything before it asks for the clock,
+    by module.
+
+    A root is a module under `apps` that defines `main`; its docstring aside,
+    the first thing `main` does is call `the_clock`. Empty where every root asks
+    first.
+    """
+    late: list[str] = []
+
+    for module, tree in _the_trees_of(
+        {module: source for module, source in sources.items() if _is_within(module, WIRING)}
+    ).items():
+        for node in getattr(tree, "body", []):
+            if not (isinstance(node, ast.FunctionDef) and node.name == ENTRY_POINT):
+                continue
+
+            body = node.body[1:] if ast.get_docstring(node) is not None else node.body
+            first = body[0] if body else None
+
+            if not (isinstance(first, ast.Expr) and isinstance(first.value, ast.Call)
+                    and _the_name_referred_to(first.value.func) == THE_CLOCK):
+                late.append(module)
+
+    return sorted(late)
+
+
+def _every_root_reads_the_clock_first() -> None:
+    """Refuses a root whose `main` does anything before it asks for the clock."""
+    modules = _the_shipped_modules()
+    late = the_roots_reading_the_clock_late(
+        {module: path.read_text(encoding="utf-8")
+         for module, path in modules.items() if _is_within(module, WIRING)}
+    )
+
+    if late:
+        print(
+            "these roots do something before they ask for the clock:\n"
+            + "\n".join(f"  {modules[module].relative_to(REPOSITORY).as_posix()}"
+                        for module in late)
+            + f"\nCall `{THE_CLOCK}()` first thing in `{ENTRY_POINT}`.",
+            file=sys.stderr
+        )
+        sys.exit(1)
+
+
 def main() -> None:
     """Checks the graph is whole, the suites behave, no repository commits, every
     vendor's SDK is spoken by its adapter alone and its name named by it alone,
-    the walk reaches no unfenced store, only the walk admits, every root
-    imports what its process installs and only a root reads the environment,
-    then runs every contract.
+    the kernel installs its own three third parties alone, the walk reaches no
+    unfenced store, only the walk admits, every root imports what its process
+    installs, only a root reads the environment and every root asks for the
+    clock first, then runs every contract.
 
     Those are checked before import-linter rather than after, because
     import-linter exits the process with its own status and anything after it
@@ -1366,12 +1587,17 @@ def main() -> None:
     _the_suites_use_the_front_doors(_the_front_doors())
     _the_suites_keep_the_agents_apart(_the_independent_modules())
     _no_repository_commits()
-    _every_vendor_is_spoken_by_its_adapter_alone()
+    # Built once: it is the whole workspace with every third party in it, and
+    # four rules read it.
+    whole = _the_whole_graph()
+    _every_vendor_is_spoken_by_its_adapter_alone(whole)
     _every_vendor_is_named_by_its_adapter_alone()
-    _the_walk_reaches_no_store_the_fence_cannot_reach(_the_walk())
+    _the_kernel_installs_its_own_three_alone(whole)
+    _the_walk_reaches_no_store_the_fence_cannot_reach(whole, _the_walk())
     _only_the_walk_admits()
-    _every_root_imports_what_its_process_installs()
+    _every_root_imports_what_its_process_installs(whole)
     _only_a_root_reads_the_environment()
+    _every_root_reads_the_clock_first()
     sys.exit(lint_imports_command())
 
 

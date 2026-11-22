@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 
-from core import DatabaseSettings, get_settings
+from core import DatabaseSettings, get_settings, the_clock
 from postgres import connect, reset_schema
 
 logger = logging.getLogger(__name__)
@@ -31,6 +31,8 @@ def main() -> None:
     logging is set up by `telemetry` as its telemetry starts, and this job
     starts none: it runs once, before anything there is to trace.
     """
+
+    the_clock()
     logging.basicConfig(level=logging.INFO)
 
     with connect(DatabaseSettings.of(get_settings())) as conn:

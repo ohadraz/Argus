@@ -13,7 +13,7 @@ from functools import partial
 from typing import Final
 
 from chat_platform.slack import SlackSettings, slack_from
-from core import DatabaseSettings, Settings, TelemetrySettings, get_settings
+from core import DatabaseSettings, Settings, TelemetrySettings, get_settings, the_clock
 from core.llm import build_llm_client
 from core.models import ModelPolicy
 from llm_anthropic import AnthropicProvider, AnthropicSettings
@@ -52,6 +52,8 @@ def main() -> None:
     ever be written for it to understand, and a process idling on a record it
     can never act on is a process somebody has to wonder about.
     """
+
+    the_clock()
     settings = get_settings()
 
     with start_telemetry(TelemetrySettings.of(settings), _SERVICE,

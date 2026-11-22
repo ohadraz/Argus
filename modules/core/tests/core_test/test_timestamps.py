@@ -13,15 +13,62 @@ raise nothing and be wrong everywhere downstream, in a field nobody reads twice.
 The expected text is derived from the same parts the instant is built from
 rather than written out. A test that restated the answer as a literal would
 agree with a formatter that had been changed to match it.
+
+And the clock every instant is read from is read once, when it is first asked
+for: naming the kernel reads no environment, and a stack configured by half is
+refused where a process's root first asks - asked of a fresh interpreter,
+because this one named its clock long ago.
 """
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from datetime import UTC, datetime, timedelta, timezone
+from typing import Final
 
 import pytest
 from argus_testkit import Assertion, Scenario, an_error_was_raised, attempting
 from core.timestamps import parse_iso, to_iso, to_iso_minute, utc_now
+
+# The two settings a simulated clock is named by. Stated rather than imported:
+# they are what a stack sets, and a test sharing the constants would pass
+# through a rename that broke every stack.
+CLOCK_EPOCH: Final = "SIM_CLOCK_EPOCH"
+CLOCK_SPEED: Final = "SIM_CLOCK_SPEED"
+
+
+@pytest.mark.component
+def test_naming_the_kernel_reads_no_clock() -> None:
+    # The environment is a root's to read. A kernel that read the clock as it
+    # was imported would refuse a stack configured by half wherever it was
+    # first named - a suite, a script, a library's import - and not where the
+    # process starts.
+    Scenario() \
+        .given(
+            half_a_clock := _an_environment_naming_half_a_clock()
+        ) \
+        .when(
+            lambda: _what_a_fresh_interpreter_does("import core", half_a_clock)
+        ) \
+        .then(
+            _it_ran_cleanly()
+        )
+
+
+@pytest.mark.component
+def test_asking_for_the_clock_of_a_stack_configured_by_half_is_refused() -> None:
+    Scenario() \
+        .given(
+            half_a_clock := _an_environment_naming_half_a_clock()
+        ) \
+        .when(
+            lambda: _what_a_fresh_interpreter_does("import core; core.the_clock()", half_a_clock)
+        ) \
+        .then(
+            _it_was_refused_with(ValueError.__name__)
+        )
 
 
 @pytest.mark.unit
@@ -298,6 +345,48 @@ def test_utc_now_answers_an_instant_that_knows_it_is_in_utc() -> None:
         .then(
             _the_offset_was(no_offset_at_all)
         )
+
+
+def _an_environment_naming_half_a_clock() -> dict[str, str]:
+    """This process's environment with a speed and no epoch - everything else
+    kept, so the interpreter finds what it was installed with."""
+    environment = {name: value for name, value in os.environ.items() if name != CLOCK_EPOCH}
+    environment[CLOCK_SPEED] = "10"
+
+    return environment
+
+
+def _what_a_fresh_interpreter_does(running: str,
+                                   environment: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    """`running`, in a new interpreter under `environment`."""
+    return subprocess.run([sys.executable, "-c", running], env=environment,
+                          capture_output=True, text=True, check=False)
+
+
+def _it_ran_cleanly() -> Assertion[subprocess.CompletedProcess[str]]:
+    def assertion(finished: subprocess.CompletedProcess[str]) -> bool:
+        if finished.returncode != 0:
+            raise AssertionError(
+                f"Expected the interpreter to finish cleanly, and it exited "
+                f"[{finished.returncode}]: {finished.stderr.strip()}"
+            )
+
+        return True
+
+    return assertion
+
+
+def _it_was_refused_with(error: str) -> Assertion[subprocess.CompletedProcess[str]]:
+    def assertion(finished: subprocess.CompletedProcess[str]) -> bool:
+        if finished.returncode == 0 or error not in finished.stderr:
+            raise AssertionError(
+                f"Expected the interpreter refused with [{error}], and it exited "
+                f"[{finished.returncode}]: {finished.stderr.strip() or 'saying nothing'}"
+            )
+
+        return True
+
+    return assertion
 
 
 def _it_was_written_as(expected: str) -> Assertion[str]:

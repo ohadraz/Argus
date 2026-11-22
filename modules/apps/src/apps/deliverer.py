@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Final
 
-from core import DatabaseSettings, SettingsSlice, TelemetrySettings, get_settings
+from core import DatabaseSettings, SettingsSlice, TelemetrySettings, get_settings, the_clock
 from embedding_fastembed import an_embedder
 from incident_memory.delivering import deliver_forever, deliver_on
 from incident_memory.keeping import kept_in
@@ -57,6 +57,8 @@ def main() -> None:
     mark rows as every process but a worker writes. The schema is checked
     before the first pass, as every process here checks it.
     """
+
+    the_clock()
     settings = get_settings()
     delivery = DeliverySettings.of(settings)
 

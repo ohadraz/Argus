@@ -20,7 +20,7 @@ from typing import Final
 import uvicorn
 from alert_source.grafana import GrafanaAlerts
 from chat_platform.slack import SlackSettings, slack_from
-from core import DatabaseSettings, Settings, TelemetrySettings, get_settings
+from core import DatabaseSettings, Settings, TelemetrySettings, get_settings, the_clock
 from fastapi import FastAPI
 from oncall_source.pagerduty_adapter import pagerduty_from
 from oncall_source.pagerduty_settings import PagerDutyDeliverySettings
@@ -79,6 +79,8 @@ def main(argv: list[str] | None = None) -> None:
     telemetry listens. Without it, uvicorn's records reach the console and
     `logs.jsonl` like every other record.
     """
+
+    the_clock()
     parser = ArgumentParser(description="Serves Argus's dashboard and its webhooks.")
     parser.add_argument("--host", default="127.0.0.1", help="the interface to listen on")
     parser.add_argument("--port", type=int, default=8000, help="the port to listen on")

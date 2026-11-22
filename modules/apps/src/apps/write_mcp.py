@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Final
 
 from code_host.github import GitHub, GitHubSettings
-from core import DatabaseSettings, TelemetrySettings, WriteMcpEndpoint, get_settings
+from core import DatabaseSettings, TelemetrySettings, WriteMcpEndpoint, get_settings, the_clock
 from deployment_platform.argocd import ArgoCd, ArgoCdSettings
 from flag_provider.unleash import Unleash, UnleashSettings
 from telemetry import start_telemetry
@@ -35,6 +35,8 @@ def main(holds: OpensHolds = holds_in_the_database) -> None:
     own runs: `holds` defaults to them, and a suite that serves the real tools
     over a run it stands in for hands its own.
     """
+
+    the_clock()
     settings = get_settings()
     platform = ArgoCdSettings()
 

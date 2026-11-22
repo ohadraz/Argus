@@ -13,7 +13,7 @@ from typing import Final
 
 from alerting_platform.grafana import Grafana, GrafanaSettings
 from code_host.github import GitHubReads, GitHubReadSettings
-from core import DatabaseSettings, ReadMcpEndpoint, TelemetrySettings, get_settings
+from core import DatabaseSettings, ReadMcpEndpoint, TelemetrySettings, get_settings, the_clock
 from core.models import MetricBucket, RuleSeries
 from deployment_platform.argocd import ArgoCd, ArgoCdSettings
 from embedding_fastembed import an_embedder
@@ -67,6 +67,8 @@ def main() -> None:
     Its telemetry is started first and closed last, so what it collected in its
     final seconds is on disk.
     """
+
+    the_clock()
     settings = get_settings()
 
     with (
