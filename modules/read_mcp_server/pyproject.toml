@@ -16,6 +16,7 @@ dependencies = [
     "argus-code_host",
     "httpx2",
     "mcp>=1.29.0",
+    "argus-mcp_transport",
 ]
 
 [dependency-groups]
@@ -25,6 +26,7 @@ dev = [
 
 [tool.uv.sources]
 argus-core = { workspace = true }
+argus-mcp_transport = { workspace = true }
 argus-alerting_platform = { workspace = true }
 argus-repository_index = { workspace = true }
 argus-deployment_platform = { workspace = true }

@@ -30,14 +30,14 @@ from contextlib import AbstractContextManager, ExitStack, contextmanager, suppre
 from typing import Any, Final
 
 from core import DatabaseSettings, Fence, connect
-from core.mcp_transport import (
+from incident_record.repository import runs
+from mcp.types import AnyFunction, ContentBlock
+from mcp_transport import (
     FENCE_META_KEY,
     TracedFastMCP,
     a_lost_run,
     a_refusal_saying_what_it_left,
 )
-from incident_record.repository import runs
-from mcp.types import AnyFunction, ContentBlock
 
 from write_mcp_server.marking import the_action_in
 

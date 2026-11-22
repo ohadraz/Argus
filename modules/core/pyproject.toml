@@ -20,19 +20,10 @@ dependencies = [
     "opentelemetry-api>=1.45",
 ]
 
-# The heavy ones, behind the doors they live at, taken by the modules that
-# actually go through them. Declared as hard dependencies they were transitive
-# to all twenty, and nothing said otherwise because nothing could - a
-# dependency is not a thing a module can decline.
-#
-# Enforced rather than trusted: the front-door contract in the root
-# `pyproject.toml` names who may import `core.mcp_transport`, so a module
-# reaching it without the extra fails `guard_layering` rather than at runtime on
-# the day that path is first walked.
+# The schema's migrations, taken at run time by the one job that applies them
+# (`apps.schema`), and in their dev groups by the suites that build a schema to
+# run against.
 [project.optional-dependencies]
-# `httpx` because the transport builds the HTTP client a session is held over
-# (`mcp_transport.an_http_client_waiting`), and the SDK takes one of its own.
-mcp = ["mcp>=1.29.0", "uvicorn>=0.30", "httpx>=0.28"]
 migrations = ["alembic>=1.20.0"]
 
 # `test_module` resolves each module against its own dependencies alone, so a
@@ -44,7 +35,7 @@ migrations = ["alembic>=1.20.0"]
 # CI alone and looks like a code problem.
 [dependency-groups]
 dev = [
-    "argus-core[mcp,migrations]",
+    "argus-core[migrations]",
     "argus-argus_testkit",
     # What an instrumented call is asserted through: an SDK's in-memory
     # exporter and reader, handed to the code under test as its tracer and

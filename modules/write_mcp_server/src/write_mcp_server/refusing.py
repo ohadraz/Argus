@@ -20,14 +20,14 @@ the action's, which is why each says `asked_to_change` itself.
 
 from __future__ import annotations
 
-from core.mcp_transport import (
+from core.models import DEPLOYMENT_PLATFORM, UndoDescriptor
+from deployment_platform import DeploymentPlatformError, PlatformUnreachable
+from mcp_transport import (
     ACTION_META_KEY,
     a_refusal_saying_what_it_left,
     an_unreachable_platform,
     with_what_it_left,
 )
-from core.models import DEPLOYMENT_PLATFORM, UndoDescriptor
-from deployment_platform import DeploymentPlatformError, PlatformUnreachable
 
 
 def a_platform_refusal(said: str,

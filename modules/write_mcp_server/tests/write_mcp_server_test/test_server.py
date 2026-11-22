@@ -41,7 +41,6 @@ import pytest
 from argus_testkit import Assertion, Scenario, all_of, the_answer_was
 from code_host import CodeHostWrites
 from core import Fence, WriteMcpEndpoint, to_iso
-from core.mcp_transport import ACTION_META_KEY, CHANGED_SINCE_MARKER, FENCE_META_KEY
 from core.models import (
     AcceleratorPinUndo,
     AutoscalerUndo,
@@ -66,6 +65,7 @@ from deployment_platform import (
 from flag_provider import FlagProviderUnavailable, FlagProviderWrites
 from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.types import CallToolResult, TextContent
+from mcp_transport import ACTION_META_KEY, CHANGED_SINCE_MARKER, FENCE_META_KEY
 from pydantic import BaseModel, TypeAdapter
 from write_mcp_server.discarding import DiscardSettings
 from write_mcp_server.fencing import FencedFastMCP, HoldForAChange

@@ -39,7 +39,17 @@ from argus_testkit.assertions import (
 from argus_testkit.logs import one_record_was_logged
 from argus_testkit.scenario import Scenario, attempting, calling
 from core import Fence, Holding, RunLost
-from core.mcp_transport import (
+from core.models import AcceleratorPinUndo, DeploymentRollbackUndo, UndoDescriptor
+from core.telemetry import (
+    ARGUS_INCIDENT_ID,
+    ERROR_TYPE,
+    GEN_AI_TOOL_NAME,
+    MCP_CLIENT_OPERATION_DURATION,
+    MCP_METHOD_NAME,
+)
+from mcp.shared.exceptions import McpError
+from mcp.types import ListToolsResult, Tool
+from mcp_transport import (
     LEFT_BEHIND_KNOWN_MARKER,
     LEFT_BEHIND_MARKER,
     PING_SECONDS,
@@ -61,24 +71,14 @@ from core.mcp_transport import (
     serving_a_tool_call,
     what_was_left_behind,
 )
-from core.models import AcceleratorPinUndo, DeploymentRollbackUndo, UndoDescriptor
-from core.telemetry import (
-    ARGUS_INCIDENT_ID,
-    ERROR_TYPE,
-    GEN_AI_TOOL_NAME,
-    MCP_CLIENT_OPERATION_DURATION,
-    MCP_METHOD_NAME,
-)
-from mcp.shared.exceptions import McpError
-from mcp.types import ListToolsResult, Tool
 from opentelemetry import baggage
 from opentelemetry.sdk.trace import ReadableSpan
 from opentelemetry.trace import SpanContext, SpanKind, StatusCode
 from pydantic import TypeAdapter
 from starlette.applications import Starlette
 
-from core_test.framework.observing import Observed, attributes_of, observing
-from core_test.framework.transport_double import RunningDouble, a_running_double
+from mcp_transport_test.framework.observing import Observed, attributes_of, observing
+from mcp_transport_test.framework.transport_double import RunningDouble, a_running_double
 
 # Long enough that the call has certainly reached the server, which takes
 # milliseconds - and short enough that the test does not sit here.
@@ -636,7 +636,7 @@ def test_a_call_not_to_be_asked_twice_turned_away_as_over_a_session_not_held_run
         ) \
         .then(all_of(
             _the_count_is(THE_FIRST_ASKING_A_SERVER_HEARD),
-            one_record_was_logged(caplog, "core.mcp_transport", logging.WARNING,
+            one_record_was_logged(caplog, "mcp_transport.transport", logging.WARNING,
                                   "tool call asked again over a new session",
                                   values={"tool": COUNTING_TOOL})
         ))
@@ -656,7 +656,7 @@ def test_a_call_not_to_be_asked_twice_is_asked_again_where_no_session_could_be_h
         ) \
         .then(all_of(
             an_error_was_raised(McpUnreachable),
-            one_record_was_logged(caplog, "core.mcp_transport", logging.WARNING,
+            one_record_was_logged(caplog, "mcp_transport.transport", logging.WARNING,
                                   "tool call asked again over a new session",
                                   values={"tool": DONT_CARE_TOOL},
                                   failure=McpUnreachable)
@@ -1693,7 +1693,7 @@ def test_a_call_asked_again_over_a_new_session_is_logged_as_a_warning(
             attempting(_asking_a_client_at(NOTHING_IS_LISTENING_HERE))
         ) \
         .then(
-            one_record_was_logged(caplog, "core.mcp_transport", logging.WARNING,
+            one_record_was_logged(caplog, "mcp_transport.transport", logging.WARNING,
                                   "tool call asked again over a new session",
                                   values={"tool": DONT_CARE_TOOL},
                                   failure=McpUnreachable)
@@ -1716,7 +1716,7 @@ def test_a_tool_that_raised_is_logged_as_a_warning_by_the_server(
             attempting(lambda: _served_raising(observed, some_tool, RuntimeError("refused")))
         ) \
         .then(
-            one_record_was_logged(caplog, "core.mcp_transport", logging.WARNING,
+            one_record_was_logged(caplog, "mcp_transport.transport", logging.WARNING,
                                   "tool call failed",
                                   values={"tool": some_tool},
                                   failure=RuntimeError)
@@ -1794,7 +1794,7 @@ def _every_attempt_to_open_a_session_was_logged(caplog: pytest.LogCaptureFixture
     def assertion(_raised: Any) -> bool:
         said = [
             record for record in caplog.records
-            if record.name == "core.mcp_transport"
+            if record.name == "mcp_transport.transport"
             and record.levelno == logging.WARNING
             and record.getMessage() == "session could not be opened"
         ]

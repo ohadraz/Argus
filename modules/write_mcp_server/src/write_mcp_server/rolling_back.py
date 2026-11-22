@@ -63,12 +63,6 @@ from datetime import datetime
 from enum import Enum, auto
 from typing import Final
 
-from core.mcp_transport import (
-    a_change_made_since,
-    a_refusal_saying_what_it_left,
-    an_exhausted_action,
-    with_what_it_left,
-)
 from core.models import (
     ChangeFound,
     DeploymentRestored,
@@ -87,6 +81,12 @@ from deployment_platform import (
     SyncOperations,
     SyncPhase,
     SyncRun,
+)
+from mcp_transport import (
+    a_change_made_since,
+    a_refusal_saying_what_it_left,
+    an_exhausted_action,
+    with_what_it_left,
 )
 
 from write_mcp_server.refusing import a_platform_refusal, no_claim_to_compare_with

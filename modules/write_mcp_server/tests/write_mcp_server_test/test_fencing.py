@@ -23,7 +23,10 @@ from typing import Any
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged
 from core import Fence
-from core.mcp_transport import (
+from incident_record.repository import runs
+from mcp.shared.memory import create_connected_server_and_client_session
+from mcp.types import CallToolResult, TextContent
+from mcp_transport import (
     ACTION_META_KEY,
     FENCE_META_KEY,
     LEFT_BEHIND_KNOWN_MARKER,
@@ -31,9 +34,6 @@ from core.mcp_transport import (
     UNREACHABLE_PLATFORM_MARKER,
     an_unreachable_platform,
 )
-from incident_record.repository import runs
-from mcp.shared.memory import create_connected_server_and_client_session
-from mcp.types import CallToolResult, TextContent
 from write_mcp_server.fencing import FencedFastMCP, HoldForAChange
 
 from write_mcp_server_test.framework.marks import marked_are
@@ -242,7 +242,7 @@ def test_a_change_refused_for_a_lost_run_is_said_inside_the_call_it_refused(
             lambda: _asked(server, "make_a_change", _sent(SOME_FENCE))
         ) \
         .then(
-            one_record_was_logged(caplog, "core.mcp_transport", logging.WARNING,
+            one_record_was_logged(caplog, "mcp_transport.transport", logging.WARNING,
                                   "tool call failed", values={"tool": "make_a_change"})
         )
 

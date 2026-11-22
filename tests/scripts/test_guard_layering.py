@@ -578,7 +578,7 @@ ROOTS = {
         "dependencies": ["argus-core", "argus-telemetry"],
         "optional-dependencies": {
             "web": ["argus-web_app", "uvicorn[standard]>=0.30"],
-            "worker": ["argus-core[mcp]", "argus-orchestrator", "psycopg-pool>=3.2"]
+            "worker": ["argus-core", "argus-orchestrator", "psycopg-pool>=3.2"]
         }
     }
 }

@@ -36,8 +36,8 @@ from argus_testkit import (
     one_record_was_logged,
     the_answer_was,
 )
-from core.mcp_transport import EXHAUSTED_ACTION_MARKER, UNREACHABLE_PLATFORM_MARKER
 from core.models import CACHE, CacheEntriesDiscarded
+from mcp_transport import EXHAUSTED_ACTION_MARKER, UNREACHABLE_PLATFORM_MARKER
 from write_mcp_server.discarding import (
     DiscardEntries,
     DiscardSettings,

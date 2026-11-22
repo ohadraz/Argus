@@ -29,7 +29,6 @@ import pytest
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from core import connect_from_env, get_settings, utc_now
 from core.anomaly import AnomalyThresholds
-from core.mcp_transport import McpClient
 from core.models import (
     NOTIFICATION_KEY,
     ON_CALL_INCIDENT,
@@ -38,6 +37,7 @@ from core.models import (
     Reference,
 )
 from incident_record.repository import incidents, references
+from mcp_transport import McpClient
 from oncall_source import Acknowledgement, OnCallUnavailable, ReportedIncident
 from oncall_source.platform import OnCallPlatform, PagedIncident
 from orchestrator.sources import the_real_sources

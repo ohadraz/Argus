@@ -17,10 +17,9 @@ dependencies = [
 # holds each root to the workspace packages its own extra names.
 [project.optional-dependencies]
 worker = [
-    # The model provider's adapter (`llm_anthropic`), the tiers' transport and
-    # the embedder recall searches with (`embedding_fastembed`) are all built
-    # here.
-    "argus-core[mcp]",
+    # The model provider's adapter (`llm_anthropic`) and the embedder recall
+    # searches with (`embedding_fastembed`) are built here; the tiers'
+    # transport arrives with their clients.
     "argus-llm_anthropic",
     "argus-embedding_fastembed",
     "argus-orchestrator",

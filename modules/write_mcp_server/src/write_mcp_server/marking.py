@@ -16,8 +16,8 @@ from datetime import datetime
 from typing import Any
 
 from core import utc_now
-from core.mcp_transport import ACTION_META_KEY
 from deployment_platform import Mark
+from mcp_transport import ACTION_META_KEY
 
 
 def the_action_in(meta: Mapping[str, Any] | None) -> str | None:

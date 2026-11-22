@@ -58,6 +58,20 @@ from urllib.parse import urlsplit
 
 import httpx
 import uvicorn
+from core import Holding, RunLost
+from core.models import UndoDescriptor, parse_undo_descriptor
+from core.telemetry import (
+    ERROR_TYPE,
+    GEN_AI_EXECUTE_TOOL_OPERATION,
+    GEN_AI_OPERATION_NAME,
+    GEN_AI_TOOL_NAME,
+    MCP_CLIENT_OPERATION_DURATION,
+    MCP_METHOD_NAME,
+    MCP_TOOLS_CALL_METHOD,
+    SERVER_ADDRESS,
+    SERVER_PORT,
+    UNIT_SECONDS,
+)
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server.fastmcp import FastMCP
@@ -73,21 +87,6 @@ from mcp.types import (
 from opentelemetry import context, metrics, propagate, trace
 from opentelemetry.metrics import Meter
 from opentelemetry.trace import Span, SpanKind, Status, StatusCode, Tracer
-
-from core.fencing import Holding, RunLost
-from core.models.undo_descriptor import UndoDescriptor, parse_undo_descriptor
-from core.telemetry import (
-    ERROR_TYPE,
-    GEN_AI_EXECUTE_TOOL_OPERATION,
-    GEN_AI_OPERATION_NAME,
-    GEN_AI_TOOL_NAME,
-    MCP_CLIENT_OPERATION_DURATION,
-    MCP_METHOD_NAME,
-    MCP_TOOLS_CALL_METHOD,
-    SERVER_ADDRESS,
-    SERVER_PORT,
-    UNIT_SECONDS,
-)
 
 logger = logging.getLogger(__name__)
 

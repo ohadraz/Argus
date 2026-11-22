@@ -6,7 +6,6 @@ from types import TracebackType
 from typing import Final, Self
 
 from core import Holding, WriteMcpEndpoint, to_iso
-from core.mcp_transport import Asking, McpClient
 from core.models import (
     AcceleratorPinRestored,
     AcceleratorPinUndo,
@@ -28,6 +27,7 @@ from core.models import (
     UndoDescriptor,
     parse_undo_descriptor,
 )
+from mcp_transport import Asking, McpClient
 from pydantic import TypeAdapter
 
 # One tool answers with a list this module has to build; the other answers with

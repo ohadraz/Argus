@@ -10,13 +10,6 @@ import pytest
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting, calling
 from core import Fence, Holding, RunLost, WriteMcpEndpoint, get_settings, parse_iso, to_iso
-from core.mcp_transport import (
-    Asking,
-    ChangedSince,
-    McpClient,
-    McpToolError,
-    PlatformUnreachable,
-)
 from core.models import (
     AcceleratorPinRestored,
     AcceleratorPinUndo,
@@ -34,6 +27,13 @@ from core.models import (
     UndoDescriptor,
 )
 from deployment_platform.argocd import AUTOMATED, ENABLED
+from mcp_transport import (
+    Asking,
+    ChangedSince,
+    McpClient,
+    McpToolError,
+    PlatformUnreachable,
+)
 from write_mcp_client import WriteTier, write_mcp
 
 from write_mcp_client_test.a_write_server_holding_one_run import THE_RUN_HELD

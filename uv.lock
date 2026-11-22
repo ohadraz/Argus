@@ -28,6 +28,7 @@ members = [
     "argus-incident-record",
     "argus-investigation-agent",
     "argus-llm-anthropic",
+    "argus-mcp-transport",
     "argus-message-intent",
     "argus-metrics-source",
     "argus-mitigation",
@@ -237,7 +238,6 @@ web = [
 ]
 worker = [
     { name = "argus-codefix-agent" },
-    { name = "argus-core", extra = ["mcp"] },
     { name = "argus-embedding-fastembed" },
     { name = "argus-exchange-rate-source" },
     { name = "argus-incident-memory" },
@@ -281,7 +281,6 @@ requires-dist = [
     { name = "argus-codefix-agent", marker = "extra == 'worker'", editable = "modules/codefix_agent" },
     { name = "argus-communication", marker = "extra == 'relay'", editable = "modules/communication" },
     { name = "argus-core", editable = "modules/core" },
-    { name = "argus-core", extras = ["mcp"], marker = "extra == 'worker'", editable = "modules/core" },
     { name = "argus-core", extras = ["migrations"], marker = "extra == 'schema'", editable = "modules/core" },
     { name = "argus-deployment-platform", marker = "extra == 'read-mcp'", editable = "modules/deployment_platform" },
     { name = "argus-deployment-platform", marker = "extra == 'write-mcp'", editable = "modules/deployment_platform" },
@@ -401,7 +400,7 @@ name = "argus-codefix-agent"
 version = "0.1.0"
 source = { editable = "modules/codefix_agent" }
 dependencies = [
-    { name = "argus-core", extra = ["mcp"] },
+    { name = "argus-core" },
     { name = "argus-narration" },
     { name = "argus-read-mcp-client" },
     { name = "argus-write-mcp-client" },
@@ -414,7 +413,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "argus-core", extras = ["mcp"], editable = "modules/core" },
+    { name = "argus-core", editable = "modules/core" },
     { name = "argus-narration", editable = "modules/narration" },
     { name = "argus-read-mcp-client", editable = "modules/read_mcp_client" },
     { name = "argus-write-mcp-client", editable = "modules/write_mcp_client" },
@@ -475,11 +474,6 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-mcp = [
-    { name = "httpx" },
-    { name = "mcp" },
-    { name = "uvicorn" },
-]
 migrations = [
     { name = "alembic" },
 ]
@@ -487,28 +481,25 @@ migrations = [
 [package.dev-dependencies]
 dev = [
     { name = "argus-argus-testkit" },
-    { name = "argus-core", extra = ["mcp", "migrations"] },
+    { name = "argus-core", extra = ["migrations"] },
     { name = "opentelemetry-sdk" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "alembic", marker = "extra == 'migrations'", specifier = ">=1.20.0" },
-    { name = "httpx", marker = "extra == 'mcp'", specifier = ">=0.28" },
-    { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.29.0" },
     { name = "opentelemetry-api", specifier = ">=1.45" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },
     { name = "psycopg-pool", specifier = ">=3.2" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pydantic-settings", specifier = ">=2.0" },
-    { name = "uvicorn", marker = "extra == 'mcp'", specifier = ">=0.30" },
 ]
-provides-extras = ["mcp", "migrations"]
+provides-extras = ["migrations"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
-    { name = "argus-core", extras = ["mcp", "migrations"] },
+    { name = "argus-core", extras = ["migrations"] },
     { name = "opentelemetry-sdk", specifier = ">=1.45" },
 ]
 
@@ -711,7 +702,7 @@ name = "argus-investigation-agent"
 version = "0.1.0"
 source = { editable = "modules/investigation_agent" }
 dependencies = [
-    { name = "argus-core", extra = ["mcp"] },
+    { name = "argus-core" },
     { name = "argus-read-mcp-client" },
 ]
 
@@ -722,7 +713,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "argus-core", extras = ["mcp"], editable = "modules/core" },
+    { name = "argus-core", editable = "modules/core" },
     { name = "argus-read-mcp-client", editable = "modules/read_mcp_client" },
 ]
 
@@ -754,6 +745,39 @@ requires-dist = [
 dev = [
     { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
     { name = "httpx2" },
+]
+
+[[package]]
+name = "argus-mcp-transport"
+version = "0.1.0"
+source = { editable = "modules/mcp_transport" }
+dependencies = [
+    { name = "argus-core" },
+    { name = "httpx" },
+    { name = "mcp" },
+    { name = "opentelemetry-api" },
+    { name = "uvicorn" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "argus-argus-testkit" },
+    { name = "opentelemetry-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "argus-core", editable = "modules/core" },
+    { name = "httpx", specifier = ">=0.28" },
+    { name = "mcp", specifier = ">=1.29.0" },
+    { name = "opentelemetry-api", specifier = ">=1.45" },
+    { name = "uvicorn", specifier = ">=0.30" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
+    { name = "opentelemetry-sdk", specifier = ">=1.45" },
 ]
 
 [[package]]
@@ -815,7 +839,8 @@ name = "argus-mitigation"
 version = "0.1.0"
 source = { editable = "modules/mitigation" }
 dependencies = [
-    { name = "argus-core", extra = ["mcp"] },
+    { name = "argus-core" },
+    { name = "argus-mcp-transport" },
     { name = "argus-write-mcp-client" },
 ]
 
@@ -826,7 +851,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "argus-core", extras = ["mcp"], editable = "modules/core" },
+    { name = "argus-core", editable = "modules/core" },
+    { name = "argus-mcp-transport", editable = "modules/mcp_transport" },
     { name = "argus-write-mcp-client", editable = "modules/write_mcp_client" },
 ]
 
@@ -885,10 +911,11 @@ version = "0.1.0"
 source = { editable = "modules/orchestrator" }
 dependencies = [
     { name = "argus-codefix-agent" },
-    { name = "argus-core", extra = ["mcp"] },
+    { name = "argus-core" },
     { name = "argus-incident-memory" },
     { name = "argus-incident-record" },
     { name = "argus-investigation-agent" },
+    { name = "argus-mcp-transport" },
     { name = "argus-mitigation" },
     { name = "argus-narration" },
     { name = "argus-oncall-source" },
@@ -915,10 +942,11 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "argus-codefix-agent", editable = "modules/codefix_agent" },
-    { name = "argus-core", extras = ["mcp"], editable = "modules/core" },
+    { name = "argus-core", editable = "modules/core" },
     { name = "argus-incident-memory", editable = "modules/incident_memory" },
     { name = "argus-incident-record", editable = "modules/incident_record" },
     { name = "argus-investigation-agent", editable = "modules/investigation_agent" },
+    { name = "argus-mcp-transport", editable = "modules/mcp_transport" },
     { name = "argus-mitigation", editable = "modules/mitigation" },
     { name = "argus-narration", editable = "modules/narration" },
     { name = "argus-oncall-source", editable = "modules/oncall_source" },
@@ -1060,7 +1088,8 @@ name = "argus-read-mcp-client"
 version = "0.1.0"
 source = { editable = "modules/read_mcp_client" }
 dependencies = [
-    { name = "argus-core", extra = ["mcp"] },
+    { name = "argus-core" },
+    { name = "argus-mcp-transport" },
 ]
 
 [package.dev-dependencies]
@@ -1070,7 +1099,10 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "argus-core", extras = ["mcp"], editable = "modules/core" }]
+requires-dist = [
+    { name = "argus-core", editable = "modules/core" },
+    { name = "argus-mcp-transport", editable = "modules/mcp_transport" },
+]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1088,6 +1120,7 @@ dependencies = [
     { name = "argus-core" },
     { name = "argus-deployment-platform" },
     { name = "argus-flag-provider" },
+    { name = "argus-mcp-transport" },
     { name = "argus-metrics-source" },
     { name = "argus-repository-index" },
     { name = "httpx2" },
@@ -1106,6 +1139,7 @@ requires-dist = [
     { name = "argus-core", editable = "modules/core" },
     { name = "argus-deployment-platform", editable = "modules/deployment_platform" },
     { name = "argus-flag-provider", editable = "modules/flag_provider" },
+    { name = "argus-mcp-transport", editable = "modules/mcp_transport" },
     { name = "argus-metrics-source", editable = "modules/metrics_source" },
     { name = "argus-repository-index", editable = "modules/repository_index" },
     { name = "httpx2" },
@@ -1368,7 +1402,8 @@ name = "argus-write-mcp-client"
 version = "0.1.0"
 source = { editable = "modules/write_mcp_client" }
 dependencies = [
-    { name = "argus-core", extra = ["mcp"] },
+    { name = "argus-core" },
+    { name = "argus-mcp-transport" },
 ]
 
 [package.dev-dependencies]
@@ -1378,7 +1413,10 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "argus-core", extras = ["mcp"], editable = "modules/core" }]
+requires-dist = [
+    { name = "argus-core", editable = "modules/core" },
+    { name = "argus-mcp-transport", editable = "modules/mcp_transport" },
+]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1396,6 +1434,7 @@ dependencies = [
     { name = "argus-deployment-platform" },
     { name = "argus-flag-provider" },
     { name = "argus-incident-record" },
+    { name = "argus-mcp-transport" },
     { name = "httpx2" },
     { name = "mcp" },
     { name = "redis" },
@@ -1413,6 +1452,7 @@ requires-dist = [
     { name = "argus-deployment-platform", editable = "modules/deployment_platform" },
     { name = "argus-flag-provider", editable = "modules/flag_provider" },
     { name = "argus-incident-record", editable = "modules/incident_record" },
+    { name = "argus-mcp-transport", editable = "modules/mcp_transport" },
     { name = "httpx2" },
     { name = "mcp", specifier = ">=1.29.0" },
     { name = "redis", specifier = ">=5.0" },

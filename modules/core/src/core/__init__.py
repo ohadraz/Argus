@@ -17,11 +17,11 @@ the fields one consumer reads and no others. A slice belongs to whoever declares
 it - only the four here are named by two parties, which is what makes them
 contracts rather than somebody's own. None of it names a vendor.
 
-`events`, `replay`, `schema`, `anomaly` and `mcp_transport` are deliberately not
-flattened into this namespace. Each is already a coherent surface under its own
-name, and two of them export a `nobody` - one meaning "publish to no subscriber"
-and the other "record no call". Flattening would force one of those to be
-renamed to suit the packaging rather than the reading.
+`events`, `replay`, `schema` and `anomaly` are deliberately not flattened into
+this namespace. Each is already a coherent surface under its own name, and two
+of them export a `nobody` - one meaning "publish to no subscriber" and the other
+"record no call". Flattening would force one of those to be renamed to suit the
+packaging rather than the reading.
 """
 
 from core.clock import Clock, the_clock_named_by

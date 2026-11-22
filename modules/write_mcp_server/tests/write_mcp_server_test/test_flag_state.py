@@ -50,9 +50,9 @@ from argus_testkit import (
     the_error_mentioned,
 )
 from core import to_iso
-from core.mcp_transport import CHANGED_SINCE_MARKER, EXHAUSTED_ACTION_MARKER
 from core.models import FlagChange, FlagState, FlagUndo, Planned
 from flag_provider import FlagProviderUnavailable, FlagProviderWrites, FlagWriteFailed
+from mcp_transport import CHANGED_SINCE_MARKER, EXHAUSTED_ACTION_MARKER
 from write_mcp_server.flag_state import (
     FlagNotSet,
     plan_flag,

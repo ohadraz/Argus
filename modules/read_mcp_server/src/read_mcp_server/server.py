@@ -21,7 +21,6 @@ from alerting_platform import AlertingPlatform
 from code_host import CodeHostReads
 from core import Connections, ReadMcpEndpoint
 from core.embedding import Embedder
-from core.mcp_transport import TracedFastMCP
 from core.models import (
     AlertRuleStanding,
     ChangeEvent,
@@ -37,6 +36,7 @@ from core.models import (
 from core.vector_store import VectorSearch
 from deployment_platform import DeploymentPlatformReads
 from flag_provider import FlagProviderReads
+from mcp_transport import TracedFastMCP
 from metrics_source import MetricsSource, SeriesClassifier
 from pydantic import Field
 

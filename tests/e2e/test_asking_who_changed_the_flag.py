@@ -22,9 +22,9 @@ from typing import Any, Final
 import pytest
 from argus_testkit import Assertion, Scenario, all_of
 from core import Fence, Holding, WriteMcpEndpoint, connect_from_env, get_settings, utc_now
-from core.mcp_transport import ChangedSince
 from core.models import Alert, FlagUndo, Made, NotMade, Planned
 from incident_record.repository import incidents, runs
+from mcp_transport import ChangedSince
 from write_mcp_client import WriteTier, write_mcp
 
 from tests.e2e.framework.flags import THE_DEMO_FLAG, THE_FALLBACK_FLAG

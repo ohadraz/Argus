@@ -22,7 +22,6 @@ from core.events import (
     nobody,
     publish,
 )
-from core.mcp_transport import LostAfterSending
 from core.models import (
     Action,
     ActionProgress,
@@ -48,6 +47,7 @@ from core.models import (
     why_it_was_refused,
 )
 from incident_record import IsStillWanted
+from mcp_transport import LostAfterSending
 from mitigation import (
     NobodyCanSay,
     Outcome,

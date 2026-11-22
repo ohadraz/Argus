@@ -3,7 +3,8 @@ name = "argus-write_mcp_client"
 version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
-    "argus-core[mcp]",
+    "argus-core",
+    "argus-mcp_transport",
 ]
 
 [dependency-groups]
@@ -22,6 +23,7 @@ dev = [
 
 [tool.uv.sources]
 argus-core = { workspace = true }
+argus-mcp_transport = { workspace = true }
 argus-argus_testkit = { workspace = true }
 argus-apps = { workspace = true }
 

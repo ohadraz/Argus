@@ -4,10 +4,9 @@ An SDK's in-memory exporter and reader, wrapped once. The code under test is
 handed this tracer and this meter where it would otherwise take the process's
 own - which in a test is OTel's no-op, and reports nothing to anyone.
 
-Shared by the suites that assert on a span or a metric point: the model call's
-and the tool call's. Each asks the same two questions - what span was made, and
-what was measured - and a rig rebuilt per suite is a rig that can disagree with
-itself about how a histogram is read.
+The model call's suite reads spans and metric points through it. The tool
+call's suite, in `mcp_transport`, keeps the same rig: `argus_testkit` imports no
+package, and this one imports the SDK, so it cannot be lifted there.
 """
 
 from __future__ import annotations

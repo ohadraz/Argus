@@ -1,10 +1,10 @@
 """A one-tool MCP server the transport's own test starts, kills and restarts.
 
 Two things in one file, because they are two halves of one fixture: the server
-itself, which is run as `python -m core_test.framework.transport_double`,
+itself, which is run as `python -m mcp_transport_test.framework.transport_double`,
 and the handle a test drives it by. It stands in for `argus-read-mcp` and
 `argus-write-mcp` alike - neither is what the transport is about, and depending
-on either would make the kernel's suite wait on an agent's server.
+on either would make the transport's suite wait on an agent's server.
 
 It is a real MCP server rather than a stub, because what is under test is the
 session: an HTTP transport, an `initialize` handshake, and a server that can be
@@ -38,7 +38,10 @@ from typing import Any, Final, Self
 import uvicorn
 from argus_testkit import a_free_port
 from core import Fence
-from core.mcp_transport import (
+from core.models import DeploymentRollbackUndo
+from mcp.server.fastmcp import Context
+from mcp.server.streamable_http import MCP_SESSION_ID_HEADER
+from mcp_transport import (
     ACTION_META_KEY,
     FENCE_META_KEY,
     TracedFastMCP,
@@ -49,9 +52,6 @@ from core.mcp_transport import (
     an_unreachable_platform,
     with_what_it_left,
 )
-from core.models import DeploymentRollbackUndo
-from mcp.server.fastmcp import Context
-from mcp.server.streamable_http import MCP_SESSION_ID_HEADER
 from opentelemetry import trace
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from starlette.responses import JSONResponse, Response
@@ -700,7 +700,7 @@ def a_running_double() -> Generator[RunningDouble]:
 
 
 def _suite_root() -> Path:
-    """`modules/core/tests`, which is what makes this importable by name.
+    """`modules/mcp_transport/tests`, which is what makes this importable by name.
 
     The suite is a package tree rather than an installed distribution, so a
     subprocess told to run one of its modules has to be told where the tree is.

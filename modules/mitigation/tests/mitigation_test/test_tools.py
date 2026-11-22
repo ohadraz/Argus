@@ -19,7 +19,6 @@ from unittest.mock import MagicMock, Mock, create_autospec
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged, the_answer_was
 from core import to_iso
-from core.mcp_transport import ActionExhausted, McpClient, an_exhausted_action
 from core.models import (
     AcceleratorPinUndo,
     AutoscalerUndo,
@@ -31,6 +30,7 @@ from core.models import (
     Planned,
     ReplicaUndo,
 )
+from mcp_transport import ActionExhausted, McpClient, an_exhausted_action
 from mitigation.tools import (
     DeploymentsBetween,
     FlagChangesSince,

@@ -5,7 +5,6 @@ from types import TracebackType
 from typing import Final, Self
 
 from core import ReadMcpEndpoint
-from core.mcp_transport import Asking, McpClient
 from core.models import (
     AlertRuleStanding,
     ChangeEvent,
@@ -18,6 +17,7 @@ from core.models import (
     ServiceDependency,
     ToolDefinition,
 )
+from mcp_transport import Asking, McpClient
 from pydantic import TypeAdapter
 
 from read_mcp_client.offering import offered

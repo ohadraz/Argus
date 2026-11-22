@@ -12,6 +12,7 @@ dependencies = [
     "argus-code_host",
     "httpx2",
     "mcp>=1.29.0",
+    "argus-mcp_transport",
     # The store the cache lives in, for the one action that reaches a datastore
     # rather than a control plane. Without `hiredis`: that extra is a compiled
     # wheel, and Smart App Control on this machine has refused those before.
@@ -25,6 +26,7 @@ dev = [
 
 [tool.uv.sources]
 argus-core = { workspace = true }
+argus-mcp_transport = { workspace = true }
 argus-incident_record = { workspace = true }
 argus-deployment_platform = { workspace = true }
 argus-flag_provider = { workspace = true }

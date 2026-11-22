@@ -7,7 +7,7 @@ dependencies = [
     # Not `llm_anthropic`, though this agent reasons: it talks through the port
     # (`core.llm`), which imports no vendor, and is handed the provider by the
     # process that builds it.
-    "argus-core[mcp]",
+    "argus-core",
     # What Argus did about an incident is said in the words its own account
     # uses, so the fix and the write-up say one action one way.
     "argus-narration",

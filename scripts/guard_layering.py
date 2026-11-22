@@ -314,13 +314,11 @@ def _the_front_doors() -> dict[str, set[str]]:
     a second place to add a door to, and the failure it produces is a suite
     refused an import the source tree is allowed.
 
-    Two shapes, and the difference is `core`'s extras. `** -> core.models`
-    is a door anything may use. `mitigation.** -> core.mcp_transport` is one
-    only that module may, because `mcp` is an optional dependency and only the
-    modules that declared the extra have it. A suite is held to its own
-    module's allowance for the same reason the source is: `test_module` resolves
-    each module against its own dependencies alone, so a suite reaching a door
-    its module did not take fails on CI and nowhere else.
+    Two shapes. `** -> core.models` is a door anything may use.
+    `mitigation.** -> core.autonomy` is one only the modules it names may, and a
+    suite is held to its own module's allowance as its source is: a door is
+    narrowed for what reaching it would let a module do, and a test of that
+    module can do it as well.
 
     Keyed by module name, with `""` holding the doors open to everything.
     """

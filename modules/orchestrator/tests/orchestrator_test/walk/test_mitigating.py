@@ -52,7 +52,6 @@ from core.events import (
     VerdictReached,
     nobody,
 )
-from core.mcp_transport import LostAfterSending
 from core.models import (
     DEPLOYMENT_PLATFORM,
     FLAG_PROVIDER,
@@ -97,6 +96,7 @@ from core.models import (
     why_it_was_refused,
 )
 from incident_record import IsStillWanted
+from mcp_transport import LostAfterSending
 from mitigation import ChangeMade, NobodyCanSay, Performed, PutBackOwed
 from orchestrator.walk import ports
 from orchestrator.walk.deltas import StateDelta

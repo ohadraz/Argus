@@ -27,13 +27,13 @@ from argus_testkit import (
     dont_care_sleep,
     one_record_was_logged,
 )
-from core.mcp_transport import UNREACHABLE_PLATFORM_MARKER
 from core.models import RestartedService
 from deployment_platform import (
     DeploymentPlatformWrites,
     PlatformRefused,
     PlatformUnreachable,
 )
+from mcp_transport import UNREACHABLE_PLATFORM_MARKER
 from write_mcp_server.restarting import ServiceNotRestarted, restart_service
 
 from write_mcp_server_test.framework.refusals import (

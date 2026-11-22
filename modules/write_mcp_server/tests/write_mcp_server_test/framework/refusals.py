@@ -9,7 +9,8 @@ caller would be told rather than the spelling of a marker.
 from __future__ import annotations
 
 from argus_testkit import Assertion
-from core.mcp_transport import (
+from core.models import UndoDescriptor
+from mcp_transport import (
     CHANGED_SINCE_MARKER,
     EXHAUSTED_ACTION_MARKER,
     LEFT_BEHIND_KNOWN_MARKER,
@@ -17,7 +18,6 @@ from core.mcp_transport import (
     UNREACHABLE_PLATFORM_MARKER,
     what_was_left_behind,
 )
-from core.models import UndoDescriptor
 
 
 def it_was_refused_as(refusal: type[Exception]) -> Assertion[object]:

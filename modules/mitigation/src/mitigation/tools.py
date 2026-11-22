@@ -10,7 +10,6 @@ from typing import Protocol
 
 from core import SettingsSlice, parse_iso, to_iso, utc_now
 from core.anomaly import the_end_of_the_onset
-from core.mcp_transport import ActionExhausted
 from core.models import (
     AcceleratorPinRestored,
     AcceleratorPinUndo,
@@ -36,6 +35,7 @@ from core.models import (
     RolloutProgress,
     UndoDescriptor,
 )
+from mcp_transport import ActionExhausted
 from write_mcp_client import WriteTier
 
 logger = logging.getLogger(__name__)

@@ -6,7 +6,7 @@ requires-python = ">=3.14"
 dependencies = [
     # Not `llm_anthropic`: the agent talks through the port and is handed the
     # provider, so the model vendor's SDK is the worker's to install.
-    "argus-core[mcp]",
+    "argus-core",
     # The read tier, and only it: the agent offers what that tier declares. The
     # flag history it also reads is the write tier's, and is bound to its seam
     # by whoever holds that tier - never by this package.

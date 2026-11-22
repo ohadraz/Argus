@@ -53,11 +53,6 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from core.mcp_transport import (
-    a_change_made_since,
-    a_refusal_saying_what_it_left,
-    an_exhausted_action,
-)
 from core.models import (
     AutoscalerUndo,
     AutoscalingRestored,
@@ -74,6 +69,11 @@ from deployment_platform import (
     Mark,
     MarkedObject,
     MarkFound,
+)
+from mcp_transport import (
+    a_change_made_since,
+    a_refusal_saying_what_it_left,
+    an_exhausted_action,
 )
 
 from write_mcp_server.refusing import a_platform_refusal, no_claim_to_compare_with

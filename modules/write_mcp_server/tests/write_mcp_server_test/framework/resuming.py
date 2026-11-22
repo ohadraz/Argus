@@ -23,8 +23,8 @@ from datetime import datetime
 from typing import Any
 
 from argus_testkit import Assertion
-from core.mcp_transport import CHANGED_SINCE_MARKER
 from core.models import ChangeFound, Made, NotMade, UndoDescriptor
+from mcp_transport import CHANGED_SINCE_MARKER
 
 
 def it_was_made(descriptor: UndoDescriptor, made_at: datetime | None) -> Assertion[Any]:

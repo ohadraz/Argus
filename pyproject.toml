@@ -151,6 +151,7 @@ root_packages = [
     "incident_record",
     "investigation_agent",
     "llm_anthropic",
+    "mcp_transport",
     "message_intent",
     "metrics_source",
     "mitigation",
@@ -262,13 +263,9 @@ allow_indirect_imports = true
 # `models.reading`, and a package that had to go through its own front door
 # would import itself while still importing.
 #
-# Some doors are narrower than the rest, and that is the other half of
-# `core`'s extras. `mcp` is an optional dependency, taken by the modules that
-# go through `core.mcp_transport` and by nobody else. A module reaching it
-# without declaring the extra would work in the workspace venv and fail
-# wherever that module is resolved on its own - so the allowance names the
-# modules, and reaching past it is a broken contract here rather than an
-# ImportError in a walk.
+# Some doors are narrower than the rest: the allowance names the modules that
+# may go through it, and reaching past it is a broken contract here. The
+# autonomy policy, at the end of the list, is the one.
 ignore_imports = [
     "core.** -> core.**",
     "** -> core.models",
@@ -300,25 +297,9 @@ ignore_imports = [
     # client interface, the provider port, the factory and the conversations
     # import no third party, so naming them installs nothing.
     "** -> core.llm",
-    "mitigation.** -> core.mcp_transport",
-    "orchestrator.** -> core.mcp_transport",
-    "read_mcp_client.** -> core.mcp_transport",
-    "write_mcp_client.** -> core.mcp_transport",
-    # The one server among them, and it holds no client. What the write tier
-    # takes from this door is the marker that makes a refusal recognisable as an
-    # answer - the word one side writes and the other reads - and a door is the
-    # only place a word like that can live without being spelled twice. It
-    # declares `mcp` itself, so the narrowness this list exists to enforce is
-    # satisfied: the module resolves on its own wherever it is installed.
-    "write_mcp_server.** -> core.mcp_transport",
-    # Both servers, for the other half of every call: `TracedFastMCP`, the server
-    # that answers inside the caller's trace. The client injecting the context
-    # and the server reading it back are one convention, kept in one module.
-    # Each declares `mcp` itself, so each resolves on its own.
-    "read_mcp_server.** -> core.mcp_transport",
-    # The autonomy policy (spec §13), and narrow for a reason of its own rather
-    # than an extra's: the walk asks it, and the Mitigator names the admission
-    # its write accepts. Nobody else has any business with it. A door opens the
+    # The autonomy policy (spec §13), and narrow for a reason of its own: the
+    # walk asks it, and the Mitigator names the admission its
+    # write accepts. Nobody else has any business with it. A door opens the
     # whole module, so this one would let the Mitigator call `admit` as well -
     # and `admit` judges reach by what its caller hands it. The layering script
     # holds that half: outside the walk, the worker's root and the kernel,

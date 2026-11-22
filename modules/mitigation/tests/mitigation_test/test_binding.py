@@ -23,8 +23,8 @@ from unittest.mock import Mock, create_autospec
 
 import pytest
 from argus_testkit import Assertion, Scenario
-from core.mcp_transport import McpClient
 from core.models import AcceleratorPinUndo, DeploymentRollbackUndo, FlagUndo
+from mcp_transport import McpClient
 from mitigation import an_undo_over
 from write_mcp_client import WriteTier
 

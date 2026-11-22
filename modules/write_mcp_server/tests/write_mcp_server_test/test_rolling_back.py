@@ -61,12 +61,6 @@ from argus_testkit import (
     calling,
     one_record_was_logged,
 )
-from core.mcp_transport import (
-    EXHAUSTED_ACTION_MARKER,
-    LEFT_BEHIND_MARKER,
-    UNREACHABLE_PLATFORM_MARKER,
-    what_was_left_behind,
-)
 from core.models import DeploymentRestored, DeploymentRollbackUndo, Planned
 from deployment_platform import (
     DeploymentPlatformWrites,
@@ -78,6 +72,12 @@ from deployment_platform import (
     SyncOperations,
     SyncPhase,
     SyncRun,
+)
+from mcp_transport import (
+    EXHAUSTED_ACTION_MARKER,
+    LEFT_BEHIND_MARKER,
+    UNREACHABLE_PLATFORM_MARKER,
+    what_was_left_behind,
 )
 from write_mcp_server.rolling_back import (
     NoEarlierRevision,

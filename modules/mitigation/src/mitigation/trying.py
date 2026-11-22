@@ -33,7 +33,18 @@ from core.events import (
     nobody,
     publish,
 )
-from core.mcp_transport import (
+from core.models import (
+    ActionType,
+    AlertRuleStanding,
+    Made,
+    MetricBucket,
+    NotMade,
+    Planned,
+    UndoDescriptor,
+    changes_something_persistent,
+    reports_what_it_changed,
+)
+from mcp_transport import (
     CHANGED_SINCE_MARKER,
     EXHAUSTED_ACTION_MARKER,
     LEFT_BEHIND_KNOWN_MARKER,
@@ -45,17 +56,6 @@ from core.mcp_transport import (
     McpToolError,
     PlatformUnreachable,
     without_the_payload,
-)
-from core.models import (
-    ActionType,
-    AlertRuleStanding,
-    Made,
-    MetricBucket,
-    NotMade,
-    Planned,
-    UndoDescriptor,
-    changes_something_persistent,
-    reports_what_it_changed,
 )
 
 from mitigation.actions import (
@@ -809,7 +809,7 @@ def _without_the_platform_marker(unreachable: PlatformUnreachable) -> str:
     postmortem and a Slack line. The descriptor is on the outcome, where
     something can act on it; here it is noise.
 
-    The payload is removed by `core.mcp_transport` rather than here,
+    The payload is removed by `mcp_transport` rather than here,
     because the shape of it is that module's and a caller cannot strip what it
     was never told the shape of.
 

@@ -66,12 +66,6 @@ from argus_testkit import (
     calling,
     one_record_was_logged,
 )
-from core.mcp_transport import (
-    EXHAUSTED_ACTION_MARKER,
-    LEFT_BEHIND_MARKER,
-    UNREACHABLE_PLATFORM_MARKER,
-    what_was_left_behind,
-)
 from core.models import CapacityRestored, Planned, ReplicaUndo, RolloutProgress
 from deployment_platform import (
     Autoscaler,
@@ -80,6 +74,12 @@ from deployment_platform import (
     MarkFound,
     PlatformRefused,
     PlatformUnreachable,
+)
+from mcp_transport import (
+    EXHAUSTED_ACTION_MARKER,
+    LEFT_BEHIND_MARKER,
+    UNREACHABLE_PLATFORM_MARKER,
+    what_was_left_behind,
 )
 from write_mcp_server.scaling import (
     THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR,

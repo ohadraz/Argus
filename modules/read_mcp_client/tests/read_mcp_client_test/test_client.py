@@ -27,7 +27,6 @@ from alerting_platform.grafana import (
 from argus_testkit.assertions import Assertion, all_of, the_answer_was
 from argus_testkit.scenario import Scenario, attempting, calling
 from core import ReadMcpEndpoint, get_settings, parse_iso
-from core.mcp_transport import Asking, McpClient
 from core.models import (
     ChangeEvent,
     CodeOutsideThePatch,
@@ -38,6 +37,7 @@ from core.models import (
     RuleReading,
 )
 from mcp.types import Tool
+from mcp_transport import Asking, McpClient
 from read_mcp_client import ReadTier, read_mcp
 
 from read_mcp_client_test.conftest import ARGUS_S_ACCOUNT, FakeTargetServiceHandler

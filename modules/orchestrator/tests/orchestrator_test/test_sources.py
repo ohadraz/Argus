@@ -22,10 +22,10 @@ import pytest
 from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged, the_answer_was
 from core import Connections, get_settings, to_iso
 from core.anomaly import AnomalyThresholds
-from core.mcp_transport import McpClient, McpToolError, McpUnreachable
 from core.models import AlertRuleStanding, MetricBucket, SeriesQuery
 from mcp.shared.exceptions import McpError
 from mcp.types import ErrorData
+from mcp_transport import McpClient, McpToolError, McpUnreachable
 from orchestrator.sources import the_real_sources
 from pay_band_source import PayBandsByTitle, PayBandsUnavailable
 from postmortem_writing import Sources

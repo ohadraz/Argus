@@ -14,8 +14,8 @@ from typing import Any
 import pytest
 from argus_testkit import Assertion, Scenario, an_error_was_raised, attempting, the_answer_was
 from core import Fence
-from core.mcp_transport import ACTION_META_KEY, FENCE_META_KEY
 from deployment_platform import Mark
+from mcp_transport import ACTION_META_KEY, FENCE_META_KEY
 from write_mcp_server.marking import the_mark_in
 
 SOME_FENCE = Fence(run_id="6f1c1d2e-0000-4000-8000-000000000001", epoch=3)
