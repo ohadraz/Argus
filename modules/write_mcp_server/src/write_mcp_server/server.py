@@ -162,13 +162,13 @@ def build_server(endpoint: WriteMcpEndpoint,
         switched off means switching it back on, and undoing this call is a
         plan and this call with the state reversed.
 
-        Answered as made, writing nothing, where Argus's own change since the
-        plan already landed; refused as changed since where somebody else's
-        did. Returns only once the change is visible to evaluation, and raises
-        rather than reporting an unchanged flag as changed: a caller about to
-        judge whether the service recovered has to know the service was
-        actually changed. The behavior lives in `flag_state.set_flag`; this is
-        registration only."""
+        Answered as made, writing nothing, where Argus's own flip to the state
+        asked for still stands; refused as changed since where somebody else
+        changed it. Returns only once the change is visible to evaluation, and
+        raises rather than reporting an unchanged flag as changed: a caller
+        about to judge whether the service recovered has to know the service
+        was actually changed. The behavior lives in `flag_state.set_flag`; this
+        is registration only."""
         return flag_state.set_flag(planned, enabled, flags)
 
     @mcp.change()

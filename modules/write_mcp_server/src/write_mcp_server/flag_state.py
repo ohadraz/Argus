@@ -90,15 +90,17 @@ def set_flag(planned: Planned[FlagUndo], enabled: bool, flags: FlagProviderWrite
     write - after it, the write would be its own evidence - and only the
     flag's own changes after the plan's read have a say (`_after_the_read`):
 
-    - none: the flag is as planned, and is written. The provider returns only
+    - none, or Argus's alone with the last of them back to the state the plan
+      found: the flag is as planned, and is written. The provider returns only
       once the change is visible to evaluation, so a caller about to judge
       whether the service recovered judges a service that was changed.
-    - Argus's alone: the change asked again after its answer was lost. It
-      landed, so it is answered as made and not written twice, dated by the
-      first of them - the one that moved the flag off the plan, and what an
+    - Argus's alone, the last of them leaving the flag in the state asked for:
+      the change asked again after its answer was lost. It landed, so it is
+      answered as made and not written twice, dated by the change that moved
+      the flag there - the first after Argus's own last put-back, and what an
       undo later asks the history from.
     - anybody else's: a decision made since the plan, refused as changed since
-      and not written over. Where Argus's own change landed among them, the
+      and not written over. Where Argus's own flip landed among them, the
       refusal leaves the plan's undo behind, dated by the plan's read rather
       than by Argus's change: a put-back asks the history from that date, and
       must see a person's change made before Argus's to leave the flag as found.
@@ -152,12 +154,14 @@ def whether_it_was_made(planned: Planned[FlagUndo],
     the write left out, for a walk resumed after the worker that claimed it
     died.
 
-    Argus's changes alone are the flip made: answered with what the write would
-    answer, dated by the first of them - the one that moved the flag off the
-    plan. No change to the flag is nothing landed, for the walk to make as the
-    live walk would - leaving nothing behind, since a flag has no suspension
-    before its write. Anything else is refused exactly as the write refuses it
-    on the same history, since the two are one compare. Writes nothing.
+    Argus's changes alone, the last of them leaving the flag in the state asked
+    for, are the flip made: answered with what the write would answer, dated by
+    the change that moved the flag there. No change to the flag, or Argus's own
+    with the last of them back to the state the plan found, is nothing landed,
+    for the walk to make as the live walk would - leaving nothing behind, since
+    a flag has no suspension before its write. Anything else is refused exactly
+    as the write refuses it on the same history, since the two are one compare.
+    Writes nothing.
     """
     made = _made_since_the_plan(planned, flags)
 
@@ -181,11 +185,11 @@ def still_argus_s(planned: Planned[FlagUndo],
     Argus's own change can fall before it.
 
     Only the flag's changes after the plan's read count (`_after_the_read`).
-    Only Argus's there, and it is still Argus's. Anybody
-    else's is a decision made since, saying so. No change to the flag at all
-    contradicts the row, which says Argus's flip landed - and so is a question
-    nobody can answer, as are a change nobody can attribute and a history that
-    could not be read. Writes nothing.
+    Only Argus's there, and it is still Argus's. Anybody else's is a decision
+    made since, saying so. No change to the flag at all contradicts the row,
+    which says Argus's flip landed - and so is a question nobody can answer, as
+    are a change nobody can attribute and a history that could not be read.
+    Writes nothing.
     """
     flag = descriptor.flag
 
@@ -199,7 +203,7 @@ def still_argus_s(planned: Planned[FlagUndo],
                   f"{failure}"
         )
 
-    changes = _after_the_read(history, descriptor)
+    changes = _after_the_read(history, planned.descriptor)
 
     if any(change.made_by_argus is False for change in changes):
         return ChangeFound(
