@@ -22,7 +22,7 @@ from textwrap import indent
 from typing import Final
 
 from core import to_iso
-from core.llm import LLMClient, ModelDidNotAnswer, the_call
+from core.llm import LLMClient, ask_until_answered, the_call
 from core.models import Ask, ToolDefinition, Transcript, Turn
 from narration import NarrationLine, said_in_full
 
@@ -58,17 +58,8 @@ def answer(question: str,
     """The answer to `question`, asked on `platform` - the chat platform's name,
     as its adapter gives it - from the incident's timeline, or `None` where the
     model gave no usable answer twice."""
-    for _ in range(_ATTEMPTS):
-        try:
-            answered = _the_answer_in(llm.converse(_the_opening(question, story, platform),
-                                                   [SUBMIT_ANSWER]))
-        except ModelDidNotAnswer:
-            answered = None
-
-        if answered is not None:
-            return answered
-
-    return None
+    return ask_until_answered(llm, _the_opening(question, story, platform), [SUBMIT_ANSWER],
+                              _the_answer_in, attempts=_ATTEMPTS)
 
 
 def _the_opening(question: str,

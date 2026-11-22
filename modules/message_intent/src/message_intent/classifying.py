@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from core.llm import LLMClient, ModelDidNotAnswer, the_call
+from core.llm import LLMClient, ask_until_answered, the_call
 from core.models import Meaning, Turn
 
 from message_intent.prompting import (
@@ -32,17 +32,8 @@ def classify(words: str, llm: LLMClient, *, platform: str) -> Meaning | None:
     """What the person meant by `words`, written on `platform` - the chat
     platform's name, as its adapter gives it - or `None` where the model gave no
     usable answer twice."""
-    for _ in range(_ATTEMPTS):
-        try:
-            meaning = _the_meaning_in(llm.converse(opening_ask(words, platform),
-                                                   [SUBMIT_MEANING]))
-        except ModelDidNotAnswer:
-            meaning = None
-
-        if meaning is not None:
-            return meaning
-
-    return None
+    return ask_until_answered(llm, opening_ask(words, platform), [SUBMIT_MEANING],
+                              _the_meaning_in, attempts=_ATTEMPTS)
 
 
 def _the_meaning_in(turn: Turn) -> Meaning | None:

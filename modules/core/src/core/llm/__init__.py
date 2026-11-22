@@ -12,6 +12,7 @@ which SDK answers is decided by whoever builds that provider, in a process's
 root (`apps`) and nowhere else.
 """
 
+from core.llm.asking import ask_until_answered
 from core.llm.building import build_llm_client
 from core.llm.calls import the_call, the_calls
 from core.llm.client import (
@@ -46,6 +47,7 @@ __all__ = [
     "RequestRejected",
     "TracedLLMClient",
     "TurnPaused",
+    "ask_until_answered",
     "build_llm_client",
     "conversations_through",
     "on_one_line",
