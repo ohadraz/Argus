@@ -37,7 +37,7 @@ from oncall_source import OnCallUnavailable
 from oncall_source.platform import OnCallDeliveryUnverified, OnCallPlatform
 from opentelemetry import propagate, trace
 from opentelemetry.trace import SpanKind, Tracer
-from postgres import Connections, open_pool, require_schema
+from postgres import Connections, open_pool
 from postmortem_rendering import (
     a_title,
     as_pdf,
@@ -109,10 +109,10 @@ def an_app(*,
     answered. What a route needs, it asks for; what it asks for comes from
     here.
 
-    The schema is checked and never applied. This process only reads, and a
-    process that only reads is the last one that should be defining the tables
-    everything else writes - it was also, while it did, the process every other
-    one had to be started after.
+    The schema is checked - opening the pool does that - and never applied.
+    This process only reads, and a process that only reads is the last one that
+    should be defining the tables everything else writes - it was also, while it
+    did, the process every other one had to be started after.
     """
     if the_unnamed_senders_name not in alert_sources:
         raise ValueError(
@@ -126,9 +126,6 @@ def an_app(*,
         with open_pool(database) as pool:
             app.state.connections = pool.connection
             app.state.push_settings = push_settings
-
-            with pool.connection() as conn:
-                require_schema(conn)
 
             yield
 

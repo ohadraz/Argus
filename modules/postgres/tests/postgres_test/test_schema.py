@@ -12,8 +12,10 @@ fresh database, and "no such table: incident" sends them reading the schema
 instead of running the job.
 
 Whether the tables are there is a question for the database; whether an answer
-of "no" is fatal is not. The asking is injected so that this file - the suite of
-a module that has no container - can state the second without needing the first.
+of "no" is fatal is not. The asking is injected so that the second is stated
+without needing the first. The asking itself is put to a real database once,
+for what only a database can show: that the answer is read the same whatever
+rows the connection it is asked on hands out.
 """
 
 from __future__ import annotations
@@ -22,8 +24,18 @@ from unittest.mock import create_autospec
 
 import psycopg
 import pytest
-from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
-from postgres import SchemaNotApplied, SchemaPresent, require_schema
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    an_error_was_raised,
+    attempting,
+    the_answer_was,
+)
+from core import DatabaseSettings, get_settings
+from postgres import SchemaNotApplied, SchemaPresent, connect, require_schema
+from postgres.schema import schema_is_present
+from psycopg.rows import dict_row
 
 A_PREPARED_DATABASE = True
 A_DATABASE_WITH_NO_SCHEMA = False
@@ -74,6 +86,26 @@ def test_the_database_asked_about_is_the_one_the_process_holds() -> None:
             the_connection, present=_recording(asked_about, A_PREPARED_DATABASE)
         )) \
         .then(lambda _: _it_was_asked_about(asked_about, the_connection))
+
+
+@pytest.mark.integration
+def test_the_schema_is_found_on_a_connection_handing_out_rows_by_name(postgres: None) -> None:
+    # The worker's checkpointer pool hands out rows by column name, and a pool
+    # asks after the schema on one of its own connections. An answer read by
+    # position would fail there on a database that has every table.
+    Scenario() \
+        .when(
+            lambda: _asked_on_a_connection_handing_out_rows_by_name()
+        ) \
+        .then(
+            the_answer_was(True)
+        )
+
+
+def _asked_on_a_connection_handing_out_rows_by_name() -> bool:
+    with connect(DatabaseSettings.of(get_settings()),
+                 connection={"row_factory": dict_row}) as conn:
+        return schema_is_present(conn)
 
 
 def _a_connection() -> psycopg.Connection:

@@ -7,12 +7,17 @@ which run it is writing for. The pool does: it fences every connection as it is
 handed out with the run the process holds at that moment, so a connection that
 held one run's fence and went back to the pool never carries it into the next.
 
+A pool is not opened on a database nobody prepared. Every process that holds
+one opens it on the way up, so this is where the schema is checked once for all
+of them - and a process with no pool asks on a connection of its own.
+
 A unit of work is one connection and one transaction on it, committed once at
 its end by whoever opened it - or not at all, where anything inside it failed.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Any
 
 import psycopg
@@ -24,10 +29,19 @@ from argus_testkit import (
     an_error_was_raised,
     attempting,
     calling,
+    eventually,
     the_same_error_reached_the_caller,
 )
 from core import DatabaseSettings, Fence, Holding, get_settings
-from postgres import connect_from_env, open_pool, unit_of_work
+from postgres import (
+    SchemaNotApplied,
+    connect_from_env,
+    open_pool,
+    require_schema_at,
+    reset_schema,
+    unit_of_work,
+)
+from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
 # What a worker's connections are called. Stated rather than imported, for the
@@ -120,6 +134,79 @@ def test_a_pool_opened_for_a_caller_with_wants_of_its_own_meets_them(
 
 
 @pytest.mark.integration
+def test_a_pool_is_not_opened_on_a_database_with_no_schema(
+    a_database_with_no_schema: None
+) -> None:
+    # Rather than opened, and the process left to fail on whatever it asks
+    # first - which reports the cause to whoever happened to be using it.
+    Scenario() \
+        .when(
+            attempting(lambda: open_pool(DatabaseSettings.of(get_settings())))
+        ) \
+        .then(
+            an_error_was_raised(SchemaNotApplied)
+        )
+
+
+@pytest.mark.integration
+def test_a_pool_not_opened_leaves_no_connection_behind(a_database_with_no_schema: None) -> None:
+    # Closed on the way out of the refusal: nobody owns a pool that was never
+    # handed back, and one left open would go on holding its connections.
+    # A fenced pool's, because its connections carry a name to look for.
+    Scenario() \
+        .when(
+            attempting(lambda: open_pool(DatabaseSettings.of(get_settings()), holding=Holding()))
+        ) \
+        .then(all_of(
+            an_error_was_raised(SchemaNotApplied),
+            eventually(_no_connection_is_named(THE_WORKER))
+        ))
+
+
+@pytest.mark.integration
+def test_a_pool_whose_connections_hand_out_rows_by_name_is_opened(
+    a_clean_database: None
+) -> None:
+    # The checkpointer's connections hand out rows by column name, and the
+    # schema is asked after on one of the pool's own.
+    Scenario() \
+        .when(
+            attempting(lambda: _opened_and_closed(connection={"row_factory": dict_row}))
+        ) \
+        .then(
+            _nothing_was_raised()
+        )
+
+
+@pytest.mark.integration
+def test_a_database_with_no_schema_is_refused_on_a_connection_of_its_own(
+    a_database_with_no_schema: None
+) -> None:
+    # For a process that holds no pool, and would otherwise learn of the
+    # missing schema at its first write.
+    Scenario() \
+        .when(
+            attempting(lambda: require_schema_at(DatabaseSettings.of(get_settings())))
+        ) \
+        .then(
+            an_error_was_raised(SchemaNotApplied)
+        )
+
+
+@pytest.mark.integration
+def test_a_prepared_database_is_accepted_on_a_connection_of_its_own(postgres: None) -> None:
+    # The other way round, and not a formality: a check that refused everything
+    # would pass the test above and stop the tier.
+    Scenario() \
+        .when(
+            attempting(lambda: require_schema_at(DatabaseSettings.of(get_settings())))
+        ) \
+        .then(
+            _nothing_was_raised()
+        )
+
+
+@pytest.mark.integration
 def test_what_a_unit_of_work_wrote_is_seen_by_every_connection_once_it_ends(
     a_clean_database: None
 ) -> None:
@@ -181,6 +268,67 @@ def test_a_unit_of_work_refuses_a_commit_made_inside_it(a_clean_database: None) 
             an_error_was_raised(psycopg.ProgrammingError),
             _the_readers_seen_from_another_connection_are([])
         ))
+
+
+@pytest.fixture
+def a_database_with_no_schema(postgres: None) -> Iterator[None]:
+    """A database as the job has never seen it, put back afterwards.
+
+    Dropped rather than emptied: this is about the tables existing, not about
+    what is in them. The suite's other tests share this database and expect its
+    schema, so the restoration is not a courtesy.
+    """
+    with connect_from_env() as conn, conn.cursor() as cursor:
+        cursor.execute("DROP SCHEMA public CASCADE")
+        cursor.execute("CREATE SCHEMA public")
+        conn.commit()
+
+    try:
+        yield
+    finally:
+        with connect_from_env() as conn:
+            reset_schema(conn)
+
+
+def _opened_and_closed(connection: dict[str, Any]) -> None:
+    """A pool opened on the suite's database, its connections made as
+    `connection` says, and closed again."""
+    with open_pool(DatabaseSettings.of(get_settings()), connection=connection):
+        pass
+
+
+def _no_connection_is_named(application: str) -> Assertion[Any]:
+    """That the database holds no connection named `application`."""
+    def assertion(_: Any) -> bool:
+        with connect_from_env() as conn, conn.cursor() as cursor:
+            cursor.execute("SELECT count(*) FROM pg_stat_activity WHERE application_name = %s",
+                           (application,))
+            row = cursor.fetchone()
+
+        held = row[0] if row is not None else 0
+
+        if held:
+            raise AssertionError(
+                f"Expected no connection named [{application}] left open, and the database "
+                f"holds {held}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _nothing_was_raised() -> Assertion[Exception | None]:
+    def assertion(error: Exception | None) -> bool:
+        if error is not None:
+            raise AssertionError(
+                f"Expected the database to be accepted, but [{type(error).__name__}] was raised: "
+                f"[{error}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _a_run_held_at(epoch: int) -> Fence:

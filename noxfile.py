@@ -887,10 +887,10 @@ def integration(session: nox.Session) -> None:
     `uv run python -m nox -s integration`.
     Runs the cross-module tests in root `tests/integration/`, with the Anthropic
     double up so the real LLM adapter is exercised end to end against recorded
-    responses. Postgres comes up too, but from the suite's own `conftest.py`
-    rather than from here: it is the one dependency the tests state for
-    themselves, and a session that started it would be starting it for the
-    files that do not need it as well.
+    responses. Postgres comes up too, with its schema, before the write tier
+    below: the tier is an Argus process, and refuses to start on a database
+    nobody prepared. The suite's own `conftest.py` adopts it and resets it on
+    the way in, as it would one it had started itself.
 
     Free and keyless by design, which is why it is separate from `e2e` rather
     than a step inside it: every answer is replayed from a stored recording, so
@@ -945,6 +945,13 @@ def integration(session: nox.Session) -> None:
         services.append(_start_service(module_args, env=env))
         _wait_for_http(name, f"{github_double_at}/health", token=token)
 
+        # The database and its schema before the write tier, which checks for
+        # the schema as it starts - the stack's own order, for the stack's
+        # reason. The job runs on the interpreter the tier is started with, so
+        # the two cannot find different installs.
+        session.run("docker", "compose", "up", "-d", "--wait", "postgres", external=True)
+        session.run(_venv_python_binary(), "-m", "apps.schema", external=True)
+
         services.append(_start_service(["-m", "apps.write_mcp"],
                                        env=github_at_the_double))
         _wait_for_http("write_mcp", f"http://{_LOOPBACK}:{write_mcp_port}/mcp")
@@ -971,6 +978,11 @@ def integration(session: nox.Session) -> None:
     finally:
         for service in reversed(services):
             _stop_service(service)
+
+        # Stopped here as well as by the suite, which stops it only once it
+        # ran: a tier that failed to start never reaches it. What postgres
+        # depends on is named too, or it outlives the run.
+        subprocess.run(["docker", "compose", "stop", "postgres", "sim-clock"], check=False)
 
 # The one eval that costs nothing, named here because nothing else tells it
 # apart. It lives in `tests/eval` with the paid ones - it scores the model's

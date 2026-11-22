@@ -14,7 +14,7 @@ from core import DatabaseSettings, SettingsSlice, TelemetrySettings, get_setting
 from embedding_fastembed import an_embedder
 from incident_memory.delivering import deliver_forever, deliver_on
 from incident_memory.keeping import kept_in
-from postgres import open_pool, require_schema
+from postgres import open_pool
 from telemetry import start_telemetry
 from telemetry.langfuse import LangfuseSettings, to_langfuse
 from vector_store_qdrant.indexing import the_index_at
@@ -54,8 +54,8 @@ def main() -> None:
     nothing would be loaded for nobody.
 
     The pool is not fenced: this process walks no run, so the fence lets it
-    mark rows as every process but a worker writes. The schema is checked
-    before the first pass, as every process here checks it.
+    mark rows as every process but a worker writes. Opening it checks the
+    schema before the first pass, as it does for every process here.
     """
 
     the_clock()
@@ -77,9 +77,6 @@ def main() -> None:
             the_index_at(QdrantSettings().qdrant_url,
                          delivery.incident_memory_collection) as store
         ):
-            with pool.connection() as conn:
-                require_schema(conn)
-
             keep = kept_in(store, an_embedder(delivery.incident_memory_embedding_model))
 
             def pass_over() -> int:

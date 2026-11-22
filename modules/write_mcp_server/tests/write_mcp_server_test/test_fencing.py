@@ -9,20 +9,29 @@ the run held still until it is done.
 Driven over a real MCP session held in memory, because what a change is told by
 is the request's `_meta`, and only a request carries one. The run itself is a
 stand-in: whether a claim still holds it is the runs repository's to answer,
-and is asked of a real database in that repository's own suite.
+and is asked of a real database in that repository's own suite. So is the
+check the holds are opened behind, whether the database has its schema: asked
+of a real one in `postgres`' suite.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Generator
-from contextlib import contextmanager
+from collections.abc import Callable, Generator
+from contextlib import AbstractContextManager, contextmanager
 from typing import Any
 
 import pytest
-from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged
-from core import Fence
+from argus_testkit import (
+    Assertion,
+    Scenario,
+    all_of,
+    attempting,
+    one_record_was_logged,
+    the_same_error_reached_the_caller,
+)
+from core import DatabaseSettings, Fence
 from incident_record.repository import runs
 from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.types import CallToolResult, TextContent
@@ -34,11 +43,12 @@ from mcp_transport import (
     UNREACHABLE_PLATFORM_MARKER,
     an_unreachable_platform,
 )
-from write_mcp_server.fencing import FencedFastMCP, HoldForAChange
+from write_mcp_server.fencing import FencedFastMCP, HoldForAChange, holds_in_the_database
 
 from write_mcp_server_test.framework.marks import marked_are
 
 SOME_FENCE = Fence(run_id="6f1c1d2e-0000-4000-8000-000000000001", epoch=3)
+SOME_DATABASE = DatabaseSettings(database_url="postgresql://some-database.invalid/argus")
 SOME_ACTION_ID = "6f1c1d2e-0000-4000-8000-0000000000a1"
 WHAT_THE_CHANGE_ANSWERS = ["changed"]
 DONT_CARE_WHY = "another change for the run is still being made"
@@ -349,6 +359,67 @@ def test_a_read_is_answered_without_asking_after_any_run() -> None:
             _answered_with(["read"]),
             _the_run_was_asked_about(asked, [])
         ))
+
+
+@pytest.mark.unit
+def test_the_holds_are_not_opened_on_a_database_that_is_refused() -> None:
+    # Opened as the tier starts, so a database with no schema stops the tier
+    # before it serves a call - rather than at its first change, which is a
+    # change asked for in the middle of an incident.
+    some_refusal = RuntimeError("dont care")
+
+    Scenario() \
+        .when(
+            attempting(lambda: _entered(holds_in_the_database(
+                SOME_DATABASE, required=_refusing_with(some_refusal)
+            )))
+        ) \
+        .then(
+            the_same_error_reached_the_caller(some_refusal)
+        )
+
+
+@pytest.mark.unit
+def test_the_database_asked_about_is_the_one_the_holds_are_opened_on() -> None:
+    # The check is worth nothing if it can answer about a different database
+    # than the one each change is held on.
+    asked_about: list[DatabaseSettings] = []
+
+    Scenario() \
+        .when(
+            lambda: _entered(holds_in_the_database(SOME_DATABASE, required=asked_about.append))
+        ) \
+        .then(
+            _the_database_was_asked_about(asked_about, [SOME_DATABASE])
+        )
+
+
+def _entered(holds: AbstractContextManager[HoldForAChange]) -> None:
+    """The holds opened and closed again, no change made."""
+    with holds:
+        pass
+
+
+def _refusing_with(refusal: Exception) -> Callable[[DatabaseSettings], None]:
+    """A check that refuses every database with `refusal`."""
+    def required(dont_care_settings: DatabaseSettings) -> None:
+        raise refusal
+
+    return required
+
+
+def _the_database_was_asked_about(asked_about: list[DatabaseSettings],
+                                  expected: list[DatabaseSettings]) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        if asked_about != expected:
+            raise AssertionError(
+                f"Expected the schema asked after on {expected}, and it was asked after on "
+                f"{asked_about}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _a_tier_making(made: list[str], hold: HoldForAChange) -> FencedFastMCP:

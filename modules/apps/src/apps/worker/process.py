@@ -28,7 +28,7 @@ from orchestrator.unwinding import (
     unwind_incident,
 )
 from orchestrator.worker import RunSettings, work_forever
-from postgres import open_pool, require_schema
+from postgres import open_pool
 from read_mcp_client import read_mcp
 from telemetry import start_telemetry
 from telemetry.langfuse import LangfuseSettings, to_langfuse
@@ -79,6 +79,10 @@ def main() -> None:
         # still batched - comes after everything that could have reported.
         start_telemetry(TelemetrySettings.of(settings), _SERVICE,
                         also=to_langfuse(LangfuseSettings())),
+        # Each refuses a database with no schema, which is before anything is
+        # claimed: a worker that took a run and then found no table to record
+        # it in would have marked an incident as being worked on by a process
+        # that is about to die.
         open_pool(database, holding=holding) as pool,
         open_pool(database, holding=holding, connection=CHECKPOINTER_CONNECTIONS) as checkpoints,
         read_mcp(ReadMcpEndpoint.of(settings)) as read,
@@ -88,12 +92,6 @@ def main() -> None:
         the_store_for(IncidentMemorySettings.of(settings)) as store
     ):
         connections = pool.connection
-
-        # Before anything is claimed. A worker that took a run and then found no
-        # table to record it in would have marked an incident as being worked on
-        # by a process that is about to die.
-        with pool.connection() as conn:
-            require_schema(conn)
 
         graph_of = graph_for(
             checkpoints,

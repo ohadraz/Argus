@@ -19,6 +19,7 @@ from typing import Final
 
 import psycopg
 from psycopg import sql
+from psycopg.rows import tuple_row
 
 
 def _upgrade_to_head() -> None:
@@ -36,11 +37,11 @@ def _upgrade_to_head() -> None:
 
     Alembic is imported here rather than at the top of the module, because it is
     an extra: `argus-postgres[migrations]`. Everything else in this file - and
-    `require_schema` in particular, which every service calls on the way up -
+    `require_schema` in particular, which every service reaches on the way up -
     asks the database whether the tables are there, which needs no migration
-    tool. Imported at module level it would be `web_app` and the worker each
-    declaring a dependency on Alembic in order to check that somebody else had
-    already run it.
+    tool. Imported at module level it would be every service declaring a
+    dependency on Alembic in order to check that somebody else had already run
+    it.
     """
     from alembic import command
     from alembic.config import Config
@@ -68,8 +69,11 @@ def schema_is_present(conn: psycopg.Connection) -> bool:
     resolves to nothing is an answer here and an error there - and an error
     would have to be caught by class and matched by message to be told apart
     from the database being unreachable, which is not the same problem at all.
+
+    Read as a tuple whatever rows the connection hands out: a pool asks on one
+    of its own, and the checkpointer's hand out rows by column name.
     """
-    with conn.cursor() as cursor:
+    with conn.cursor(row_factory=tuple_row) as cursor:
         cursor.execute(f"SELECT to_regclass('{_THE_WITNESS_TABLE}') IS NOT NULL")
         row = cursor.fetchone()
 
@@ -80,12 +84,13 @@ def require_schema(conn: psycopg.Connection,
                    present: SchemaPresent = schema_is_present) -> None:
     """Refuses to go on against a database with no schema, naming the fix.
 
-    What every process that holds a connection calls before it serves or drains
-    anything. Argus applies its schema from a job of its own, so a process that
-    finds none has been started out of order rather than found a fault - and the
-    useful thing to say is the command, not the condition. `no such table:
-    incident`, arriving on whatever route is hit first, sends a reader to the
-    schema instead of to the job.
+    What every service reaches before it serves or drains anything - through
+    `open_pool`, which asks before it hands a pool back, or `require_schema_at`
+    where there is no pool. Argus applies its schema from a job of its own, so a
+    process that finds none has been started out of order rather than found a
+    fault - and the useful thing to say is the command, not the condition. `no
+    such table: incident`, arriving on whatever route is hit first, sends a
+    reader to the schema instead of to the job.
 
     The asking is injected because whether the tables are there is a question
     for a database and whether an answer of "no" is fatal is not. Only the first
@@ -160,7 +165,7 @@ _THE_MIGRATIONS: Final = Path(__file__).parent / "migrations"
 # vocabulary of a tool rather than a sentence of ours.
 _THE_LATEST_REVISION: Final = "head"
 
-# How a process tells somebody to apply the schema. Named here because the two
-# processes that refuse would otherwise each write their own version of one
-# sentence, and the sentence is the whole value of the refusal.
+# How a process tells somebody to apply the schema. Named here because every
+# process that refuses would otherwise write its own version of one sentence,
+# and the sentence is the whole value of the refusal.
 _THE_JOB: Final = "nox -s schema"

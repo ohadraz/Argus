@@ -18,7 +18,7 @@ from code_host.github import GitHubReads, GitHubReadSettings
 from core import DatabaseSettings, SettingsSlice, TelemetrySettings, get_settings, the_clock
 from core.models import CodeSearch
 from embedding_fastembed import an_embedder
-from postgres import open_pool, require_schema
+from postgres import open_pool
 from repository_index.building import IndexSettings, index_repository
 from repository_index.catching_up import catch_up, catch_up_forever
 from repository_index.records import get
@@ -114,9 +114,6 @@ def main(argv: list[str] | None = None) -> None:
                          index_settings.repository_index_collection) as store,
             open_pool(DatabaseSettings.of(settings)) as pool
         ):
-            with pool.connection() as conn:
-                require_schema(conn)
-
             embed = an_embedder(catch_up_settings.repository_index_embedding_model)
 
             def pass_over() -> str | None:

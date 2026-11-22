@@ -24,6 +24,7 @@ from core import DatabaseSettings, Holding, get_settings
 from psycopg_pool import ConnectionPool
 
 from postgres.fencing import FencedPool
+from postgres.schema import require_schema
 
 # How anything gets a connection: ask, use it for a block, and let go. The
 # narrowest thing a caller can depend on, and deliberately not `ConnectionPool` -
@@ -57,6 +58,14 @@ def open_pool(settings: DatabaseSettings,
     connection is fenced with it as it goes out (`postgres.fencing`). What a
     `connection` must be like - the checkpointer's commit as they go - is the
     caller's to say, and applies to every one.
+
+    Refused where the database has no schema (`SchemaNotApplied`), asked on one
+    of the pool's own connections before the pool is handed back. Every
+    process that holds a pool opens it on the way up, so here the check is
+    made for all of them, and a process added later cannot forget it. The pool
+    is closed on the way out of any failure to ask - a refusal, or a database
+    that never answered: nobody owns a pool that was not handed back, and one
+    left open would go on holding its connections.
     """
     pool: dict[str, Any] = {"min_size": _MIN_CONNECTIONS,
                             "max_size": _MAX_CONNECTIONS,
@@ -64,10 +73,17 @@ def open_pool(settings: DatabaseSettings,
                             "kwargs": dict(connection or {}),
                             "open": True}
 
-    if holding is None:
-        return ConnectionPool(settings.database_url, **pool)
+    opened = (ConnectionPool(settings.database_url, **pool) if holding is None
+              else FencedPool(settings.database_url, holding, **pool))
 
-    return FencedPool(settings.database_url, holding, **pool)
+    try:
+        with opened.connection() as conn:
+            require_schema(conn)
+    except BaseException:
+        opened.close()
+        raise
+
+    return opened
 
 
 @contextmanager
@@ -103,6 +119,18 @@ def connect(settings: DatabaseSettings,
     is.
     """
     return psycopg.connect(settings.database_url, **dict(connection or {}))
+
+
+def require_schema_at(settings: DatabaseSettings) -> None:
+    """Refuses to go on against a database with no schema, asked on a
+    connection opened for the question and closed after it.
+
+    For a process that holds no pool, and so is not checked by opening one: the
+    write tier opens a connection per change, and would otherwise learn of a
+    missing schema at its first change, in the middle of an incident.
+    """
+    with connect(settings) as conn:
+        require_schema(conn)
 
 
 def connect_from_env() -> psycopg.Connection:

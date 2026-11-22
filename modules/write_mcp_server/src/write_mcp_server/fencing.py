@@ -38,7 +38,7 @@ from mcp_transport import (
     a_lost_run,
     a_refusal_saying_what_it_left,
 )
-from postgres import connect
+from postgres import connect, require_schema_at
 
 from write_mcp_server.marking import the_action_in
 
@@ -170,9 +170,12 @@ class FencedFastMCP(TracedFastMCP):
 
 
 @contextmanager
-def holds_in_the_database(settings: DatabaseSettings,
-                          wait: str = LONGER_THAN_ANY_CLAIM,
-                          idle: str = LONGER_THAN_ANY_CHANGE) -> Generator[HoldForAChange]:
+def holds_in_the_database(
+    settings: DatabaseSettings,
+    wait: str = LONGER_THAN_ANY_CLAIM,
+    idle: str = LONGER_THAN_ANY_CHANGE,
+    required: Callable[[DatabaseSettings], None] = require_schema_at
+) -> Generator[HoldForAChange]:
     """The run asked after and kept on a connection of the change's own.
 
     Kept by the session rather than by a transaction (`runs.hold_for_a_change`),
@@ -187,7 +190,14 @@ def holds_in_the_database(settings: DatabaseSettings,
     letting go had failed would carry the run, held, into whichever change
     took it next. A change is rare and slow, and a connection costs it nothing
     worth counting.
+
+    Opened only on a database with its schema, as every service's database is
+    (`required`, which raises where it has none): the holds are opened as the
+    tier starts, and a tier with no pool to open is checked here instead - or
+    it would learn of the missing schema at its first change.
     """
+    required(settings)
+
     @contextmanager
     def hold(held: Fence) -> Generator[bool]:
         with (
