@@ -141,7 +141,8 @@ THE_WAY_RECALL_READS = ("vector_store_qdrant.searching", "qdrant_client")
 # `include_external_packages`, which is global (see the docstring above).
 SPOKEN_ONLY_BY_ITS_ADAPTER = {
     "qdrant_client": "vector_store_qdrant",
-    "anthropic": "core.llm.adapters.anthropic_adapter"
+    "anthropic": "core.llm.adapters.anthropic_adapter",
+    "fastembed": "embedding_fastembed"
 }
 
 # The kernel's own suite, exempt for the reason the kernel itself is: it tests

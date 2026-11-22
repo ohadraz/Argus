@@ -20,7 +20,7 @@ dependencies = [
     "opentelemetry-api>=1.45",
 ]
 
-# The heavy three, behind the doors they live at, taken by the modules that
+# The heavy ones, behind the doors they live at, taken by the modules that
 # actually go through them. Declared as hard dependencies they were transitive
 # to all twenty: `revenue_source` and `exchange_rate_source` installed the
 # Anthropic SDK to get a `UuidStr`, and nothing said otherwise because nothing
@@ -31,10 +31,6 @@ dependencies = [
 # `core.mcp_transport`, so a module reaching one without the extra fails
 # `guard_layering` rather than at runtime on the day that path is first walked.
 [project.optional-dependencies]
-# The local model that turns text into vectors. An extra because two
-# corpora want one and most callers of this kernel want neither: a module
-# naming a `UuidStr` should not install an ONNX runtime to do it.
-embedding = ["fastembed>=0.8"]
 # The model vendor's SDK, which only the provider's adapter
 # (`core.llm.adapters.anthropic_adapter`) imports. `core.llm` itself - the port,
 # the factory, the conversations - needs none of it, so the agents that talk
@@ -54,7 +50,7 @@ migrations = ["alembic>=1.20.0"]
 # CI alone and looks like a code problem.
 [dependency-groups]
 dev = [
-    "argus-core[embedding,llm,mcp,migrations]",
+    "argus-core[llm,mcp,migrations]",
     # What the suite builds the model vendor's transport errors from.
     "httpx2",
     "argus-argus_testkit",

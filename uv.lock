@@ -19,6 +19,7 @@ members = [
     "argus-communication",
     "argus-core",
     "argus-deployment-platform",
+    "argus-embedding-fastembed",
     "argus-exchange-rate-source",
     "argus-flag-provider",
     "argus-github-double",
@@ -192,13 +193,14 @@ dependencies = [
 
 [package.optional-dependencies]
 deliverer = [
-    { name = "argus-core", extra = ["embedding"] },
-    { name = "argus-incident-memory", extra = ["store"] },
+    { name = "argus-embedding-fastembed" },
+    { name = "argus-incident-memory" },
     { name = "argus-vector-store-qdrant" },
 ]
 indexer = [
     { name = "argus-code-host" },
-    { name = "argus-repository-index", extra = ["store"] },
+    { name = "argus-embedding-fastembed" },
+    { name = "argus-repository-index" },
     { name = "argus-vector-store-qdrant" },
 ]
 intent-reader = [
@@ -210,6 +212,7 @@ read-mcp = [
     { name = "argus-alerting-platform" },
     { name = "argus-code-host" },
     { name = "argus-deployment-platform" },
+    { name = "argus-embedding-fastembed" },
     { name = "argus-flag-provider" },
     { name = "argus-metrics-source" },
     { name = "argus-read-mcp-server" },
@@ -233,9 +236,10 @@ web = [
 ]
 worker = [
     { name = "argus-codefix-agent" },
-    { name = "argus-core", extra = ["embedding", "llm", "mcp"] },
+    { name = "argus-core", extra = ["llm", "mcp"] },
+    { name = "argus-embedding-fastembed" },
     { name = "argus-exchange-rate-source" },
-    { name = "argus-incident-memory", extra = ["store"] },
+    { name = "argus-incident-memory" },
     { name = "argus-incident-record" },
     { name = "argus-investigation-agent" },
     { name = "argus-mitigation" },
@@ -275,17 +279,20 @@ requires-dist = [
     { name = "argus-codefix-agent", marker = "extra == 'worker'", editable = "modules/codefix_agent" },
     { name = "argus-communication", marker = "extra == 'relay'", editable = "modules/communication" },
     { name = "argus-core", editable = "modules/core" },
-    { name = "argus-core", extras = ["embedding"], marker = "extra == 'deliverer'", editable = "modules/core" },
     { name = "argus-core", extras = ["llm"], marker = "extra == 'intent-reader'", editable = "modules/core" },
-    { name = "argus-core", extras = ["llm", "mcp", "embedding"], marker = "extra == 'worker'", editable = "modules/core" },
+    { name = "argus-core", extras = ["llm", "mcp"], marker = "extra == 'worker'", editable = "modules/core" },
     { name = "argus-core", extras = ["migrations"], marker = "extra == 'schema'", editable = "modules/core" },
     { name = "argus-deployment-platform", marker = "extra == 'read-mcp'", editable = "modules/deployment_platform" },
     { name = "argus-deployment-platform", marker = "extra == 'write-mcp'", editable = "modules/deployment_platform" },
+    { name = "argus-embedding-fastembed", marker = "extra == 'deliverer'", editable = "modules/embedding_fastembed" },
+    { name = "argus-embedding-fastembed", marker = "extra == 'indexer'", editable = "modules/embedding_fastembed" },
+    { name = "argus-embedding-fastembed", marker = "extra == 'read-mcp'", editable = "modules/embedding_fastembed" },
+    { name = "argus-embedding-fastembed", marker = "extra == 'worker'", editable = "modules/embedding_fastembed" },
     { name = "argus-exchange-rate-source", marker = "extra == 'worker'", editable = "modules/exchange_rate_source" },
     { name = "argus-flag-provider", marker = "extra == 'read-mcp'", editable = "modules/flag_provider" },
     { name = "argus-flag-provider", marker = "extra == 'write-mcp'", editable = "modules/flag_provider" },
-    { name = "argus-incident-memory", extras = ["store"], marker = "extra == 'deliverer'", editable = "modules/incident_memory" },
-    { name = "argus-incident-memory", extras = ["store"], marker = "extra == 'worker'", editable = "modules/incident_memory" },
+    { name = "argus-incident-memory", marker = "extra == 'deliverer'", editable = "modules/incident_memory" },
+    { name = "argus-incident-memory", marker = "extra == 'worker'", editable = "modules/incident_memory" },
     { name = "argus-incident-record", marker = "extra == 'relay'", editable = "modules/incident_record" },
     { name = "argus-incident-record", marker = "extra == 'worker'", editable = "modules/incident_record" },
     { name = "argus-investigation-agent", marker = "extra == 'worker'", editable = "modules/investigation_agent" },
@@ -300,7 +307,7 @@ requires-dist = [
     { name = "argus-push-source", marker = "extra == 'web'", editable = "modules/push_source" },
     { name = "argus-read-mcp-client", marker = "extra == 'worker'", editable = "modules/read_mcp_client" },
     { name = "argus-read-mcp-server", marker = "extra == 'read-mcp'", editable = "modules/read_mcp_server" },
-    { name = "argus-repository-index", extras = ["store"], marker = "extra == 'indexer'", editable = "modules/repository_index" },
+    { name = "argus-repository-index", marker = "extra == 'indexer'", editable = "modules/repository_index" },
     { name = "argus-revenue-source", marker = "extra == 'worker'", editable = "modules/revenue_source" },
     { name = "argus-telemetry", editable = "modules/telemetry" },
     { name = "argus-vector-store-qdrant", marker = "extra == 'deliverer'", editable = "modules/vector_store_qdrant" },
@@ -465,9 +472,6 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-embedding = [
-    { name = "fastembed" },
-]
 llm = [
     { name = "anthropic" },
 ]
@@ -483,7 +487,7 @@ migrations = [
 [package.dev-dependencies]
 dev = [
     { name = "argus-argus-testkit" },
-    { name = "argus-core", extra = ["embedding", "llm", "mcp", "migrations"] },
+    { name = "argus-core", extra = ["llm", "mcp", "migrations"] },
     { name = "httpx2" },
     { name = "opentelemetry-sdk" },
 ]
@@ -492,7 +496,6 @@ dev = [
 requires-dist = [
     { name = "alembic", marker = "extra == 'migrations'", specifier = ">=1.20.0" },
     { name = "anthropic", marker = "extra == 'llm'", specifier = ">=1.0" },
-    { name = "fastembed", marker = "extra == 'embedding'", specifier = ">=0.8" },
     { name = "httpx", marker = "extra == 'mcp'", specifier = ">=0.28" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.29.0" },
     { name = "opentelemetry-api", specifier = ">=1.45" },
@@ -502,12 +505,12 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.0" },
     { name = "uvicorn", marker = "extra == 'mcp'", specifier = ">=0.30" },
 ]
-provides-extras = ["embedding", "llm", "mcp", "migrations"]
+provides-extras = ["llm", "mcp", "migrations"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
-    { name = "argus-core", extras = ["embedding", "llm", "mcp", "migrations"] },
+    { name = "argus-core", extras = ["llm", "mcp", "migrations"] },
     { name = "httpx2" },
     { name = "opentelemetry-sdk", specifier = ">=1.45" },
 ]
@@ -532,6 +535,29 @@ requires-dist = [
     { name = "argus-core", editable = "modules/core" },
     { name = "argus-http-applying", editable = "modules/http_applying" },
     { name = "httpx2" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
+
+[[package]]
+name = "argus-embedding-fastembed"
+version = "0.1.0"
+source = { editable = "modules/embedding_fastembed" }
+dependencies = [
+    { name = "argus-core" },
+    { name = "fastembed" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "argus-argus-testkit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "argus-core", editable = "modules/core" },
+    { name = "fastembed", specifier = ">=0.8" },
 ]
 
 [package.metadata.requires-dev]
@@ -630,16 +656,10 @@ dependencies = [
     { name = "psycopg", extra = ["binary"] },
 ]
 
-[package.optional-dependencies]
-store = [
-    { name = "argus-core", extra = ["embedding"] },
-]
-
 [package.dev-dependencies]
 dev = [
     { name = "argus-argus-testkit" },
     { name = "argus-core", extra = ["migrations"] },
-    { name = "argus-incident-memory", extra = ["store"] },
     { name = "argus-vector-store-qdrant" },
     { name = "httpx2" },
 ]
@@ -647,16 +667,13 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "argus-core", editable = "modules/core" },
-    { name = "argus-core", extras = ["embedding"], marker = "extra == 'store'", editable = "modules/core" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },
 ]
-provides-extras = ["store"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
     { name = "argus-core", extras = ["migrations"], editable = "modules/core" },
-    { name = "argus-incident-memory", extras = ["store"] },
     { name = "argus-vector-store-qdrant", editable = "modules/vector_store_qdrant" },
     { name = "httpx2" },
 ]
@@ -1048,7 +1065,7 @@ dependencies = [
     { name = "argus-deployment-platform" },
     { name = "argus-flag-provider" },
     { name = "argus-metrics-source" },
-    { name = "argus-repository-index", extra = ["store"] },
+    { name = "argus-repository-index" },
     { name = "httpx2" },
     { name = "mcp" },
 ]
@@ -1066,7 +1083,7 @@ requires-dist = [
     { name = "argus-deployment-platform", editable = "modules/deployment_platform" },
     { name = "argus-flag-provider", editable = "modules/flag_provider" },
     { name = "argus-metrics-source", editable = "modules/metrics_source" },
-    { name = "argus-repository-index", extras = ["store"], editable = "modules/repository_index" },
+    { name = "argus-repository-index", editable = "modules/repository_index" },
     { name = "httpx2" },
     { name = "mcp", specifier = ">=1.29.0" },
 ]
@@ -1083,16 +1100,10 @@ dependencies = [
     { name = "argus-core" },
 ]
 
-[package.optional-dependencies]
-store = [
-    { name = "argus-core", extra = ["embedding"] },
-]
-
 [package.dev-dependencies]
 dev = [
     { name = "argus-argus-testkit" },
     { name = "argus-core", extra = ["migrations"] },
-    { name = "argus-repository-index", extra = ["store"] },
     { name = "argus-vector-store-qdrant" },
 ]
 
@@ -1100,15 +1111,12 @@ dev = [
 requires-dist = [
     { name = "argus-code-host", editable = "modules/code_host" },
     { name = "argus-core", editable = "modules/core" },
-    { name = "argus-core", extras = ["embedding"], marker = "extra == 'store'", editable = "modules/core" },
 ]
-provides-extras = ["store"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
     { name = "argus-core", extras = ["migrations"], editable = "modules/core" },
-    { name = "argus-repository-index", extras = ["store"] },
     { name = "argus-vector-store-qdrant", editable = "modules/vector_store_qdrant" },
 ]
 

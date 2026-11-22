@@ -1,0 +1,34 @@
+[project]
+name = "argus-embedding_fastembed"
+version = "0.1.0"
+requires-python = ">=3.14"
+
+# The adapter, and so the one distribution that installs the model's runtime.
+# Taken by the processes whose root builds an embedder - the worker (recall),
+# the deliverer (keeping), the index's catch-up loop and the read server - and
+# by nothing that only names the port, which lives in the kernel and installs
+# nothing.
+dependencies = [
+    "argus-core",
+    "fastembed>=0.8",
+]
+
+
+[dependency-groups]
+dev = [
+    "argus-argus_testkit",
+]
+
+
+[tool.uv.sources]
+argus-core = { workspace = true }
+argus-argus_testkit = { workspace = true }
+
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/embedding_fastembed"]

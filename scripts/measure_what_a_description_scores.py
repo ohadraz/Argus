@@ -29,6 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 from core import get_settings  # noqa: E402
+from embedding_fastembed import an_embedder  # noqa: E402
 from qdrant_client import QdrantClient  # noqa: E402
 from read_mcp_server.meaning import (  # noqa: E402
     MOST_PASSAGES_WORTH_ANSWERING,
@@ -37,7 +38,6 @@ from read_mcp_server.meaning import (  # noqa: E402
     NearestPassages,
     passages_in,
 )
-from repository_index.embedding import an_embedder  # noqa: E402
 from repository_index.indexing import Embedder  # noqa: E402
 from repository_index.store import Found  # noqa: E402
 from vector_store_qdrant import SearchOpenedOnFirstUse  # noqa: E402

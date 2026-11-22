@@ -35,6 +35,7 @@ from argus_testkit import (
 )
 from code_host import CodeHostReads
 from core import Connections, ReadMcpEndpoint
+from core.embedding import Embedder
 from core.models import CodeSearch
 from core.vector_store import VectorSearch
 from deployment_platform import DeploymentPlatformReads
@@ -49,9 +50,6 @@ from read_mcp_server.repository import RepositoryReadSettings
 from read_mcp_server.retrieval import TargetServiceSettings
 from read_mcp_server.server import build_server
 from read_mcp_server.window import RetrievalSettings
-
-# Which model a question would be embedded with, where no case embeds one.
-DONT_CARE_EMBEDDING_MODEL = "dont-care-embedding-model"
 
 SEARCHING_BY_GREP_ALONE = CodeSearch.GREP
 
@@ -90,7 +88,7 @@ THE_CODE_OUTSIDE_A_PATCH = "get_code_outside_the_patch"
 # The tools a model is offered as this tier declares them (MCP, `tools/list`),
 # each with the arguments its caller fills in itself rather than asking the
 # model for. The search by meaning is one of them, and absent here only because
-# a tier that serves it loads an embedding model to build.
+# the tier these cases build searches by grep alone.
 OFFERED_TO_A_MODEL = {
     "get_service_dependencies": {"service"},
     "get_what_a_deployment_changed": {"service"},
@@ -486,10 +484,10 @@ def _a_read_tier(mode: CodeSearch,
             service_registry_service_path="/registry/services/{service}"
         ),
         RepositoryReadSettings(service_source_paths="src"),
-        IndexReadSettings(repository_index_embedding_model=DONT_CARE_EMBEDDING_MODEL,
-                          repository_index_collection="dont-care-collection",
+        IndexReadSettings(repository_index_collection="dont-care-collection",
                           code_search=mode),
         create_autospec(VectorSearch, instance=True),
+        create_autospec(Embedder, instance=True),
         create_autospec(AlertingPlatform, instance=True),
         create_autospec(SeriesClassifier, instance=True),
         create_autospec(Connections, instance=True)

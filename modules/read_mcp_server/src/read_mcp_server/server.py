@@ -20,6 +20,7 @@ from typing import Annotated
 from alerting_platform import AlertingPlatform
 from code_host import CodeHostReads
 from core import Connections, ReadMcpEndpoint
+from core.embedding import Embedder
 from core.mcp_transport import TracedFastMCP
 from core.models import (
     AlertRuleStanding,
@@ -38,7 +39,6 @@ from deployment_platform import DeploymentPlatformReads
 from flag_provider import FlagProviderReads
 from metrics_source import MetricsSource, SeriesClassifier
 from pydantic import Field
-from repository_index.embedding import an_embedder
 
 from read_mcp_server import (
     alert_rules,
@@ -76,6 +76,7 @@ def build_server(endpoint: ReadMcpEndpoint,
                  repository_settings: RepositoryReadSettings,
                  index_settings: IndexReadSettings,
                  passages: VectorSearch,
+                 embed: Embedder,
                  rules: AlertingPlatform,
                  classify: SeriesClassifier,
                  connections: Connections) -> TracedFastMCP:
@@ -85,9 +86,9 @@ def build_server(endpoint: ReadMcpEndpoint,
     which the tests do - binds no address and builds no server. The slices
     arrive here and are closed over by the registrations below; nothing beneath
     this module reads configuration for itself. Every vendor this tier reads -
-    the metrics source, the store passages are searched in, the platforms -
-    arrives already built, as its port, from the process's root
-    (`apps.read_mcp`), so nothing here names one.
+    the metrics source, the store passages are searched in, the model a
+    question is embedded with, the platforms - arrives already built, as its
+    port, from the process's root (`apps.read_mcp`), so nothing here names one.
 
     The tool bodies stay one-line delegations. What they delegate to is where
     the behaviour lives, and where an injection seam a decorated function
@@ -451,8 +452,7 @@ def build_server(endpoint: ReadMcpEndpoint,
     # Bound once, like the fetchers above. The embedder and the store are the
     # odd ones: each opens on first use rather than here, so a server that is
     # started and never asked to search by meaning loads no model and reaches
-    # no store. The store arrives as the port, which can only search.
-    embed = an_embedder(index_settings.repository_index_embedding_model)
+    # no store. Both arrive as ports: the store's can only search.
     find_passages = meaning.passages_in(passages)
     indexed_sha = meaning.the_commit_indexed_for(code.repository, connections)
     head_of = code.head_of

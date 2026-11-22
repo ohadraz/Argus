@@ -1,7 +1,7 @@
 """The model that turns passages into vectors.
 
-The one collaborator every other test here replaces with a double, which is
-exactly why it needs a suite of its own: a seam nothing ever exercises is a seam
+The one collaborator every other suite replaces with a double, which is exactly
+why it needs a suite of its own: a seam nothing ever exercises is a seam
 that works until the day it is used.
 
 It runs in this process. No key, no network, no bill - which is why it was
@@ -26,7 +26,7 @@ from __future__ import annotations
 import pytest
 from argus_testkit import Assertion, Scenario, an_error_was_raised, attempting
 from core import get_settings
-from repository_index.embedding import an_embedder
+from embedding_fastembed import an_embedder
 
 # The model this deployment indexes with, which is the one worth asking about.
 THE_CONFIGURED_MODEL = get_settings().repository_index_embedding_model

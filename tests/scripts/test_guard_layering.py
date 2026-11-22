@@ -196,6 +196,24 @@ def test_the_model_vendors_adapter_importing_its_sdk_passes() -> None:
         .then(_these_are_refused([]))
 
 
+@pytest.mark.unit
+def test_the_embedding_model_s_library_named_past_its_adapter_is_refused() -> None:
+    # The model is an adapter like any other: a corpus that loaded it itself
+    # would be a library choosing its vendor, which only a root may do.
+    Scenario() \
+        .given(a_graph := _a_graph_with(("repository_index.indexing", "fastembed"))) \
+        .when(lambda: the_vendors_spoken_past_their_adapter(a_graph)) \
+        .then(_these_are_refused([("repository_index.indexing", "fastembed")]))
+
+
+@pytest.mark.unit
+def test_the_embedding_model_s_adapter_importing_its_library_passes() -> None:
+    Scenario() \
+        .given(a_graph := _a_graph_with(("embedding_fastembed.embedding", "fastembed"))) \
+        .when(lambda: the_vendors_spoken_past_their_adapter(a_graph)) \
+        .then(_these_are_refused([]))
+
+
 # The Mitigator's write, which accepts an admission and must never make one.
 THE_MITIGATOR_S_WRITE = "mitigation.trying"
 

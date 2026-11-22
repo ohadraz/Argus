@@ -17,8 +17,8 @@ from core import (
     get_settings,
     open_pool,
 )
-from core.embedding import an_embedder
 from core.schema import require_schema
+from embedding_fastembed import an_embedder
 from incident_memory.delivering import deliver_forever, deliver_on
 from incident_memory.keeping import kept_in
 from telemetry import start_telemetry

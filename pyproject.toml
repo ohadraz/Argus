@@ -143,6 +143,7 @@ root_packages = [
     "communication",
     "core",
     "deployment_platform",
+    "embedding_fastembed",
     "exchange_rate_source",
     "flag_provider",
     "http_applying",
@@ -286,20 +287,10 @@ ignore_imports = [
     # refuse.
     "** -> core.budget",
     "** -> core.source_scope",
-    # Narrower than the doors above it, and for the reason `llm` and
-    # `mcp_transport` are narrow: `embedding` is an optional dependency, taken
-    # by the two modules that hold a corpus and by nobody else. A module
-    # reaching it without declaring the extra would work in the workspace venv
-    # and fail wherever that module is resolved on its own.
-    "repository_index.** -> core.embedding",
-    "incident_memory.** -> core.embedding",
-    # Two roots are the third, and reach it for a different reason than the two
-    # above: they hold no corpus of their own, they build the model a corpus is
-    # written and searched with - the worker's for recall, the deliverer's for
-    # keeping. Their two extras, `[worker]` and `[deliverer]`, are the ones that
-    # take `core[embedding]`, so no other root is given the door.
-    "apps.worker.** -> core.embedding",
-    "apps.deliverer -> core.embedding",
+    # The embedder's port, and a door for everyone, like the vector store's: it
+    # imports no third party, so naming it installs nothing. The model behind
+    # it is `embedding_fastembed`'s, and only a process's root builds one.
+    "** -> core.embedding",
     # The vector store's ports, and a door for everyone: they import no third
     # party, so naming one installs nothing. The walk types the store it holds
     # by it, the read server the store it searches, and the corpora the store
@@ -437,11 +428,10 @@ ignore_imports = [
     "web_app.** -> postmortem_rendering",
     # The watermark, and nothing else of the index. `repository_index.records` is
     # Postgres alone - one row saying where the repository is - where
-    # `repository_index.store` writes passages to a vector store and
-    # `repository_index.embedding` loads an ONNX runtime. Named by module rather
-    # than as a package so that the day somebody reaches for the other half,
-    # the contract says so instead of this process quietly growing an embedding
-    # model to serve a page.
+    # `repository_index.store` writes passages to a vector store. Named by module
+    # rather than as a package so that the day somebody reaches for the other
+    # half, the contract says so instead of this process quietly growing a
+    # store to serve a page.
     "web_app.** -> repository_index.records",
     # The ports a person's resolution, a person's words in an incident's thread
     # and their press of an offer, an alert and a push arrive through. Their
@@ -501,6 +491,7 @@ protected_modules = [
     "code_host.github",
     "core.llm.adapters",
     "deployment_platform.argocd",
+    "embedding_fastembed",
     "exchange_rate_source.frankfurter",
     "flag_provider.unleash",
     "metrics_source.prometheus_adapter",

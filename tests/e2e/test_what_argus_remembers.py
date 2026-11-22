@@ -21,9 +21,9 @@ import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 from core import get_settings
-from core.embedding import an_embedder
 from core.events import SimilarIncidentsRecalled
 from core.models import IncidentStatus, Verdict
+from embedding_fastembed import an_embedder
 from incident_memory.recalling import recalled
 from incident_record.repository import events
 from vector_store_qdrant import the_search_at

@@ -8,8 +8,8 @@ owning them exists to end. So the server is built in-process and asked: listing
 calls no tool, and nothing it is configured to reach is reached.
 
 Built for one way of finding source, since that decides which repository tools
-it serves. The search by meaning is served only where an index is kept, and a
-tier built to serve it loads an embedding model to be built at all.
+it serves. The search by meaning is served only where an index is kept; a tier
+built to serve it is handed its embedder, here a stand-in that loads no model.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from unittest.mock import create_autospec
 from alerting_platform import AlertingPlatform
 from code_host import CodeHostReads
 from core import Connections, ReadMcpEndpoint
+from core.embedding import Embedder
 from core.models import CodeSearch, ToolDefinition
 from core.vector_store import VectorSearch
 from deployment_platform import DeploymentPlatformReads
@@ -34,9 +35,6 @@ from read_mcp_server.repository import RepositoryReadSettings
 from read_mcp_server.retrieval import TargetServiceSettings
 from read_mcp_server.server import build_server
 from read_mcp_server.window import RetrievalSettings
-
-# Which model a question would be embedded with, where no case embeds one.
-DONT_CARE_EMBEDDING_MODEL = "dont-care-embedding-model"
 
 SEARCHING_BY_GREP_ALONE = CodeSearch.GREP
 
@@ -79,10 +77,10 @@ def _a_read_tier(mode: CodeSearch) -> FastMCP:
             service_registry_service_path="/registry/services/{service}"
         ),
         RepositoryReadSettings(service_source_paths="src"),
-        IndexReadSettings(repository_index_embedding_model=DONT_CARE_EMBEDDING_MODEL,
-                          repository_index_collection="dont-care-collection",
+        IndexReadSettings(repository_index_collection="dont-care-collection",
                           code_search=mode),
         create_autospec(VectorSearch, instance=True),
+        create_autospec(Embedder, instance=True),
         create_autospec(AlertingPlatform, instance=True),
         create_autospec(SeriesClassifier, instance=True),
         create_autospec(Connections, instance=True)

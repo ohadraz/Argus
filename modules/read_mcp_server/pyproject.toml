@@ -7,7 +7,9 @@ dependencies = [
     # The alerting platform's port. Its adapter is built by the process's root
     # (`apps.read_mcp`) and handed on.
     "argus-alerting_platform",
-    "argus-repository_index[store]",
+    # The index's passages and watermark. The embedder a question is embedded
+    # with is handed in as the kernel's port, built by the process's root.
+    "argus-repository_index",
     "argus-deployment_platform",
     "argus-flag_provider",
     "argus-metrics_source",

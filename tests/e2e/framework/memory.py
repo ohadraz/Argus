@@ -22,8 +22,8 @@ next incident, which is the world being staged.
 from __future__ import annotations
 
 from core import get_settings
-from core.embedding import an_embedder
 from core.models import REVERT_FEATURE_FLAG, ActionIdentity, Verdict, WhatWasTried
+from embedding_fastembed import an_embedder
 from incident_memory.keeping import kept_in
 from incident_memory.records import RememberedIncident
 from vector_store_qdrant.indexing import the_index_at

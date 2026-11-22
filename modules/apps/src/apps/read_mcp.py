@@ -22,6 +22,7 @@ from core import (
 )
 from core.models import MetricBucket, RuleSeries
 from deployment_platform.argocd import ArgoCd, ArgoCdSettings
+from embedding_fastembed import an_embedder
 from flag_provider.unleash import UnleashFrontend, UnleashFrontendSettings
 from metrics_source import MetricsSource
 from metrics_source.prometheus_adapter import buckets_between, what_the_series_is
@@ -106,6 +107,10 @@ def main() -> None:
             # meaning - or offers no such tool - reaches no store.
             SearchOpenedOnFirstUse(QdrantSettings().qdrant_url,
                                    index.repository_index_collection),
+            # The model a question is embedded with, handed on as the port - the
+            # one the index was built with. It loads on first use, so a tier that
+            # never searches by meaning loads no model.
+            an_embedder(settings.repository_index_embedding_model),
             # The alerting platform's adapter, built here for the same reason and
             # handed on as its port, and the metrics adapter's account of what a
             # rule's series measures beside it - the one adapter that may read a

@@ -6,9 +6,10 @@ dependencies = [
     "argus-core",
     "argus-incident_record",
     "argus-narration",
-    # Without `[store]`, deliberately. The push webhook writes one row of the
-    # index's watermark and indexes nothing, so this process installs neither
-    # a vector store nor an embedding model to serve a page.
+    # The push webhook writes one row of the index's watermark and indexes
+    # nothing, and the package installs neither a vector store nor an embedding
+    # model - those adapters are the indexing roots' - so this process serves a
+    # page without either.
     "argus-repository_index",
     # The ports a person's resolution, a person's words in an incident's
     # thread, an alert and a push arrive through. Their adapters are built by

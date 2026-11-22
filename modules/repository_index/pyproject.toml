@@ -9,30 +9,11 @@ dependencies = [
 ]
 
 
-# The model, for whoever searches or builds. An extra rather than a hard
-# dependency, for the reason `core` makes `anthropic` and `mcp` extras: the
-# watermark is Postgres and the passages are embedded by a model run in this
-# process, and the two callers that only need to know which commit was indexed
-# - the push webhook in `web_app`, and anything else asking whether the index
-# is current - would otherwise install an ONNX runtime to write one string in
-# one row. The store's client is not behind it: the adapter is the catch-up
-# loop's root's to build and install (`apps.indexer`).
-#
-# Every caller that searches or builds declares `argus-repository_index[store]`, and
-# reaching `repository_index.store` or `repository_index.embedding` without it is a broken
-# layering contract here rather than an ImportError in a live incident.
-[project.optional-dependencies]
-store = [
-    # The model runs in this process. Chosen for being local, free and
-    # dependent on nothing external - not for retrieval quality, which a
-    # code-trained hosted model would beat. What it buys instead is that
-    # indexing costs nothing, that an incident never waits on a vendor, and
-    # that no double has to exist for a suite to run.
-    #
-    # Taken through the kernel's door rather than declared here, because the
-    # model is the kernel's: long-term memory embeds with one too.
-    "argus-core[embedding]",
-]
+# No model and no store client: the passages are embedded through the kernel's
+# `Embedder` port and written through its `VectorIndex`, and each adapter is a
+# process's root's to build - `embedding_fastembed` and `vector_store_qdrant`.
+# So the callers that only need to know which commit was indexed - the push
+# webhook in `web_app` - install no ONNX runtime to write one string in one row.
 
 
 [dependency-groups]
@@ -41,13 +22,6 @@ dev = [
     # empty one rather than adopting whatever the container came up with.
     "argus-core[migrations]",
     "argus-argus_testkit",
-    # Its own store extra. The integration tests open a real Qdrant through the
-    # store's adapter and the component tests load the real model - they are
-    # what the extra exists to be tested through - so the suite declares it
-    # rather than relying on a developer's `.venv` happening to hold it from an
-    # `--all-packages` sync. Without this the module passes locally and fails
-    # on a clean runner, which is the worst way round.
-    "argus-repository_index[store]",
     # The store's adapter the integration tests write through, which no module
     # here imports: the catch-up loop's root (`apps.indexer`) builds it and
     # hands each pass the port.

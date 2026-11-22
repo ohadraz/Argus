@@ -24,9 +24,9 @@ from core import (
 )
 from core.models import CodeSearch
 from core.schema import require_schema
+from embedding_fastembed import an_embedder
 from repository_index.building import IndexSettings, index_repository
 from repository_index.catching_up import catch_up, catch_up_forever
-from repository_index.embedding import an_embedder
 from repository_index.records import get
 from telemetry import start_telemetry
 from telemetry.langfuse import LangfuseSettings, to_langfuse

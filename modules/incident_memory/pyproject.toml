@@ -10,43 +10,12 @@ dependencies = [
 ]
 
 
-# The model, for whoever searches or keeps. An extra rather than a hard
-# dependency, in the shape `repository_index` uses: behind it is an ONNX
-# runtime, and naming a memory record is not a reason to install one. The
-# store's client is not behind it at all - the adapter is its roots' to build
-# and install.
-#
-# `orchestrator` takes it bare: the walk files and composes records and never
-# searches. The two processes that do - the worker, whose root builds recall,
-# and the deliverer - take `[store]` through their roots' extras
-# (`argus-apps[worker]`, `[deliverer]`). The worker has no choice: whether
-# memory is searched at all is `incident_memory_enabled`, read when the worker
-# starts, and a dependency is resolved long before a process reads anything.
-#
-# What pays off is the split the extra is drawn along. `records`,
-# `describing`, `ordering`, `composing` and `filing` reach no store, so the
-# files in `orchestrator` that import them at module scope load neither Qdrant
-# nor an ONNX runtime. `recalling` reaches the store, and the worker's root
-# imports it inside the factory that runs when the process opened one;
-# `keeping` and `delivering` are the deliverer's, and no walk imports them. A
-# walk with memory off imports nothing it will not use, even though its wheel
-# contains it.
-#
-# Every caller that writes or searches declares `argus-incident_memory[store]`.
-# The kernel's `embedding` door is open only to the modules that declare its
-# extra, this one among them, so any other module reaching it is a broken
-# front-door contract rather than an ImportError at the close of a live incident.
-# The store's port is the kernel's and installs nothing; its adapter is the
-# deliverer's root's to build (`apps.deliverer`), and installed by that root.
-[project.optional-dependencies]
-store = [
-    # The same local, free, keyless embedder the repository index uses, and
-    # the same one: it is the kernel's, behind the kernel's door. Chosen for
-    # costing nothing and waiting on nobody rather than for retrieval quality -
-    # and behind a seam, so a benchmark that blames the model can pass a
-    # different one.
-    "argus-core[embedding]",
-]
+# No model and no store client. Keeping and recall take the kernel's ports - an
+# `Embedder` and a `VectorIndex` or `VectorSearch` - and their adapters
+# (`embedding_fastembed`, `vector_store_qdrant`) are the roots' to build and
+# install: the worker's, which builds recall, and the deliverer's. So
+# `orchestrator`, which files and composes records and never searches, loads
+# neither Qdrant nor an ONNX runtime by taking this package.
 
 
 [dependency-groups]
@@ -56,10 +25,6 @@ dev = [
     # container came up with.
     "argus-core[migrations]",
     "argus-argus_testkit",
-    # Its own store extra, for the reason `repository_index` declares its: the
-    # integration tests write to a real Qdrant through the store's adapter,
-    # which is the only way to answer whether a record written can be found.
-    "argus-incident_memory[store]",
     # The store's adapter the integration tests write through, which no module
     # here imports: the deliverer's root builds it and hands `keeping` the port.
     "argus-vector_store_qdrant",

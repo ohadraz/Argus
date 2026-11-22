@@ -18,11 +18,12 @@ dependencies = [
 [project.optional-dependencies]
 worker = [
     # The model provider's adapter, the tiers' transport and the embedder recall
-    # searches with are all built here.
-    "argus-core[llm,mcp,embedding]",
+    # searches with (`embedding_fastembed`) are all built here.
+    "argus-core[llm,mcp]",
+    "argus-embedding_fastembed",
     "argus-orchestrator",
     "argus-incident_record",
-    "argus-incident_memory[store]",
+    "argus-incident_memory",
     "argus-vector_store_qdrant",
     "argus-investigation_agent",
     "argus-mitigation",
@@ -49,6 +50,7 @@ read_mcp = [
     "argus-alerting_platform",
     "argus-code_host",
     "argus-deployment_platform",
+    "argus-embedding_fastembed",
     "argus-flag_provider",
     "argus-metrics_source",
     "argus-vector_store_qdrant",
@@ -60,12 +62,13 @@ write_mcp = [
     "argus-flag_provider",
 ]
 deliverer = [
-    "argus-core[embedding]",
-    "argus-incident_memory[store]",
+    "argus-embedding_fastembed",
+    "argus-incident_memory",
     "argus-vector_store_qdrant",
 ]
 indexer = [
-    "argus-repository_index[store]",
+    "argus-repository_index",
+    "argus-embedding_fastembed",
     "argus-code_host",
     "argus-vector_store_qdrant",
 ]
@@ -102,6 +105,7 @@ argus-orchestrator = { workspace = true }
 argus-incident_record = { workspace = true }
 argus-incident_memory = { workspace = true }
 argus-vector_store_qdrant = { workspace = true }
+argus-embedding_fastembed = { workspace = true }
 argus-investigation_agent = { workspace = true }
 argus-mitigation = { workspace = true }
 argus-codefix_agent = { workspace = true }
