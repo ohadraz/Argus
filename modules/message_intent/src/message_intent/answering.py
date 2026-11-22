@@ -22,7 +22,7 @@ from textwrap import indent
 from typing import Final
 
 from core import to_iso
-from core.llm import LLMClient, ask_until_answered, the_call
+from core.llm import AsksUntilAnswered, LLMClient, ask_until_answered, the_call
 from core.models import Ask, ToolDefinition, Transcript, Turn
 from narration import NarrationLine, said_in_full
 
@@ -54,12 +54,17 @@ def answer(question: str,
            story: Sequence[NarrationLine],
            llm: LLMClient,
            *,
-           platform: str) -> str | None:
+           platform: str,
+           ask: AsksUntilAnswered[str] = ask_until_answered) -> str | None:
     """The answer to `question`, asked on `platform` - the chat platform's name,
     as its adapter gives it - from the incident's timeline, or `None` where the
-    model gave no usable answer twice."""
-    return ask_until_answered(llm, _the_opening(question, story, platform), [SUBMIT_ANSWER],
-                              _the_answer_in, attempts=_ATTEMPTS)
+    model gave no usable answer twice.
+
+    `ask` is how it is asked, again where an answer cannot be used: a seam, so
+    this module's suite holds what it asks and how it reads an answer, and
+    leaves the asking to its own."""
+    return ask(llm, _the_opening(question, story, platform), [SUBMIT_ANSWER], _the_answer_in,
+               attempts=_ATTEMPTS)
 
 
 def _the_opening(question: str,

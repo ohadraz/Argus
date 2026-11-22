@@ -13,11 +13,26 @@ neither is an answer to anything.
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Protocol
 
 from core.llm.client import LLMClient, ModelDidNotAnswer
 from core.models.tool_definition import ToolDefinition
 from core.models.transcript import Transcript
 from core.models.turn import Turn
+
+
+class AsksUntilAnswered[T](Protocol):
+    """The asking as a caller is handed it - `ask_until_answered`, or a test's
+    stand-in for it - for answers read as `T`."""
+
+    def __call__(self,
+                 llm: LLMClient,
+                 transcript: Transcript,
+                 tools: list[ToolDefinition],
+                 read: Callable[[Turn], T | None],
+                 /,
+                 *,
+                 attempts: int) -> T | None: ...
 
 
 def ask_until_answered[T](llm: LLMClient,

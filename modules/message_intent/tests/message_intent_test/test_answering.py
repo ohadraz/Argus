@@ -7,8 +7,11 @@ is given nothing else, and is held to it - an answer the record does not
 support is worse than none, because the person reading it has no way to tell.
 
 The answer is the one field of a tool the model must call, so a reply is never
-parsed out of prose. An answer that cannot be used is asked for once more, and
-after that there is none: what the person is then told, and who else is, is
+parsed out of prose. How it is asked - again where the answer cannot be used,
+and never more than the attempts it is given - is
+`core.llm.ask_until_answered`'s, and tested there. What is this module's is
+the question, the tool, the reading of an answer, and that it is asked twice.
+What the person is told where there is no answer, and who else is, is
 `understanding`'s to say.
 """
 
@@ -19,12 +22,24 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from argus_testkit import Assertion, Kept, Scenario, all_of
+from argus_testkit import Kept, Scenario, all_of, the_answer_was
 from core import to_iso
-from core.llm import LLMClient, ModelDidNotAnswer
-from core.models import Ask, ToolCall, ToolDefinition, Transcript, Turn
+from core.models import ToolCall, Turn
 from message_intent.answering import ANSWER_FIELD, ANSWER_TOOL_NAME, answer
 from narration import CandidateLine, NarrationLine
+
+from message_intent_test.framework.assertions import (
+    asked_through,
+    reads,
+    the_model_was_shown,
+    the_tools_offered_were,
+)
+from message_intent_test.framework.builders import (
+    Asked,
+    a_model_never_asked,
+    a_reply_in_prose,
+    an_asking,
+)
 
 # Whether a line may support a rule-out: read by none of these cases.
 DONT_CARE_MAY_RULE_OUT = True
@@ -33,6 +48,11 @@ SOME_QUESTION = "why did you revert the checkout flag?"
 SOME_ANSWER = "The checkout flag was switched on at 12:01, a minute before errors rose."
 # Where the question was asked, by the name a chat platform's adapter gives it.
 SOME_PLATFORM = "Kukichat"
+# How many times one question is asked about.
+TWICE = 2
+# What the asking finds where no answer was usable.
+NO_ANSWER: str | None = None
+A_BLANK_ANSWER = "   "
 
 # What the model is held to - answering from the timeline alone, and saying so
 # when the timeline is silent - in words rather than sentences, so the prose
@@ -46,50 +66,72 @@ WHAT_A_MEASURE_IS_TOLD_IN = "in that line's own words"
 
 
 @pytest.mark.unit
-def test_the_answer_the_model_submits_is_the_answer_given() -> None:
+def test_what_the_asking_finds_is_the_answer_given() -> None:
     Scenario() \
-        .given(a_model := _a_model_answering(_a_submission({ANSWER_FIELD: SOME_ANSWER}))) \
-        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model, platform=SOME_PLATFORM)) \
-        .then(_it_was_answered(SOME_ANSWER))
+        .given(an_asker := an_asking(answering=SOME_ANSWER)) \
+        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model_never_asked(),
+                             platform=SOME_PLATFORM, ask=an_asker)) \
+        .then(the_answer_was(SOME_ANSWER))
+
+
+@pytest.mark.unit
+def test_no_answer_found_leaves_the_question_unanswered() -> None:
+    Scenario() \
+        .given(an_asker := an_asking(answering=NO_ANSWER)) \
+        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model_never_asked(),
+                             platform=SOME_PLATFORM, ask=an_asker)) \
+        .then(the_answer_was(None))
+
+
+@pytest.mark.unit
+def test_the_model_is_asked_twice_at_most_and_through_the_model_given() -> None:
+    asked: Kept[Asked[str]] = Kept()
+
+    Scenario() \
+        .given(some_model := a_model_never_asked(),
+               an_asker := an_asking(answering=SOME_ANSWER, keeping=asked)) \
+        .when(lambda: answer(SOME_QUESTION, _a_timeline(), some_model,
+                             platform=SOME_PLATFORM, ask=an_asker)) \
+        .then(asked_through(asked, some_model, attempts=TWICE))
 
 
 @pytest.mark.unit
 def test_the_model_is_told_the_platform_the_question_was_asked_on() -> None:
     # Said by the name its adapter gives it, so the sentence names no vendor
     # of its own - and with Slack's name says exactly what it always said.
-    asked: Kept[Transcript] = Kept()
+    asked: Kept[Asked[str]] = Kept()
 
     Scenario() \
-        .given(a_model := _a_model_answering(_a_submission({ANSWER_FIELD: SOME_ANSWER}),
-                                             recording_into=asked)) \
-        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model, platform=SOME_PLATFORM)) \
-        .then(_the_model_was_shown(asked, f"in the {SOME_PLATFORM} thread of an incident"))
+        .given(an_asker := an_asking(answering=SOME_ANSWER, keeping=asked)) \
+        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model_never_asked(),
+                             platform=SOME_PLATFORM, ask=an_asker)) \
+        .then(the_model_was_shown(asked, f"in the {SOME_PLATFORM} thread of an incident"))
 
 
 @pytest.mark.unit
 def test_the_question_reaches_the_model_exactly_as_written() -> None:
-    asked: Kept[Transcript] = Kept()
+    asked: Kept[Asked[str]] = Kept()
 
     Scenario() \
-        .given(a_model := _a_model_answering(_a_submission({ANSWER_FIELD: SOME_ANSWER}),
-                                             recording_into=asked)) \
-        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model, platform=SOME_PLATFORM)) \
-        .then(_the_model_was_shown(asked, SOME_QUESTION))
+        .given(an_asker := an_asking(answering=SOME_ANSWER, keeping=asked)) \
+        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model_never_asked(),
+                             platform=SOME_PLATFORM, ask=an_asker)) \
+        .then(the_model_was_shown(asked, SOME_QUESTION))
 
 
 @pytest.mark.unit
 def test_the_model_is_shown_every_line_of_the_timeline_with_when_and_who() -> None:
     # The account a person could read for themselves, line for line - so an
     # answer is about what Argus recorded, in the words it recorded it in.
-    asked: Kept[Transcript] = Kept()
+    asked: Kept[Asked[str]] = Kept()
     some_timeline = _a_timeline()
 
     Scenario() \
-        .given(a_model := _a_model_answering(_a_submission({ANSWER_FIELD: SOME_ANSWER}),
-                                             recording_into=asked)) \
-        .when(lambda: answer(SOME_QUESTION, some_timeline, a_model, platform=SOME_PLATFORM)) \
+        .given(an_asker := an_asking(answering=SOME_ANSWER, keeping=asked)) \
+        .when(lambda: answer(SOME_QUESTION, some_timeline, a_model_never_asked(),
+                             platform=SOME_PLATFORM, ask=an_asker)) \
         .then(all_of(*(
-            _the_model_was_shown(asked, said)
+            the_model_was_shown(asked, said)
             for line in some_timeline
             for said in (to_iso(line.at), line.who, line.text)
         )))
@@ -100,7 +142,7 @@ def test_the_model_is_shown_what_a_line_says_beside_itself() -> None:
     # Where Code-Fix found nothing to change, what it said would have to change
     # elsewhere is the thread's likeliest question - and the answer is on the
     # line, beside its sentence rather than in it.
-    asked: Kept[Transcript] = Kept()
+    asked: Kept[Asked[str]] = Kept()
     some_aside = "Code-Fix's reading of the code, which nothing ran: scrape.yaml names the old port"
     some_timeline = [
         NarrationLine(at=datetime(2026, 10, 11, 12, 9, tzinfo=UTC),
@@ -111,17 +153,17 @@ def test_the_model_is_shown_what_a_line_says_beside_itself() -> None:
     ]
 
     Scenario() \
-        .given(a_model := _a_model_answering(_a_submission({ANSWER_FIELD: SOME_ANSWER}),
-                                             recording_into=asked)) \
-        .when(lambda: answer(SOME_QUESTION, some_timeline, a_model, platform=SOME_PLATFORM)) \
-        .then(_the_model_was_shown(asked, some_aside))
+        .given(an_asker := an_asking(answering=SOME_ANSWER, keeping=asked)) \
+        .when(lambda: answer(SOME_QUESTION, some_timeline, a_model_never_asked(),
+                             platform=SOME_PLATFORM, ask=an_asker)) \
+        .then(the_model_was_shown(asked, some_aside))
 
 
 @pytest.mark.unit
 def test_every_line_of_an_aside_is_indented_under_its_line() -> None:
     # An explanation runs to more than one line; a later one at the margin
     # reads as a line of the timeline of its own, said by nobody at no time.
-    asked: Kept[Transcript] = Kept()
+    asked: Kept[Asked[str]] = Kept()
     some_timeline = [
         NarrationLine(at=datetime(2026, 10, 11, 12, 9, tzinfo=UTC),
                       kind="fix-attempted",
@@ -132,10 +174,10 @@ def test_every_line_of_an_aside_is_indented_under_its_line() -> None:
     ]
 
     Scenario() \
-        .given(a_model := _a_model_answering(_a_submission({ANSWER_FIELD: SOME_ANSWER}),
-                                             recording_into=asked)) \
-        .when(lambda: answer(SOME_QUESTION, some_timeline, a_model, platform=SOME_PLATFORM)) \
-        .then(_the_model_was_shown(asked,
+        .given(an_asker := an_asking(answering=SOME_ANSWER, keeping=asked)) \
+        .when(lambda: answer(SOME_QUESTION, some_timeline, a_model_never_asked(),
+                             platform=SOME_PLATFORM, ask=an_asker)) \
+        .then(the_model_was_shown(asked,
                                    "\n  Code-Fix's reading: scrape.yaml\n  names the old port\n"))
 
 
@@ -158,73 +200,76 @@ def test_the_model_is_shown_each_line_in_full(line: NarrationLine, said: str) ->
     # monthly-spend-feature, moved " with nowhere it moved to, and "best
     # first:" with no candidate after it - what a page lays out beside the
     # sentence, and a thread has only the sentence for.
-    asked: Kept[Transcript] = Kept()
+    asked: Kept[Asked[str]] = Kept()
 
     Scenario() \
-        .given(a_model := _a_model_answering(_a_submission({ANSWER_FIELD: SOME_ANSWER}),
-                                             recording_into=asked)) \
-        .when(lambda: answer(SOME_QUESTION, [line], a_model, platform=SOME_PLATFORM)) \
-        .then(_the_model_was_shown(asked, said))
+        .given(an_asker := an_asking(answering=SOME_ANSWER, keeping=asked)) \
+        .when(lambda: answer(SOME_QUESTION, [line], a_model_never_asked(),
+                             platform=SOME_PLATFORM, ask=an_asker)) \
+        .then(the_model_was_shown(asked, said))
 
 
 @pytest.mark.unit
 def test_the_model_is_held_to_the_timeline() -> None:
-    asked: Kept[Transcript] = Kept()
+    asked: Kept[Asked[str]] = Kept()
 
     Scenario() \
-        .given(a_model := _a_model_answering(_a_submission({ANSWER_FIELD: SOME_ANSWER}),
-                                             recording_into=asked)) \
-        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model, platform=SOME_PLATFORM)) \
-        .then(all_of(_the_model_was_shown(asked, WHAT_THE_MODEL_IS_HELD_TO),
-                     _the_model_was_shown(asked, WHAT_IT_SAYS_OF_A_SILENT_RECORD)))
+        .given(an_asker := an_asking(answering=SOME_ANSWER, keeping=asked)) \
+        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model_never_asked(),
+                             platform=SOME_PLATFORM, ask=an_asker)) \
+        .then(all_of(the_model_was_shown(asked, WHAT_THE_MODEL_IS_HELD_TO),
+                     the_model_was_shown(asked, WHAT_IT_SAYS_OF_A_SILENT_RECORD)))
 
 
 @pytest.mark.unit
 def test_the_model_is_held_to_each_lines_own_words_for_what_it_measured() -> None:
-    asked: Kept[Transcript] = Kept()
+    asked: Kept[Asked[str]] = Kept()
 
     Scenario() \
-        .given(a_model := _a_model_answering(_a_submission({ANSWER_FIELD: SOME_ANSWER}),
-                                             recording_into=asked)) \
-        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model, platform=SOME_PLATFORM)) \
-        .then(_the_model_was_shown(asked, WHAT_A_MEASURE_IS_TOLD_IN))
+        .given(an_asker := an_asking(answering=SOME_ANSWER, keeping=asked)) \
+        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model_never_asked(),
+                             platform=SOME_PLATFORM, ask=an_asker)) \
+        .then(the_model_was_shown(asked, WHAT_A_MEASURE_IS_TOLD_IN))
 
 
 @pytest.mark.unit
 def test_the_model_is_offered_the_one_tool_to_answer_with() -> None:
-    offered: Kept[list[ToolDefinition]] = Kept()
+    asked: Kept[Asked[str]] = Kept()
 
     Scenario() \
-        .given(a_model := _a_model_answering(_a_submission({ANSWER_FIELD: SOME_ANSWER}),
-                                             offered=offered)) \
-        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model, platform=SOME_PLATFORM)) \
-        .then(_the_tools_offered_were(offered, [ANSWER_TOOL_NAME]))
+        .given(an_asker := an_asking(answering=SOME_ANSWER, keeping=asked)) \
+        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model_never_asked(),
+                             platform=SOME_PLATFORM, ask=an_asker)) \
+        .then(the_tools_offered_were(asked, [ANSWER_TOOL_NAME]))
+
+
+@pytest.mark.unit
+def test_a_submitted_answer_is_read_as_it() -> None:
+    asked: Kept[Asked[str]] = Kept()
+
+    Scenario() \
+        .given(an_asker := an_asking(answering=SOME_ANSWER, keeping=asked)) \
+        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model_never_asked(),
+                             platform=SOME_PLATFORM, ask=an_asker)) \
+        .then(reads(asked, _a_submission({ANSWER_FIELD: SOME_ANSWER}), SOME_ANSWER))
 
 
 @pytest.mark.unit
 @pytest.mark.parametrize("unusable", [
-    lambda: _prose("The flag was reverted because errors rose."),
-    lambda: _a_submission({ANSWER_FIELD: "   "}),
-    lambda: _a_submission({}),
-    lambda: ModelDidNotAnswer("refused")
-], ids=["prose", "blank-answer", "no-answer-field", "no-answer"])
-def test_an_unusable_answer_is_asked_for_once_more_and_the_second_is_taken(
-        unusable: Callable[[], Turn | Exception]) -> None:
-    Scenario() \
-        .given(a_model := _a_model_answering(unusable(),
-                                             _a_submission({ANSWER_FIELD: SOME_ANSWER}))) \
-        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model, platform=SOME_PLATFORM)) \
-        .then(_it_was_answered(SOME_ANSWER))
+    lambda: a_reply_in_prose(),
+    lambda: _a_submission({ANSWER_FIELD: A_BLANK_ANSWER}),
+    lambda: _a_submission({})
+], ids=["prose", "blank-answer", "no-answer-field"])
+def test_an_answer_with_nothing_in_it_is_read_as_no_answer(
+        unusable: Callable[[], Turn]) -> None:
+    # Read as none, which is what the asking asks again about.
+    asked: Kept[Asked[str]] = Kept()
 
-
-@pytest.mark.unit
-def test_two_unusable_answers_leave_the_question_unanswered() -> None:
-    # And no third ask - the model that ran out of answers says so if there is.
     Scenario() \
-        .given(a_model := _a_model_answering(_prose("Hard to say."),
-                                             ModelDidNotAnswer("refused"))) \
-        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model, platform=SOME_PLATFORM)) \
-        .then(_it_was_answered(None))
+        .given(an_asker := an_asking(answering=SOME_ANSWER, keeping=asked)) \
+        .when(lambda: answer(SOME_QUESTION, _a_timeline(), a_model_never_asked(),
+                             platform=SOME_PLATFORM, ask=an_asker)) \
+        .then(reads(asked, unusable(), None))
 
 
 def _a_timeline() -> list[NarrationLine]:
@@ -242,87 +287,11 @@ def _a_timeline() -> list[NarrationLine]:
     ]
 
 
-def _a_model_answering(*answers: Turn | Exception,
-                       recording_into: Kept[Transcript] | None = None,
-                       offered: Kept[list[ToolDefinition]] | None = None) -> LLMClient:
-    """Answers each call from the list in turn - raising where the answer is an
-    error - and keeps what it was asked.
-
-    A model that ran out of answers has been called more times than the test
-    allows for, which is itself a failure - so it says so rather than repeating
-    its last one, where an extra call would look like a pass.
-    """
-    class InTurn:
-        def __init__(self) -> None:
-            self._remaining = list(answers)
-
-        def converse(self,
-                     transcript: Transcript,
-                     tools: list[ToolDefinition],
-                     max_tokens: int | None = None) -> Turn:
-            if recording_into is not None:
-                recording_into.take(transcript)
-            if offered is not None:
-                offered.take(tools)
-
-            if not self._remaining:
-                raise AssertionError("The model was called more times than the test expected.")
-
-            answered = self._remaining.pop(0)
-
-            if isinstance(answered, Exception):
-                raise answered
-
-            return answered
-
-    return InTurn()
-
-
 def _a_submission(arguments: dict[str, Any]) -> Turn:
+    dont_care_call_id = "dont-care-call-id"
+    dont_care_tokens = 0
+
     return Turn(text="",
-                tool_calls=[ToolCall(id="call_1", name=ANSWER_TOOL_NAME, arguments=arguments)],
-                input_tokens=0,
-                output_tokens=0)
-
-
-def _prose(text: str) -> Turn:
-    return Turn(text=text, tool_calls=[], input_tokens=0, output_tokens=0)
-
-
-def _it_was_answered(expected: str | None) -> Assertion[str | None]:
-    def assertion(answered: str | None) -> bool:
-        if answered != expected:
-            raise AssertionError(
-                f"Expected the question answered [{expected}], got [{answered}]."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_model_was_shown(asked: Kept[Transcript], words: str) -> Assertion[object]:
-    def assertion(_: object) -> bool:
-        shown = "\n".join(entry.text for entry in asked.only() if isinstance(entry, Ask))
-
-        if words not in shown:
-            raise AssertionError(
-                f"Expected the model to be shown [{words}], and it was shown [{shown}]."
-            )
-
-        return True
-
-    return assertion
-
-
-def _the_tools_offered_were(offered: Kept[list[ToolDefinition]],
-                            expected: list[str]) -> Assertion[object]:
-    def assertion(_: object) -> bool:
-        names = [tool.name for tool in offered.only()]
-
-        if names != expected:
-            raise AssertionError(f"Expected the model offered {expected}, got {names}.")
-
-        return True
-
-    return assertion
+                tool_calls=[ToolCall(id=dont_care_call_id, name=ANSWER_TOOL_NAME,
+                                     arguments=arguments)],
+                input_tokens=dont_care_tokens, output_tokens=dont_care_tokens)

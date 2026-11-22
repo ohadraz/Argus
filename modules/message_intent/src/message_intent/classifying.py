@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from core.llm import LLMClient, ask_until_answered, the_call
+from core.llm import AsksUntilAnswered, LLMClient, ask_until_answered, the_call
 from core.models import Meaning, Turn
 
 from message_intent.prompting import (
@@ -28,12 +28,20 @@ from message_intent.prompting import (
 _ATTEMPTS: Final = 2
 
 
-def classify(words: str, llm: LLMClient, *, platform: str) -> Meaning | None:
+def classify(words: str,
+             llm: LLMClient,
+             *,
+             platform: str,
+             ask: AsksUntilAnswered[Meaning] = ask_until_answered) -> Meaning | None:
     """What the person meant by `words`, written on `platform` - the chat
     platform's name, as its adapter gives it - or `None` where the model gave no
-    usable answer twice."""
-    return ask_until_answered(llm, opening_ask(words, platform), [SUBMIT_MEANING],
-                              _the_meaning_in, attempts=_ATTEMPTS)
+    usable answer twice.
+
+    `ask` is how it is asked, again where an answer cannot be used: a seam, so
+    this module's suite holds what it asks and how it reads an answer, and
+    leaves the asking to its own."""
+    return ask(llm, opening_ask(words, platform), [SUBMIT_MEANING], _the_meaning_in,
+               attempts=_ATTEMPTS)
 
 
 def _the_meaning_in(turn: Turn) -> Meaning | None:
