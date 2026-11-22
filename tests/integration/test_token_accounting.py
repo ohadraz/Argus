@@ -28,12 +28,12 @@ from argus_testkit import Assertion, Scenario, all_of, calling
 from core import connect_from_env, get_settings, utc_now
 from core.budget import Budget
 from core.llm import conversations_through
-from core.llm.adapters.anthropic_adapter import AnthropicSettings
 from core.models import Alert
 from incident_record.publishing import calls_into
 from incident_record.repository import incidents, replay
 from investigation_agent import investigate
 from investigation_agent.budget import InvestigationSettings, a_budget_for
+from llm_anthropic import AnthropicSettings
 
 from tests.framework.investigating import (
     logs_that_say_little,

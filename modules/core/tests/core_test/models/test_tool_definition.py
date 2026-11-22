@@ -4,7 +4,7 @@ A tool is described here as what a caller decides - its name, when to reach
 for it, and what it may be asked for - and the rules that make such a
 description coherent: nothing required that is not offered, and nothing taken
 from a server that an offer could not carry. How an offer looks on the wire is
-the provider adapter's (`llm/adapters/test_tool_offers.py`), and nothing here
+the provider adapter's (`llm_anthropic`'s `test_tool_offers.py`), and nothing here
 renders one.
 """
 

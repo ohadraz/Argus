@@ -189,9 +189,9 @@ def test_the_model_vendors_sdk_named_past_its_adapter_is_refused() -> None:
 
 @pytest.mark.unit
 def test_the_model_vendors_adapter_importing_its_sdk_passes() -> None:
-    # One module rather than a package, and the one place Anthropic is spoken.
+    # A module of the adapter's package, the one place Anthropic is spoken.
     Scenario() \
-        .given(a_graph := _a_graph_with(("core.llm.adapters.anthropic_adapter", "anthropic"))) \
+        .given(a_graph := _a_graph_with(("llm_anthropic.adapter", "anthropic"))) \
         .when(lambda: the_vendors_spoken_past_their_adapter(a_graph)) \
         .then(_these_are_refused([]))
 
@@ -512,14 +512,14 @@ THE_KERNEL_S_SETTINGS = ("from pydantic_settings import BaseSettings",
     pytest.param(("from core import AdapterSettings",
                   "class AnthropicSettings(AdapterSettings):",
                   "    investigation_max_rounds: int = 3"),
-                 [("core.llm.adapters.anthropic_adapter", 3,
+                 [("llm_anthropic.adapter", 3,
                    "AnthropicSettings.investigation_max_rounds")],
                  id="a-field-of-the-kernel-s"),
     pytest.param(("from core import AdapterSettings",
                   "class AnthropicSettings(AdapterSettings): ...",
                   "class JudgeSettings(AnthropicSettings):",
                   "    investigation_max_rounds: int = 3"),
-                 [("core.llm.adapters.anthropic_adapter", 4,
+                 [("llm_anthropic.adapter", 4,
                    "JudgeSettings.investigation_max_rounds")],
                  id="a-field-of-the-kernel-s-further-down"),
     pytest.param(("from core import AdapterSettings",
@@ -539,7 +539,7 @@ def test_a_vendor_s_setting_the_kernel_declares_too_is_refused(
     # whatever its name says. A slice repeats the kernel's names by design.
     Scenario() \
         .given(sources := {"core.config": _a_module_reading(*THE_KERNEL_S_SETTINGS),
-                           "core.llm.adapters.anthropic_adapter": _a_module_reading(*declaring)}) \
+                           "llm_anthropic.adapter": _a_module_reading(*declaring)}) \
         .when(lambda: the_kernel_settings_an_adapter_declares_too(sources)) \
         .then(the_answer_was(refused))
 
@@ -578,7 +578,7 @@ ROOTS = {
         "dependencies": ["argus-core", "argus-telemetry"],
         "optional-dependencies": {
             "web": ["argus-web_app", "uvicorn[standard]>=0.30"],
-            "worker": ["argus-core[llm,mcp]", "argus-orchestrator", "psycopg-pool>=3.2"]
+            "worker": ["argus-core[mcp]", "argus-orchestrator", "psycopg-pool>=3.2"]
         }
     }
 }
@@ -595,7 +595,7 @@ def test_a_process_installs_its_extra_the_base_and_the_roots() -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("requirement", ["argus-core", "argus-core[llm,mcp]",
+@pytest.mark.parametrize("requirement", ["argus-core", "argus-core[mcp,migrations]",
                                          "argus-core>=0.1", "argus-core ; python_version>'3'"])
 def test_a_workspace_package_is_named_whatever_its_extras_and_version(requirement: str) -> None:
     Scenario() \

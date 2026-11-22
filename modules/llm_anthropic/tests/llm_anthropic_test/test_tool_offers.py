@@ -18,8 +18,8 @@ from typing import Any, Final
 import pytest
 from anthropic.types import ToolParam
 from argus_testkit import Assertion, Scenario, all_of
-from core.llm.adapters.anthropic_adapter import to_tool
-from core.models.tool_definition import ToolDefinition
+from core.models import ToolDefinition
+from llm_anthropic import to_tool
 
 # Anthropic's own vocabulary for a tool offer. Stated here rather than imported
 # from the code under test: a test that borrowed the adapter's spelling would

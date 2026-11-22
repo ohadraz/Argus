@@ -42,10 +42,8 @@ from anthropic.types import (
     ToolUseBlockParam,
 )
 from anthropic.types.message_create_params import MessageCreateParamsBase
-from pydantic import Field
-
-from core.config import AdapterSettings
-from core.llm.client import (
+from core import AdapterSettings
+from core.llm import (
     AnswerTruncated,
     LLMClient,
     ModelDidNotAnswer,
@@ -53,22 +51,22 @@ from core.llm.client import (
     ModelUnavailable,
     RequestRejected,
     TurnPaused,
+    with_escapes_resolved,
 )
-from core.llm.escapes import with_escapes_resolved
-from core.models.model_policy import (
+from core.models import (
     DEFAULT_MAX_OUTPUT_TOKENS,
-    ModelPolicy,
-    Reasoning,
-)
-from core.models.tool_definition import ToolDefinition
-from core.models.transcript import (
     Ask,
     Exchange,
+    ModelPolicy,
+    Reasoning,
+    ToolCall,
+    ToolDefinition,
     ToolResult,
     ToolResults,
     Transcript,
+    Turn,
 )
-from core.models.turn import ToolCall, Turn
+from pydantic import Field
 
 # Anthropic's own vocabulary for the parts of a message. Named here because
 # this is the module that reads and writes them - a loop above holds a

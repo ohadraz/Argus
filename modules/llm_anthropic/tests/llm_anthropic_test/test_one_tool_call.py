@@ -20,18 +20,15 @@ from unittest.mock import Mock
 
 import pytest
 from argus_testkit import Assertion, Scenario
-from core.llm.adapters.anthropic_adapter import (
+from core.models import Ask, ModelPolicy, ToolDefinition, Turn
+from llm_anthropic import (
     AT_MOST_ONE_TOOL_CALL,
     LARGEST_UNSTREAMED_ANSWER,
     MODEL,
     AnthropicLLMClient,
 )
-from core.models.model_policy import ModelPolicy
-from core.models.tool_definition import ToolDefinition
-from core.models.transcript import Ask
-from core.models.turn import Turn
 
-from core_test.framework.llm import an_api_that_answers, settings_that_reach_no_api
+from llm_anthropic_test.framework.llm import an_api_that_answers, settings_that_reach_no_api
 
 
 @pytest.mark.unit

@@ -47,9 +47,9 @@ from argus_testkit import (
     the_answer_was,
 )
 from core import Connections, Holding, get_settings
-from core.llm.adapters.anthropic_adapter import AnthropicSettings
 from core.models import ModelPolicy
 from incident_memory.records import RememberedIncident
+from llm_anthropic import AnthropicSettings
 from orchestrator.walk.collaborators import Collaborators
 from postmortem_writing import judge_policy, postmortem_policy
 from read_mcp_client import ReadTier

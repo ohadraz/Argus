@@ -13,72 +13,35 @@ recording is transparent - while charging a decorator to every agent that
 never asked for one and putting a frame between every stack trace and the call
 that raised.
 
-The third is here because nothing else assembles the whole path. The recorder
-implements the same Protocol as the thing it wraps, and a default declared on
-one implementation and not the other is invisible from both ends: the agent
-above still calls two arguments, the adapter below still reads a figure and
-believes it, and every suite passes while the per-agent cap is discarded one
-layer down. That is not a hypothetical - it is what happened, and it was the
-factory's own wiring that nothing drove. Those cases build the Anthropic
-provider over an SDK stand-in, and are `component`; nothing leaves the
-process, so they cost no tokens and need no key.
-
-And one thing that is not about the client at all: what it costs to name the
-door this is exported from. That is `building.py`'s property - it names no
-vendor - and it is here because a separation stated in a docstring and checked
-by nothing is a separation that was quietly undone once already.
+The whole path - factory, recorder, a vendor's provider and its SDK - is driven
+in `llm_anthropic`'s suite, where a provider that reaches a vendor can be built.
 """
 
 from __future__ import annotations
 
-import subprocess
-import sys
-import threading
-from collections.abc import Generator
-from contextlib import contextmanager
-from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from unittest.mock import Mock
-
 import pytest
-from anthropic.types import Message, TextBlock, Usage
 from argus_testkit import Assertion, Scenario
 from core.llm import LLMClient, build_llm_client
-from core.llm.adapters.anthropic_adapter import (
-    ASSISTANT_ROLE,
-    END_TURN_STOP_REASON,
-    MESSAGE_TYPE,
-    TEXT_TYPE,
-    AnthropicProvider,
-    AnthropicSettings,
-)
 from core.llm.recorded_client import RecordedLLMClient
 from core.models import ModelPolicy, Reasoning
 from core.models.tool_definition import ToolDefinition
-from core.models.transcript import Ask, Transcript
+from core.models.transcript import Transcript
 from core.models.turn import Turn
 from core.replay import Replay
 
-from core_test.framework.llm import (
-    a_turn_that_said,
-    an_api_that_answers,
-    settings_that_reach_no_api,
-)
+from core_test.framework.llm import a_turn_that_said
 from core_test.framework.replay import a_recorder_that_keeps_what_it_is_given
 
 SOME_INCIDENT_ID = "3cd00c42-6c21-4209-9d22-8f2f89455386"
-SOME_KEY = "some-key"
 # Whichever model and policy a client is built under, where the case is about
 # something else.
 DONT_CARE_MODEL = "dont-care-model"
 DONT_CARE_POLICY = ModelPolicy(model=DONT_CARE_MODEL)
 
-# What Code-Fix is configured to get, stated rather than read: the subject here
-# is whether a policy survives the wiring, not what today's deployment sets.
-# Above `LARGEST_UNSTREAMED_ANSWER` by design - an answer that is a whole file
-# can only be asked for by streaming, so the figure and the transport are one
-# fact and a test that checked either alone would pass on half a defect.
-A_WHOLE_FILES_WORTH_OF_ROOM = 128_000
+# Room of its own, stated rather than defaulted: the policy has to reach the
+# provider whole, so every field of it is set to something a default is not.
+SOME_ROOM = 128_000
+SOME_BRIEF = "some standing brief"
 
 
 @pytest.mark.unit
@@ -125,7 +88,8 @@ def test_the_provider_is_asked_for_a_client_under_the_callers_policy() -> None:
     # client under a policy of its own would answer every agent as the same
     # one - in the same shape, and billed differently.
     some_policy = ModelPolicy(model="claude-haiku-4-5", effort=Reasoning.LOW,
-                              max_output_tokens=A_WHOLE_FILES_WORTH_OF_ROOM)
+                              max_output_tokens=SOME_ROOM, brief=SOME_BRIEF,
+                              one_tool_call_per_turn=True)
     a_provider = _a_provider()
 
     Scenario() \
@@ -134,92 +98,6 @@ def test_the_provider_is_asked_for_a_client_under_the_callers_policy() -> None:
         ) \
         .then(
             _the_provider_was_asked_under(a_provider, some_policy)
-        )
-
-
-@pytest.mark.component
-def test_a_recorded_agent_asks_the_vendor_for_the_room_its_policy_gave_it() -> None:
-    # Driven through the whole assembly - factory, recorder, adapter, SDK -
-    # because the defect this exists for lived in none of them and in the
-    # joins. The recorder declared a cap of its own and handed it down; the
-    # adapter reads any figure it is given as the caller's word; and the seam
-    # an agent holds calls with two arguments, so the recorder's figure was
-    # the one supplied every time. A per-agent cap read from configuration was
-    # therefore discarded one layer below where it was set, on every
-    # production conversation there has ever been, and the streaming path was
-    # unreachable.
-    #
-    # Recorded rather than bare, because that is the only shape production
-    # runs in: an unrecorded client would traverse the one path where the
-    # defect could not occur.
-    some_api = an_api_that_answers()
-    a_code_fix_policy = ModelPolicy(model=DONT_CARE_MODEL,
-                                    max_output_tokens=A_WHOLE_FILES_WORTH_OF_ROOM)
-    dont_care_transcript = [Ask(text="dont care what was asked")]
-
-    Scenario() \
-        .given(
-            writing_whole_files := build_llm_client(
-                AnthropicProvider(settings_that_reach_no_api(), sdk=some_api),
-                Replay(SOME_INCIDENT_ID, a_recorder_that_keeps_what_it_is_given().take),
-                a_code_fix_policy
-            )
-        ) \
-        .when(
-            # Two arguments, as the loop above one of these has: the room is
-            # nobody's to name up there, which is what made a default declared
-            # here the last word on it.
-            lambda: writing_whole_files.converse(dont_care_transcript, [_a_tool()])
-        ) \
-        .then(
-            _the_vendor_was_asked_for(some_api, A_WHOLE_FILES_WORTH_OF_ROOM)
-        )
-
-
-@pytest.mark.component
-def test_a_provider_handed_settings_of_its_own_reaches_the_model_where_they_say() -> None:
-    # The grounding judge is reached at an address of its own, so a replay can
-    # serve it from a stand-in of its own. A client that read the process's
-    # settings whatever its provider was built with would ask the writer's
-    # stand-in, and be served the writer's recordings out of turn.
-    with _an_api_listening() as an_api:
-        Scenario() \
-            .given(
-                a_judge := build_llm_client(
-                    AnthropicProvider(AnthropicSettings(anthropic_api_key=SOME_KEY,
-                                                        anthropic_base_url=an_api.address)),
-                    None,
-                    DONT_CARE_POLICY
-                )
-            ) \
-            .when(
-                lambda: a_judge.converse([Ask(text="dont care what was asked")], [_a_tool()])
-            ) \
-            .then(
-                _it_was_asked(an_api)
-            )
-
-
-@pytest.mark.component
-def test_naming_the_front_door_does_not_import_a_vendor() -> None:
-    # The separation this module's docstring claims, asked rather than
-    # asserted in prose. It was claimed and untrue for as long as the adapter
-    # was named at the top of `building.py`: `core.llm` re-exports
-    # `build_llm_client`, so naming the interface cost every caller 0.6
-    # seconds of Anthropic SDK. Nothing failed, because nothing asked.
-    #
-    # Not vacuous in an environment without the SDK: `llm/adapters/
-    # test_caching.py` imports `anthropic` outright, so a suite that could
-    # pass this by having none would fail there first.
-    Scenario() \
-        .given(
-            naming_the_front_door := "import core.llm"
-        ) \
-        .when(
-            lambda: _the_modules_a_fresh_interpreter_has_after(naming_the_front_door)
-        ) \
-        .then(
-            _nothing_imported("anthropic")
         )
 
 
@@ -275,62 +153,6 @@ def _the_provider_was_asked_under(provider: _AProvider,
     return assertion
 
 
-class _AnApiListening:
-    """A stand-in for the Messages API at an address of its own, answering
-    every request with one finished turn and keeping the path of each."""
-
-    def __init__(self, address: str) -> None:
-        self.address = address
-        self.asked: list[str] = []
-
-
-@contextmanager
-def _an_api_listening() -> Generator[_AnApiListening]:
-    """The stand-in, listening on a port of its own on this machine for as
-    long as the block runs."""
-    answered = Message(id="dont_care_id", model="dont_care_model", role=ASSISTANT_ROLE,
-                       type=MESSAGE_TYPE, stop_reason=END_TURN_STOP_REASON, stop_sequence=None,
-                       content=[TextBlock(type=TEXT_TYPE, text="dont care what it said")],
-                       usage=Usage(input_tokens=1, output_tokens=1)).model_dump_json().encode()
-    asked: list[str] = []
-
-    class Answering(BaseHTTPRequestHandler):
-        def do_POST(self) -> None:
-            asked.append(self.path)
-            self.rfile.read(int(self.headers.get("Content-Length", 0)))
-            self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(answered)))
-            self.end_headers()
-            self.wfile.write(answered)
-
-        def log_message(self, format: str, *args: object) -> None:
-            pass
-
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Answering)
-    serving = threading.Thread(target=server.serve_forever, daemon=True)
-    serving.start()
-    listening = _AnApiListening(f"http://127.0.0.1:{server.server_address[1]}")
-    listening.asked = asked
-    try:
-        yield listening
-    finally:
-        server.shutdown()
-        server.server_close()
-
-
-def _it_was_asked(api: _AnApiListening) -> Assertion[Turn]:
-    def assertion(_: Turn) -> bool:
-        if len(api.asked) != 1:
-            raise AssertionError(
-                f"Expected the model asked once at [{api.address}], and it was asked "
-                f"there {len(api.asked)} times: {api.asked}.")
-
-        return True
-
-    return assertion
-
-
 def _keeps_a_receipt() -> Assertion[object]:
     def assertion(client: object) -> bool:
         if not isinstance(client, RecordedLLMClient):
@@ -349,76 +171,6 @@ def _keeps_no_receipt() -> Assertion[object]:
             raise AssertionError(
                 "Expected the client itself, and got it wrapped in a recorder "
                 "with nothing to record to.")
-
-        return True
-
-    return assertion
-
-
-def _the_vendor_was_asked_for(api: Mock, room: int) -> Assertion[Turn]:
-    """That the policy the client was built with is what reached the API.
-
-    Read off the call rather than the answer, and off the streamed call
-    specifically. Both halves are the same fact: a cap this size can only be
-    asked for by streaming, so a request that arrived in one piece did not
-    carry it whatever it says, and a streamed request carrying the old cap is
-    an agent that still cannot emit a file. The answer looks the same in every
-    one of those cases.
-    """
-    def assertion(_: Turn) -> bool:
-        if not api.messages.stream.called:
-            asked = api.messages.create.call_args
-            raise AssertionError(
-                f"Expected room for [{room}] tokens, which can only be asked for by "
-                f"streaming, and the request was made in one piece asking {asked}."
-            )
-
-        given = api.messages.stream.call_args.kwargs.get("max_tokens")
-        if given != room:
-            raise AssertionError(
-                f"Expected the agent's own room of [{room}] tokens to reach the API, "
-                f"got [{given}]."
-            )
-
-        return True
-
-    return assertion
-
-
-def _a_tool() -> ToolDefinition:
-    return ToolDefinition(
-        name="read_repository_file",
-        description="Return the current contents of one file in the repository.",
-        properties={"path": {"type": "string"}},
-        required=["path"]
-    )
-
-
-def _the_modules_a_fresh_interpreter_has_after(naming: str) -> set[str]:
-    """Everything in `sys.modules` of a new interpreter that has run this.
-
-    A subprocess rather than a snapshot of this one. The suite imported the
-    adapter long before this test ran - in the three files whose subject it is
-    - and an import that has already happened cannot be watched not happening.
-    """
-    reading_them_back = "import sys; print(' '.join(sys.modules))"
-    finished = subprocess.run(
-        [sys.executable, "-c", f"{naming}; {reading_them_back}"],
-        capture_output=True,
-        text=True,
-        check=True
-    )
-
-    return set(finished.stdout.split())
-
-
-def _nothing_imported(vendor: str) -> Assertion[set[str]]:
-    def assertion(imported: set[str]) -> bool:
-        if vendor in imported:
-            raise AssertionError(
-                f"Expected naming the front door to leave [{vendor}] unimported, "
-                f"and {len(imported)} modules were loaded including it."
-            )
 
         return True
 

@@ -22,8 +22,8 @@ from core import (
     open_pool,
 )
 from core.llm import build_llm_client
-from core.llm.adapters.anthropic_adapter import AnthropicProvider, AnthropicSettings
 from core.models import ModelPolicy
+from llm_anthropic import AnthropicProvider, AnthropicSettings
 from message_intent.watching import ModelFor, watch
 from telemetry import start_telemetry
 from telemetry.langfuse import LangfuseSettings, to_langfuse

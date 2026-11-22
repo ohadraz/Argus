@@ -4,7 +4,7 @@ version = "0.1.0"
 requires-python = ">=3.14"
 
 dependencies = [
-    # Without the `llm` extra: the model provider's adapter, which imports the
+    # Without `llm_anthropic`: the model provider's adapter, which imports the
     # vendor's SDK, is built by the process's root (`apps.intent_reader`) and
     # handed in as the port.
     "argus-core",

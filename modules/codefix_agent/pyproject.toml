@@ -4,7 +4,7 @@ version = "0.1.0"
 requires-python = ">=3.14"
 
 dependencies = [
-    # No `llm` extra, though this agent reasons: it talks through the port
+    # Not `llm_anthropic`, though this agent reasons: it talks through the port
     # (`core.llm`), which imports no vendor, and is handed the provider by the
     # process that builds it.
     "argus-core[mcp]",

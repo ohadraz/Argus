@@ -53,9 +53,9 @@ from chat_platform.slack_deliveries import SLACK
 from core import DatabaseSettings, Settings, get_settings, open_pool, utc_now
 from core.events import PersonWrote
 from core.llm import build_llm_client
-from core.llm.adapters.anthropic_adapter import AnthropicProvider, AnthropicSettings
 from core.models import Meaning, ModelPolicy, a_chat_message
 from incident_record.repository import events
+from llm_anthropic import AnthropicProvider, AnthropicSettings
 from message_intent.answering import answer
 from message_intent.classifying import classify
 from narration import NarrationLine, build_narration

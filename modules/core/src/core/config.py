@@ -311,8 +311,8 @@ class Settings(BaseSettings):
 
     # How hard the model answering each agent is asked to think, on Argus's own
     # scale. Which model answers is the provider's to say - a model is named in
-    # that provider's catalogue, and another provider's adapter names its own
-    # (`core.llm.adapters`) - but how much effort an agent's kind of work earns
+    # that provider's catalogue, and each provider's adapter names its own
+    # (`llm_anthropic`, Anthropic's) - but how much effort an agent's kind of work earns
     # is Argus's, and the same five levels whichever provider answers.
     #
     # Per agent rather than once, because the agents are not the same shape of

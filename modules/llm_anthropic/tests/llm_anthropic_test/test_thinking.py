@@ -24,7 +24,8 @@ from unittest.mock import Mock
 import pytest
 from argus_testkit import Assertion, Scenario
 from argus_testkit.assertions import all_of
-from core.llm.adapters.anthropic_adapter import (
+from core.models import DEFAULT_MAX_OUTPUT_TOKENS, Ask, ModelPolicy, Reasoning, ToolDefinition, Turn
+from llm_anthropic import (
     EFFORT_ON_THE_WIRE,
     LARGEST_UNSTREAMED_ANSWER,
     MODEL,
@@ -32,13 +33,8 @@ from core.llm.adapters.anthropic_adapter import (
     AnthropicEffort,
     AnthropicLLMClient,
 )
-from core.models import ModelPolicy, Reasoning
-from core.models.model_policy import DEFAULT_MAX_OUTPUT_TOKENS
-from core.models.tool_definition import ToolDefinition
-from core.models.transcript import Ask
-from core.models.turn import Turn
 
-from core_test.framework.llm import (
+from llm_anthropic_test.framework.llm import (
     a_policy_naming_the_adapters_model,
     an_api_that_answers,
     settings_that_reach_no_api,

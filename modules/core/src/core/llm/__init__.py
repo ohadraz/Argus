@@ -6,7 +6,7 @@ model that refused, one that was cut off mid-answer, and one that never spoke
 each leave the caller somewhere different, and a single exception would make
 every caller guess which had happened.
 
-The vendor lives behind `adapters/` and is not exported. What a caller names is
+The vendor lives outside the kernel, in `llm_anthropic`. What a caller names is
 `LLMClient`, and what a composition root hands out is a `ModelProvider`;
 which SDK answers is decided by whoever builds that provider, in a process's
 root (`apps`) and nowhere else.

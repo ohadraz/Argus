@@ -141,7 +141,7 @@ THE_WAY_RECALL_READS = ("vector_store_qdrant.searching", "qdrant_client")
 # `include_external_packages`, which is global (see the docstring above).
 SPOKEN_ONLY_BY_ITS_ADAPTER = {
     "qdrant_client": "vector_store_qdrant",
-    "anthropic": "core.llm.adapters.anthropic_adapter",
+    "anthropic": "llm_anthropic",
     "fastembed": "embedding_fastembed"
 }
 
@@ -149,17 +149,6 @@ SPOKEN_ONLY_BY_ITS_ADAPTER = {
 # the modules behind the front doors, and a test that could only reach them
 # through one could not test them at all.
 THE_KERNELS_OWN_SUITE = "modules/core/tests"
-
-# What a suite or a script may still name by path, and why. The Anthropic
-# adapter is absent from `core.llm` so that no agent can reach for a vendor, and
-# only a process's root builds it. Outside the source tree two kinds of file
-# name it all the same: the suites whose subject is the adapter, which exercise
-# it as the kernel's own suite does; and the files that stand where a process's
-# root would - the evals, the contract and integration suites, the recording
-# script and `tests/framework/models.py` - which build it, or read a recorded
-# answer through it, because a process would. An entry here is a claim that
-# every importer is one of those two.
-BEHIND_THE_DOOR = frozenset({"core.llm.adapters.anthropic_adapter"})
 
 # The autonomy policy, and the one name in it that makes an admission.
 AUTONOMY = "core.autonomy"
@@ -643,7 +632,6 @@ def _the_paths_reached_into(path: Path, doors: set[str]) -> list[tuple[int, str]
         and node.module is not None
         and (node.module == KERNEL or node.module.startswith(f"{KERNEL}."))
         and node.module not in doors
-        and node.module not in BEHIND_THE_DOOR
     ]
 
 

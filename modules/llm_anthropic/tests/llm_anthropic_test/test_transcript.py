@@ -19,9 +19,8 @@ from typing import Any, Final
 
 import pytest
 from argus_testkit import Assertion, Scenario, all_of
-from core.llm.adapters.anthropic_adapter import to_messages
-from core.models.transcript import Ask, ToolResult, ToolResults, Transcript
-from core.models.turn import ToolCall, Turn
+from core.models import Ask, ToolCall, ToolResult, ToolResults, Transcript, Turn
+from llm_anthropic import to_messages
 
 # Anthropic's own vocabulary for a request's messages. Stated here rather than
 # imported from the code under test: a test that borrowed Argus's spelling

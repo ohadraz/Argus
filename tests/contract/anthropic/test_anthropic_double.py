@@ -24,7 +24,8 @@ from anthropic_double import recordings
 from anthropic_double.server import DEFAULT_BASE_URL
 from anthropic_double.streaming import SSE_MEDIA_TYPE, from_stream
 from argus_testkit import Assertion, Scenario, all_of, calling
-from core.llm.adapters.anthropic_adapter import (
+from investigation_agent.tools import investigator_tools
+from llm_anthropic import (
     EPHEMERAL_CACHE,
     MAX_TOKENS,
     MODEL,
@@ -33,7 +34,6 @@ from core.llm.adapters.anthropic_adapter import (
     AnthropicSettings,
     to_tool,
 )
-from investigation_agent.tools import investigator_tools
 
 from tests.framework.investigating import what_the_read_tier_offers_the_investigator
 

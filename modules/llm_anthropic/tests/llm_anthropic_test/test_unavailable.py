@@ -33,11 +33,13 @@ import httpx2
 import pytest
 from argus_testkit import Assertion, Scenario
 from core.llm import ModelUnavailable, RequestRejected
-from core.llm.adapters.anthropic_adapter import LARGEST_UNSTREAMED_ANSWER, AnthropicLLMClient
-from core.models.tool_definition import ToolDefinition
-from core.models.transcript import Ask
+from core.models import Ask, ToolDefinition
+from llm_anthropic import LARGEST_UNSTREAMED_ANSWER, AnthropicLLMClient
 
-from core_test.framework.llm import a_policy_naming_the_adapters_model, settings_that_reach_no_api
+from llm_anthropic_test.framework.llm import (
+    a_policy_naming_the_adapters_model,
+    settings_that_reach_no_api,
+)
 
 SOME_REQUEST = httpx2.Request("POST", "https://api.invalid/v1/messages")
 

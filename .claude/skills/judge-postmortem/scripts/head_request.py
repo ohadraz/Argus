@@ -18,8 +18,8 @@ import json
 import sys
 from pathlib import Path
 
-from core.llm.adapters.anthropic_adapter import to_tool
 from core.models import LogsInTheGap
+from llm_anthropic import to_tool
 from postmortem_writing.briefing import STANDING_BRIEF
 from postmortem_writing.prompting import SUBMIT_POSTMORTEM, submit_postmortem_for
 

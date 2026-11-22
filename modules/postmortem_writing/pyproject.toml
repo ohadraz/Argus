@@ -4,7 +4,7 @@ version = "0.1.0"
 requires-python = ">=3.14"
 
 dependencies = [
-    # No `llm` extra: the writer talks through the port and is handed its
+    # Not `llm_anthropic`: the writer talks through the port and is handed its
     # client, so the model vendor's SDK is the worker's to install.
     "argus-core",
     "argus-narration",

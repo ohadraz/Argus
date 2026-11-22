@@ -28,7 +28,6 @@ from core import Connections, Holding, Settings, SettingsSlice
 from core.anomaly import AnomalyThresholds
 from core.autonomy import admit
 from core.llm import ModelProvider, build_llm_client, conversations_through
-from core.llm.adapters.anthropic_adapter import AnthropicProvider, AnthropicSettings
 from core.vector_store import VectorSearch
 from embedding_fastembed import an_embedder
 from exchange_rate_source.frankfurter import FrankfurterSettings, rates_published_for
@@ -43,6 +42,7 @@ from incident_record import (
 )
 from investigation_agent import InvestigationSettings, changes_from, read_tier_tools_over
 from investigation_agent import investigate as _investigate
+from llm_anthropic import AnthropicProvider, AnthropicSettings
 from mitigation import (
     MitigationSettings,
     an_undo_over,

@@ -14,8 +14,8 @@ from anthropic_double.server import DEFAULT_BASE_URL
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting
 from core.llm import AnswerTruncated, ModelRefused, ModelUnavailable, TurnPaused
-from core.llm.adapters.anthropic_adapter import MODEL, AnthropicLLMClient, AnthropicSettings
 from core.models import Ask, ModelPolicy, ToolDefinition, Transcript, Turn
+from llm_anthropic import MODEL, AnthropicLLMClient, AnthropicSettings
 
 from tests.framework.recordings import RECORDED_TOOL_USE_TURN
 

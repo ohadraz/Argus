@@ -150,6 +150,7 @@ root_packages = [
     "incident_memory",
     "incident_record",
     "investigation_agent",
+    "llm_anthropic",
     "message_intent",
     "metrics_source",
     "mitigation",
@@ -262,13 +263,12 @@ allow_indirect_imports = true
 # would import itself while still importing.
 #
 # Some doors are narrower than the rest, and that is the other half of
-# `core`'s extras. `anthropic` and `mcp` are optional dependencies, taken by
-# the modules that go through the model provider's adapter and
-# `core.mcp_transport` and by nobody else. A module reaching one without
-# declaring the extra would work in the workspace venv and fail wherever that
-# module is resolved on its own - so the allowance names the modules, and
-# reaching past it is a broken contract here rather than an ImportError in a
-# walk.
+# `core`'s extras. `mcp` is an optional dependency, taken by the modules that
+# go through `core.mcp_transport` and by nobody else. A module reaching it
+# without declaring the extra would work in the workspace venv and fail
+# wherever that module is resolved on its own - so the allowance names the
+# modules, and reaching past it is a broken contract here rather than an
+# ImportError in a walk.
 ignore_imports = [
     "core.** -> core.**",
     "** -> core.models",
@@ -300,14 +300,6 @@ ignore_imports = [
     # client interface, the provider port, the factory and the conversations
     # import no third party, so naming them installs nothing.
     "** -> core.llm",
-    # The model provider's adapter, and narrower than any door above: a
-    # process's root builds it and hands it out as `core.llm.ModelProvider`,
-    # and nothing else names a model vendor. The worker's root and the Intent
-    # Reader's, the two processes that ask a model anything - and the two
-    # extras, `[worker]` and `[intent_reader]`, that take `core[llm]`, which
-    # carries the vendor's SDK the adapter imports.
-    "apps.worker.** -> core.llm.adapters.anthropic_adapter",
-    "apps.intent_reader -> core.llm.adapters.anthropic_adapter",
     "mitigation.** -> core.mcp_transport",
     "orchestrator.** -> core.mcp_transport",
     "read_mcp_client.** -> core.mcp_transport",
@@ -489,11 +481,11 @@ protected_modules = [
     "chat_platform.slack_deliveries",
     "chat_platform.slack_posting",
     "code_host.github",
-    "core.llm.adapters",
     "deployment_platform.argocd",
     "embedding_fastembed",
     "exchange_rate_source.frankfurter",
     "flag_provider.unleash",
+    "llm_anthropic",
     "metrics_source.prometheus_adapter",
     "metrics_source.prometheus_settings",
     "metrics_source.prometheus_units",

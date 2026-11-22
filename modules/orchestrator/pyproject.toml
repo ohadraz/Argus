@@ -3,7 +3,7 @@ name = "argus-orchestrator"
 version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
-    # Without the `llm` extra: the model provider's adapter, which imports the
+    # Without `llm_anthropic`: the model provider's adapter, which imports the
     # vendor's SDK, is built by the worker's root (`apps.worker`) and handed
     # to the agents as the port.
     "argus-core[mcp]",

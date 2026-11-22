@@ -27,6 +27,7 @@ members = [
     "argus-incident-memory",
     "argus-incident-record",
     "argus-investigation-agent",
+    "argus-llm-anthropic",
     "argus-message-intent",
     "argus-metrics-source",
     "argus-mitigation",
@@ -205,7 +206,7 @@ indexer = [
 ]
 intent-reader = [
     { name = "argus-chat-platform" },
-    { name = "argus-core", extra = ["llm"] },
+    { name = "argus-llm-anthropic" },
     { name = "argus-message-intent" },
 ]
 read-mcp = [
@@ -236,12 +237,13 @@ web = [
 ]
 worker = [
     { name = "argus-codefix-agent" },
-    { name = "argus-core", extra = ["llm", "mcp"] },
+    { name = "argus-core", extra = ["mcp"] },
     { name = "argus-embedding-fastembed" },
     { name = "argus-exchange-rate-source" },
     { name = "argus-incident-memory" },
     { name = "argus-incident-record" },
     { name = "argus-investigation-agent" },
+    { name = "argus-llm-anthropic" },
     { name = "argus-mitigation" },
     { name = "argus-oncall-source" },
     { name = "argus-orchestrator" },
@@ -279,8 +281,7 @@ requires-dist = [
     { name = "argus-codefix-agent", marker = "extra == 'worker'", editable = "modules/codefix_agent" },
     { name = "argus-communication", marker = "extra == 'relay'", editable = "modules/communication" },
     { name = "argus-core", editable = "modules/core" },
-    { name = "argus-core", extras = ["llm"], marker = "extra == 'intent-reader'", editable = "modules/core" },
-    { name = "argus-core", extras = ["llm", "mcp"], marker = "extra == 'worker'", editable = "modules/core" },
+    { name = "argus-core", extras = ["mcp"], marker = "extra == 'worker'", editable = "modules/core" },
     { name = "argus-core", extras = ["migrations"], marker = "extra == 'schema'", editable = "modules/core" },
     { name = "argus-deployment-platform", marker = "extra == 'read-mcp'", editable = "modules/deployment_platform" },
     { name = "argus-deployment-platform", marker = "extra == 'write-mcp'", editable = "modules/deployment_platform" },
@@ -296,6 +297,8 @@ requires-dist = [
     { name = "argus-incident-record", marker = "extra == 'relay'", editable = "modules/incident_record" },
     { name = "argus-incident-record", marker = "extra == 'worker'", editable = "modules/incident_record" },
     { name = "argus-investigation-agent", marker = "extra == 'worker'", editable = "modules/investigation_agent" },
+    { name = "argus-llm-anthropic", marker = "extra == 'intent-reader'", editable = "modules/llm_anthropic" },
+    { name = "argus-llm-anthropic", marker = "extra == 'worker'", editable = "modules/llm_anthropic" },
     { name = "argus-message-intent", marker = "extra == 'intent-reader'", editable = "modules/message_intent" },
     { name = "argus-metrics-source", marker = "extra == 'read-mcp'", editable = "modules/metrics_source" },
     { name = "argus-mitigation", marker = "extra == 'worker'", editable = "modules/mitigation" },
@@ -472,9 +475,6 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-llm = [
-    { name = "anthropic" },
-]
 mcp = [
     { name = "httpx" },
     { name = "mcp" },
@@ -487,15 +487,13 @@ migrations = [
 [package.dev-dependencies]
 dev = [
     { name = "argus-argus-testkit" },
-    { name = "argus-core", extra = ["llm", "mcp", "migrations"] },
-    { name = "httpx2" },
+    { name = "argus-core", extra = ["mcp", "migrations"] },
     { name = "opentelemetry-sdk" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "alembic", marker = "extra == 'migrations'", specifier = ">=1.20.0" },
-    { name = "anthropic", marker = "extra == 'llm'", specifier = ">=1.0" },
     { name = "httpx", marker = "extra == 'mcp'", specifier = ">=0.28" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.29.0" },
     { name = "opentelemetry-api", specifier = ">=1.45" },
@@ -505,13 +503,12 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.0" },
     { name = "uvicorn", marker = "extra == 'mcp'", specifier = ">=0.30" },
 ]
-provides-extras = ["llm", "mcp", "migrations"]
+provides-extras = ["mcp", "migrations"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
-    { name = "argus-core", extras = ["llm", "mcp", "migrations"] },
-    { name = "httpx2" },
+    { name = "argus-core", extras = ["mcp", "migrations"] },
     { name = "opentelemetry-sdk", specifier = ">=1.45" },
 ]
 
@@ -731,6 +728,33 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
+
+[[package]]
+name = "argus-llm-anthropic"
+version = "0.1.0"
+source = { editable = "modules/llm_anthropic" }
+dependencies = [
+    { name = "anthropic" },
+    { name = "argus-core" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "argus-argus-testkit" },
+    { name = "httpx2" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "anthropic", specifier = ">=1.0" },
+    { name = "argus-core", editable = "modules/core" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
+    { name = "httpx2" },
+]
 
 [[package]]
 name = "argus-message-intent"

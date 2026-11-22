@@ -17,9 +17,11 @@ dependencies = [
 # holds each root to the workspace packages its own extra names.
 [project.optional-dependencies]
 worker = [
-    # The model provider's adapter, the tiers' transport and the embedder recall
-    # searches with (`embedding_fastembed`) are all built here.
-    "argus-core[llm,mcp]",
+    # The model provider's adapter (`llm_anthropic`), the tiers' transport and
+    # the embedder recall searches with (`embedding_fastembed`) are all built
+    # here.
+    "argus-core[mcp]",
+    "argus-llm_anthropic",
     "argus-embedding_fastembed",
     "argus-orchestrator",
     "argus-incident_record",
@@ -79,7 +81,7 @@ relay = [
 ]
 intent_reader = [
     # The model provider's adapter is built here.
-    "argus-core[llm]",
+    "argus-llm_anthropic",
     "argus-message_intent",
     "argus-chat_platform",
 ]
@@ -106,6 +108,7 @@ argus-incident_record = { workspace = true }
 argus-incident_memory = { workspace = true }
 argus-vector_store_qdrant = { workspace = true }
 argus-embedding_fastembed = { workspace = true }
+argus-llm_anthropic = { workspace = true }
 argus-investigation_agent = { workspace = true }
 argus-mitigation = { workspace = true }
 argus-codefix_agent = { workspace = true }

@@ -12,8 +12,8 @@ import pytest
 from apps.intent_reader import the_model_for
 from argus_testkit import Assertion, Scenario
 from core import Settings, get_settings
-from core.llm.adapters.anthropic_adapter import AnthropicProvider, AnthropicSettings
 from core.models import ModelPolicy, Reasoning
+from llm_anthropic import AnthropicProvider, AnthropicSettings
 
 # Where this process's model is reached, and which model and effort the Intent
 # Reader asks - none of them the defaults, so a binding that ignored the

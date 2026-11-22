@@ -4,7 +4,7 @@ version = "0.1.0"
 requires-python = ">=3.14"
 
 dependencies = [
-    # No `llm` extra: the agent talks through the port and is handed the
+    # Not `llm_anthropic`: the agent talks through the port and is handed the
     # provider, so the model vendor's SDK is the worker's to install.
     "argus-core[mcp]",
     # The read tier, and only it: the agent offers what that tier declares. The

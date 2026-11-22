@@ -14,13 +14,10 @@ from unittest.mock import Mock
 
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, the_answer_was
-from core.llm.adapters.anthropic_adapter import EFFORT_ON_THE_WIRE, AnthropicProvider
-from core.models import ModelPolicy, Reasoning
-from core.models.tool_definition import ToolDefinition
-from core.models.transcript import Ask
-from core.models.turn import Turn
+from core.models import Ask, ModelPolicy, Reasoning, ToolDefinition, Turn
+from llm_anthropic import EFFORT_ON_THE_WIRE, AnthropicProvider
 
-from core_test.framework.llm import an_api_that_answers, settings_that_reach_no_api
+from llm_anthropic_test.framework.llm import an_api_that_answers, settings_that_reach_no_api
 
 # How OTel's GenAI conventions spell Anthropic in `gen_ai.provider.name`, stated
 # here rather than imported from the adapter that declares it, for the reason

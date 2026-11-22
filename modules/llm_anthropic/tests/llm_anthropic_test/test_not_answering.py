@@ -21,7 +21,8 @@ import pytest
 from anthropic.types import Message, StopReason, TextBlock, Usage
 from argus_testkit import Assertion, Scenario, all_of
 from core.llm import AnswerTruncated, ModelDidNotAnswer, ModelRefused
-from core.llm.adapters.anthropic_adapter import (
+from core.models import Ask, ToolDefinition
+from llm_anthropic import (
     ASSISTANT_ROLE,
     MESSAGE_TYPE,
     REFUSAL_STOP_REASON,
@@ -29,10 +30,11 @@ from core.llm.adapters.anthropic_adapter import (
     TRUNCATED_STOP_REASON,
     AnthropicLLMClient,
 )
-from core.models.tool_definition import ToolDefinition
-from core.models.transcript import Ask
 
-from core_test.framework.llm import a_policy_naming_the_adapters_model, settings_that_reach_no_api
+from llm_anthropic_test.framework.llm import (
+    a_policy_naming_the_adapters_model,
+    settings_that_reach_no_api,
+)
 
 
 @pytest.mark.unit

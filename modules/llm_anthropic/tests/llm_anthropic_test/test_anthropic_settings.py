@@ -17,7 +17,7 @@ from argus_testkit import (
     attempting,
     the_error_mentioned,
 )
-from core.llm.adapters.anthropic_adapter import AnthropicSettings
+from llm_anthropic import AnthropicSettings
 
 SOME_KEY = "some-key"
 SOME_STAND_IN = "http://every-agent.example"

@@ -22,7 +22,8 @@ import anthropic
 import pytest
 from anthropic.types import Message, TextBlock, Usage
 from argus_testkit import Assertion, Scenario
-from core.llm.adapters.anthropic_adapter import (
+from core.models import Ask, ToolDefinition, Turn
+from llm_anthropic import (
     ASSISTANT_ROLE,
     END_TURN_STOP_REASON,
     EPHEMERAL_CACHE,
@@ -30,11 +31,11 @@ from core.llm.adapters.anthropic_adapter import (
     TEXT_TYPE,
     AnthropicLLMClient,
 )
-from core.models.tool_definition import ToolDefinition
-from core.models.transcript import Ask
-from core.models.turn import Turn
 
-from core_test.framework.llm import a_policy_naming_the_adapters_model, settings_that_reach_no_api
+from llm_anthropic_test.framework.llm import (
+    a_policy_naming_the_adapters_model,
+    settings_that_reach_no_api,
+)
 
 
 @pytest.mark.unit

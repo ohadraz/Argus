@@ -10,7 +10,7 @@ is, as they do for the worker.
 from __future__ import annotations
 
 from core.llm import ModelProvider
-from core.llm.adapters.anthropic_adapter import AnthropicProvider, AnthropicSettings
+from llm_anthropic import AnthropicProvider, AnthropicSettings
 
 
 def the_configured_models() -> ModelProvider:

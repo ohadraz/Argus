@@ -9,8 +9,8 @@ from argus_testkit.assertions import Assertion, at_least
 from argus_testkit.scenario import Scenario
 from core import get_settings
 from core.llm import build_llm_client
-from core.llm.adapters.anthropic_adapter import AnthropicSettings, to_tool
 from core.models import Meaning, ModelPolicy
+from llm_anthropic import AnthropicSettings, to_tool
 from message_intent.classifying import classify
 from message_intent.prompting import SUBMIT_MEANING, opening_ask
 

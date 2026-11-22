@@ -8,7 +8,7 @@ from pydantic import BaseModel, model_validator
 # JSON Schema's own vocabulary, which is what a tool's arguments are written
 # in whoever is offered them. How an offer is laid out for one provider - the
 # keys around the schema, whether it is strict - is that provider's adapter's
-# to say (`core.llm.adapters`), and nothing here renders one.
+# to say (`llm_anthropic`), and nothing here renders one.
 _TYPE_KEY: Final = "type"
 _PROPERTIES_KEY: Final = "properties"
 _REQUIRED_KEY: Final = "required"

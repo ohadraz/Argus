@@ -72,7 +72,7 @@ from anthropic_double.recordings import is_a_question
 from argus_testkit.assertions import Assertion, all_of
 from argus_testkit.scenario import Scenario
 from codefix_agent import SUBMIT_FIX, SubmittedFix, changes_only_configuration
-from core.llm.adapters.anthropic_adapter import to_turn
+from llm_anthropic import to_turn
 from pydantic import ValidationError
 
 from tests.e2e.framework.argus import THE_RECORDINGS_THAT_MUST_CARRY_A_FIX

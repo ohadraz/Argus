@@ -11,7 +11,6 @@ from argus_testkit.assertions import Assertion, all_of, at_least
 from argus_testkit.scenario import Scenario
 from core import get_settings, new_id, parse_iso
 from core.llm import Conversation, build_llm_client
-from core.llm.adapters.anthropic_adapter import AnthropicSettings, to_tool
 from core.models import (
     Alert,
     ChangeEvent,
@@ -39,6 +38,7 @@ from core.replay import Recorder
 from investigation_agent import BRIEF, Findings, investigate, investigator_tools
 from investigation_agent.budget import Bound, Budget, InvestigationSettings
 from investigation_agent.retrieval import LogFetcher, MetricsFetcher
+from llm_anthropic import AnthropicSettings, to_tool
 
 from tests.framework.assertions import the_cause_was_identified_as
 from tests.framework.investigating import (

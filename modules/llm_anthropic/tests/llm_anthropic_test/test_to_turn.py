@@ -28,7 +28,8 @@ from anthropic.types import (
     Usage,
 )
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
-from core.llm.adapters.anthropic_adapter import (
+from core.models import ToolDefinition, Turn
+from llm_anthropic import (
     ASSISTANT_ROLE,
     END_TURN_STOP_REASON,
     MESSAGE_TYPE,
@@ -38,11 +39,9 @@ from core.llm.adapters.anthropic_adapter import (
     TOOL_USE_TYPE,
     to_turn,
 )
-from core.models.tool_definition import ToolDefinition
-from core.models.turn import Turn
 
 # The logger the adapter writes under: its module's name.
-THE_ADAPTER: Final = "core.llm.adapters.anthropic_adapter"
+THE_ADAPTER: Final = "llm_anthropic.adapter"
 
 # A tool shaped like Code-Fix's submission, which is where the tag form was
 # met: two prose arguments and a list of whole files. Named once, so every tag

@@ -14,7 +14,7 @@ import json
 import sys
 from pathlib import Path
 
-from core.llm.adapters.anthropic_adapter import to_tool
+from llm_anthropic import to_tool
 from postmortem_writing.prompting import SUBMIT_POSTMORTEM
 
 # The fields only some incidents are offered, in the order the code adds them.

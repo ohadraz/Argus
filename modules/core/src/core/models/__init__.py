@@ -97,7 +97,7 @@ from core.models.metrics import (
     SeriesQuery,
     WorseWhen,
 )
-from core.models.model_policy import ModelPolicy, Reasoning
+from core.models.model_policy import DEFAULT_MAX_OUTPUT_TOKENS, ModelPolicy, Reasoning
 from core.models.onset import EstablishedOnset, HowTheMinuteIsKnown
 from core.models.placement import PodPlacement, RecordedPlacement
 from core.models.planned import ChangeFound, FlagState, Made, NotMade, Planned
@@ -290,6 +290,7 @@ __all__ = [
     "Lifespan",
     "Meaning",
     "MetricBucket",
+    "DEFAULT_MAX_OUTPUT_TOKENS",
     "ModelPolicy",
     "Reasoning",
     "Offer",

@@ -34,7 +34,7 @@ from argus_testkit.assertions import Assertion, at_least
 from argus_testkit.scenario import Scenario
 from core import get_settings
 from core.llm import build_llm_client
-from core.llm.adapters.anthropic_adapter import AnthropicSettings, to_tool
+from llm_anthropic import AnthropicSettings, to_tool
 from postmortem_writing.grounding import (
     DID_NOT_ANSWER,
     JUDGE_BRIEF,

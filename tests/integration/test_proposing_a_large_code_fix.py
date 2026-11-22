@@ -55,7 +55,6 @@ from core import (
     utc_now,
 )
 from core.llm import conversations_through
-from core.llm.adapters.anthropic_adapter import AnthropicSettings, to_turn
 from core.models import (
     Alert,
     CodeOutsideThePatch,
@@ -66,6 +65,7 @@ from core.models import (
 )
 from github_double.server import DEFAULT_BASE_URL as GITHUB_DOUBLE_BASE_URL
 from incident_record.repository import incidents, runs
+from llm_anthropic import AnthropicSettings, to_turn
 from write_mcp_client import write_mcp
 
 from tests.framework.models import the_configured_models
