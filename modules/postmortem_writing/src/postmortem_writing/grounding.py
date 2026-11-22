@@ -37,7 +37,7 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Final
 
-from core.llm import LLMClient, ModelRefused, ModelUnavailable, RequestRejected
+from core.llm import LLMClient, ModelRefused, ModelUnavailable, RequestRejected, the_call
 from core.models import Ask, ModelPolicy, Reasoning, ToolDefinition, Transcript
 from pydantic import BaseModel, ValidationError
 
@@ -250,7 +250,7 @@ def flags_on(judge: LLMClient,
         logger.warning(DID_NOT_ANSWER, extra={"failure": str(failure)})
         return []
 
-    call = next((call for call in turn.tool_calls if call.name == JUDGE_TOOL_NAME), None)
+    call = the_call(turn, JUDGE_TOOL_NAME)
     if call is None:
         logger.warning(DID_NOT_ANSWER, extra={"failure": "it answered without the call"})
         return []

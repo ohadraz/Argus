@@ -48,6 +48,8 @@ from core.llm import (
     Conversations,
     ModelRefused,
     on_one_line,
+    the_call,
+    the_calls,
 )
 from core.models import (
     DISCARD_CACHE_ENTRIES,
@@ -84,7 +86,6 @@ from core.models import (
     ToolDefinition,
     ToolResult,
     ToolResults,
-    Turn,
     Weighing,
     WorseWhen,
     labelled,
@@ -687,12 +688,14 @@ def investigate(
         # count: a weighing made a turn before the answer is one the answer
         # can have moved on from, and the person who wrote the lead is told
         # its reason beside that answer.
-        weighing_calls = [call for call in turn.tool_calls if call.name == WEIGH_TOOL]
+        weighing_calls = the_calls(turn, WEIGH_TOOL)
         weighings = [_weigh(call, shown, weighed) for call in weighing_calls]
         weighed_beside = {call.arguments.get(LEAD_ARG)
                           for call, weighing in zip(weighing_calls, weighings, strict=True)
                           if not weighing.failed}
-        answered = _the_answer_in(turn, incident_id, earlier_candidates)
+        answering = the_call(turn, ANSWER_TOOL)
+        answered = (None if answering is None
+                    else _the_answer_in(answering, incident_id, earlier_candidates))
         unweighed = [label for label, _lead in labelled(shown) if label not in weighed_beside]
 
         if answered is None:
@@ -701,16 +704,20 @@ def investigate(
         if isinstance(answered, ToolResult):
             answered = _and_weighed_beside_the_next(answered, shown)
 
-        if isinstance(answered, list) and unweighed and not reached:
-            answered = _an_answer_past(unweighed, turn)
+        # Only an answer the model gave can be sent back, and each refusal is
+        # addressed to the call it came in.
+        if answering is not None:
+            if isinstance(answered, list) and unweighed and not reached:
+                answered = _an_answer_past(unweighed, answering)
 
-        if isinstance(answered, list) and not reached:
-            loose = _an_answer_naming_loosely(answered, turn)
-            answered = _and_weighed_beside_the_next(loose, shown) if loose else answered
+            if isinstance(answered, list) and not reached:
+                loose = _an_answer_naming_loosely(answered, answering)
+                answered = _and_weighed_beside_the_next(loose, shown) if loose else answered
 
-        if isinstance(answered, list) and not reached:
-            unnamed = _an_answer_naming_no_dependency(answered, turn)
-            answered = _and_weighed_beside_the_next(unnamed, shown) if unnamed else answered
+            if isinstance(answered, list) and not reached:
+                unnamed = _an_answer_naming_no_dependency(answered, answering)
+                answered = (_and_weighed_beside_the_next(unnamed, shown) if unnamed
+                            else answered)
 
         if isinstance(answered, list):
             for candidate in answered:
@@ -818,21 +825,18 @@ def _the_placement_recorded(service: str,
     return placement
 
 
-def _the_answer_in(turn: Turn,
+def _the_answer_in(answering: ToolCall,
                    incident_id: str,
-                   earlier_candidates: int) -> list[Hypothesis] | ToolResult | None:
-    """The investigation's answer, if this turn carried one.
+                   earlier_candidates: int) -> list[Hypothesis] | ToolResult:
+    """The investigation's answer, from the call the model made to give it.
 
-    Three outcomes, because the answer tool can be called well, called badly,
-    or not called. `None` means the model is still working. A list means it has
-    finished. A `ToolResult` means it called the answer tool with something
-    that is not an answer - which is the model's to correct, like any other bad
-    call, rather than the end of an investigation that may have read plenty.
+    Two outcomes, because the answer tool can be called well or called badly;
+    a turn that did not call it is the model still working, and never reaches
+    here. A list means it has finished. A `ToolResult` means it called the
+    answer tool with something that is not an answer - which is the model's to
+    correct, like any other bad call, rather than the end of an investigation
+    that may have read plenty.
     """
-    answering = next((call for call in turn.tool_calls if call.name == ANSWER_TOOL), None)
-    if answering is None:
-        return None
-
     try:
         return _hypotheses_in(answering, incident_id, earlier_candidates)
     except (ValidationError, TypeError, AttributeError) as malformed:
@@ -1006,12 +1010,10 @@ def _the_leads_weighed(shown: Sequence[ThreadMessage],
             for label, lead in labelled(shown) if label in weighed]
 
 
-def _an_answer_past(unweighed: Sequence[str], turn: Turn) -> ToolResult:
+def _an_answer_past(unweighed: Sequence[str], answering: ToolCall) -> ToolResult:
     """The answer refused, because a lead the model was shown is not weighed
     beside it: a lead is weighed, never obeyed and never ignored, and weighed
     against the answer it is reported with."""
-    answering = next(call for call in turn.tool_calls if call.name == ANSWER_TOOL)
-
     return ToolResult(
         call_id=answering.id,
         content=(f"that answer was not taken: {', '.join(unweighed)} not weighed in this "
@@ -1046,7 +1048,8 @@ def _and_weighed_beside_the_next(refused: ToolResult,
                                                  f"turn you weigh {labels} in."})
 
 
-def _an_answer_naming_loosely(answered: list[Hypothesis], turn: Turn) -> ToolResult | None:
+def _an_answer_naming_loosely(answered: list[Hypothesis],
+                              answering: ToolCall) -> ToolResult | None:
     """The answer refused, because a candidate's subject is more than one name -
     or `None` where every subject is one name or none.
 
@@ -1066,7 +1069,6 @@ def _an_answer_naming_loosely(answered: list[Hypothesis], turn: Turn) -> ToolRes
     if not loose:
         return None
 
-    answering = next(call for call in turn.tool_calls if call.name == ANSWER_TOOL)
     named = "; ".join(f"explanation {rank} names [{subject}]" for rank, subject in loose)
 
     return ToolResult(
@@ -1079,7 +1081,7 @@ def _an_answer_naming_loosely(answered: list[Hypothesis], turn: Turn) -> ToolRes
 
 
 def _an_answer_naming_no_dependency(answered: list[Hypothesis],
-                                    turn: Turn) -> ToolResult | None:
+                                    answering: ToolCall) -> ToolResult | None:
     """The answer refused, because a candidate blames an upstream dependency
     and names none - or `None` where every such candidate names one.
 
@@ -1097,7 +1099,6 @@ def _an_answer_naming_no_dependency(answered: list[Hypothesis],
     if not unnamed:
         return None
 
-    answering = next(call for call in turn.tool_calls if call.name == ANSWER_TOOL)
     # A clause for each, as the loose check names each: one verb for two reads
     # as one candidate, and the model may name a dependency for only one.
     named = "; ".join(f"explanation {rank} blames an upstream dependency and names none"

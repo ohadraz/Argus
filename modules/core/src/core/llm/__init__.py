@@ -13,6 +13,7 @@ root (`apps`) and nowhere else.
 """
 
 from core.llm.building import build_llm_client
+from core.llm.calls import the_call, the_calls
 from core.llm.client import (
     AnswerTruncated,
     ClientFor,
@@ -48,5 +49,7 @@ __all__ = [
     "build_llm_client",
     "conversations_through",
     "on_one_line",
+    "the_call",
+    "the_calls",
     "with_escapes_resolved"
 ]

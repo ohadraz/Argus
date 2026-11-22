@@ -22,7 +22,7 @@ from textwrap import indent
 from typing import Final
 
 from core import to_iso
-from core.llm import LLMClient, ModelDidNotAnswer
+from core.llm import LLMClient, ModelDidNotAnswer, the_call
 from core.models import Ask, ToolDefinition, Transcript, Turn
 from narration import NarrationLine, said_in_full
 
@@ -110,10 +110,10 @@ def _the_line_and_its_aside(line: NarrationLine) -> list[str]:
 def _the_answer_in(turn: Turn) -> str | None:
     """The answer the turn submitted, or `None` where it submitted none, or
     one with nothing in it."""
-    for call in turn.tool_calls:
-        if call.name == ANSWER_TOOL_NAME:
-            submitted = call.arguments.get(ANSWER_FIELD)
+    answering = the_call(turn, ANSWER_TOOL_NAME)
+    if answering is None:
+        return None
 
-            return submitted.strip() if isinstance(submitted, str) and submitted.strip() else None
+    submitted = answering.arguments.get(ANSWER_FIELD)
 
-    return None
+    return submitted.strip() if isinstance(submitted, str) and submitted.strip() else None

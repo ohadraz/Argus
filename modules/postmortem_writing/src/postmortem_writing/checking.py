@@ -50,6 +50,7 @@ from functools import partial
 from itertools import pairwise
 from typing import Final
 
+from core.llm import the_calls
 from core.models import CodeUse, ThreadMessage, TimelineEntry, Turn, labelled
 from narration import A_REVISION, the_revision_named
 from pydantic import BaseModel
@@ -329,7 +330,7 @@ def faults_in_the_turn(turn: Turn) -> list[str]:
     only in a turn that is already malformed. Whoever reads the turn still
     reads its first call, for the attempt that has no second after it.
     """
-    submitted = sum(1 for call in turn.tool_calls if call.name == SUBMIT_TOOL_NAME)
+    submitted = len(the_calls(turn, SUBMIT_TOOL_NAME))
     if submitted <= 1:
         return []
 

@@ -19,7 +19,7 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Final
 
-from core.llm import LLMClient, ModelRefused, ModelUnavailable, RequestRejected
+from core.llm import LLMClient, ModelRefused, ModelUnavailable, RequestRejected, the_call
 from core.models import Ask, ToolResult, ToolResults, Transcript, Turn
 from pydantic import BaseModel
 
@@ -172,11 +172,9 @@ def _reading_of(turn: Turn,
 def _overview_from(turn: Turn) -> str | None:
     """What the model submitted as the overview, or `None` where it made no
     call to the tool."""
-    for call in turn.tool_calls:
-        if call.name == OVERVIEW_TOOL_NAME:
-            return str(call.arguments.get(OVERVIEW_FIELD) or "")
+    submitting = the_call(turn, OVERVIEW_TOOL_NAME)
 
-    return None
+    return None if submitting is None else str(submitting.arguments.get(OVERVIEW_FIELD) or "")
 
 
 def _with_figures_written(overview: str, said: Mapping[str, str]) -> str:

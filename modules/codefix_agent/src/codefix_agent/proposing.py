@@ -36,6 +36,7 @@ from core.llm import (
     Conversation,
     Conversations,
     ModelRefused,
+    the_call,
 )
 from core.models import (
     Ask,
@@ -802,9 +803,7 @@ def _no_patch_was_attached(turn: Turn) -> ToolResult:
     invent a change to satisfy the complaint, which is the worse of the two
     failures this is guarding - so the way to say that is put in front of it.
     """
-    submitting = next(
-        (call for call in turn.tool_calls if call.name == SUBMIT_TOOL_NAME), None
-    )
+    submitting = the_call(turn, SUBMIT_TOOL_NAME)
 
     return ToolResult(
         call_id=submitting.id if submitting is not None else "",
@@ -833,9 +832,7 @@ def _that_is_not_source(turn: Turn, paths: list[str]) -> ToolResult:
     line one of `(see above)` describes the placeholder rather than the mistake,
     and the mistake is that a pointer was sent where a file belongs.
     """
-    submitting = next(
-        (call for call in turn.tool_calls if call.name == SUBMIT_TOOL_NAME), None
-    )
+    submitting = the_call(turn, SUBMIT_TOOL_NAME)
 
     return ToolResult(
         call_id=submitting.id if submitting is not None else "",
@@ -861,9 +858,7 @@ def _no_test_was_brought(turn: Turn) -> ToolResult:
     missing, a model that had found nothing to change would invent a change to
     test.
     """
-    submitting = next(
-        (call for call in turn.tool_calls if call.name == SUBMIT_TOOL_NAME), None
-    )
+    submitting = the_call(turn, SUBMIT_TOOL_NAME)
 
     return ToolResult(
         call_id=submitting.id if submitting is not None else "",
@@ -918,9 +913,7 @@ def _spoken_of_together(turn: Turn, paragraph: str, outside: CodeOutsideThePatch
     patch - and what is asked again is the words: the explanation, and the
     comments in the files, where the same sentence was found living too.
     """
-    submitting = next(
-        (call for call in turn.tool_calls if call.name == SUBMIT_TOOL_NAME), None
-    )
+    submitting = the_call(turn, SUBMIT_TOOL_NAME)
     names = list(dict.fromkeys(use.name for use in outside.uses))
     rows = "\n".join(_a_row(use) for use in outside.uses)
     what_it_does = (
@@ -964,9 +957,7 @@ def _the_verdict_in(turn: Turn) -> SubmittedFix | None:
     Believed the first time, unlike an empty patch. Only this tool means this,
     so there is no other reading to rule out.
     """
-    reporting = next(
-        (call for call in turn.tool_calls if call.name == REPORT_TOOL_NAME), None
-    )
+    reporting = the_call(turn, REPORT_TOOL_NAME)
 
     if reporting is None:
         return None
@@ -982,9 +973,7 @@ def _the_verdict_in(turn: Turn) -> SubmittedFix | None:
 def _the_answer_in(turn: Turn) -> AnswerToTheQuestion | None:
     """The answer to the question a submission is asked, if this turn gave one
     that could be read."""
-    answering = next(
-        (call for call in turn.tool_calls if call.name == ANSWER_TOOL_NAME), None
-    )
+    answering = the_call(turn, ANSWER_TOOL_NAME)
 
     if answering is None:
         return None
@@ -1034,9 +1023,7 @@ def _the_submission_in(turn: Turn) -> SubmittedFix | None:
     `SubmittedFix` is optional and its validators drop rather than refuse, so
     reaching here at all takes an argument payload that is not an object.
     """
-    submitting = next(
-        (call for call in turn.tool_calls if call.name == SUBMIT_TOOL_NAME), None
-    )
+    submitting = the_call(turn, SUBMIT_TOOL_NAME)
 
     if submitting is None:
         return None

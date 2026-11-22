@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from core.llm import LLMClient, ModelDidNotAnswer
+from core.llm import LLMClient, ModelDidNotAnswer, the_call
 from core.models import Meaning, Turn
 
 from message_intent.prompting import (
@@ -48,10 +48,10 @@ def classify(words: str, llm: LLMClient, *, platform: str) -> Meaning | None:
 def _the_meaning_in(turn: Turn) -> Meaning | None:
     """The meaning the turn submitted, or `None` where it submitted none of the
     five."""
-    for call in turn.tool_calls:
-        if call.name == SUBMIT_TOOL_NAME:
-            submitted = call.arguments.get(MEANING_FIELD)
+    submitting = the_call(turn, SUBMIT_TOOL_NAME)
+    if submitting is None:
+        return None
 
-            return Meaning(submitted) if submitted in set(Meaning) else None
+    submitted = submitting.arguments.get(MEANING_FIELD)
 
-    return None
+    return Meaning(submitted) if submitted in set(Meaning) else None

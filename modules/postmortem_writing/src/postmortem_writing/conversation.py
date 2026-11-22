@@ -16,7 +16,7 @@ from collections.abc import Sequence
 from datetime import date
 from typing import Final, NamedTuple
 
-from core.llm import LLMClient
+from core.llm import LLMClient, the_call
 from core.models import (
     Ask,
     ChangeKind,
@@ -519,8 +519,7 @@ def _answer_from(turn: Turn) -> SubmittedPostmortem:
     one: the document is then written incomplete, which is what its review
     exists to say.
     """
-    for call in turn.tool_calls:
-        if call.name == SUBMIT_TOOL_NAME:
-            return SubmittedPostmortem.model_validate(call.arguments)
+    submitting = the_call(turn, SUBMIT_TOOL_NAME)
 
-    return SubmittedPostmortem()
+    return (SubmittedPostmortem() if submitting is None
+            else SubmittedPostmortem.model_validate(submitting.arguments))

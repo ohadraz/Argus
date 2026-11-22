@@ -21,7 +21,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Final
 
-from core.llm import LLMClient, ModelDidNotAnswer, ModelUnavailable
+from core.llm import LLMClient, ModelDidNotAnswer, ModelUnavailable, the_call
 from core.models import Ask, ToolDefinition, Transcript, Turn
 
 from postmortem_writing.answer import SubmittedStep
@@ -97,8 +97,8 @@ def in_its_order(chain: Sequence[SubmittedStep], answered: Turn) -> list[Submitt
     cannot be sorted, a float equal to its step's number fails as an index, and
     `True` is the first step only to Python.
     """
-    order = next((call.arguments.get(ORDER_FIELD) for call in answered.tool_calls
-                  if call.name == ORDER_TOOL_NAME), None)
+    ordering = the_call(answered, ORDER_TOOL_NAME)
+    order = None if ordering is None else ordering.arguments.get(ORDER_FIELD)
     numbers = list(range(1, len(chain) + 1))
 
     if (not isinstance(order, list)
