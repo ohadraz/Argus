@@ -27,15 +27,17 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping, Sequence
 from functools import partial
-from typing import Final, NamedTuple, Protocol
+from typing import Final, NamedTuple, NoReturn, Protocol
 
 from core import was_lost
-from core.budget import StillWanted, wanted_throughout
+from core.budget import Budget, StillWanted, wanted_throughout
 from core.llm import (
     AnswerTruncated,
     Conversation,
     Conversations,
+    Ended,
     ModelRefused,
+    converse_until,
     the_call,
     told_next,
 )
@@ -49,7 +51,9 @@ from core.models import (
     ModelPolicy,
     OpenedPullRequest,
     ProposedFix,
+    ThreadMessage,
     ToolCall,
+    ToolDefinition,
     ToolResult,
     Turn,
     WhatArgusDid,
@@ -535,66 +539,112 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
         ))
     ]
     spend = a_budget_for(settings)
-    # The submission the question is open about, and how the code outside its
-    # patch uses what it changes.
-    asked: SubmittedFix | None = None
-    asked_outside: list[CodeUse] = []
-    # Whether a submission has been sent back for speaking of code outside its
-    # patch as a group - which happens once.
-    sent_back = False
-    # Whether the last submission was sent back, for any reason, with nothing
-    # submitted since.
-    last_sent_back = False
-    # Whether the budget is stretched past its bounds by one call, for the
-    # rewrite of a submission sent back or for the answer to its question - and
-    # whether the answer's has been given. Each is given once, and the
-    # rewrite's never after the answer's: a rewrite then would be written and
-    # never asked about.
-    room_for_its_rewrite = False
-    room_for_its_answer = False
-    answer_room_given = False
 
-    while not spend.bounds_reached() or room_for_its_rewrite or room_for_its_answer:
-        room_for_its_rewrite = room_for_its_answer = False
+    return converse_until(
+        _Writing(tools, shown, spend, settings=settings, search=search,
+                 search_by_meaning=search_by_meaning, list_files=list_files,
+                 read_file=read_file, code_outside=code_outside, leads=leads),
+        converse=converse,
+        transcript=transcript,
+        record=spend.record,
+        still_wanted=still_wanted
+    )
 
-        if not still_wanted():
-            logger.info("fix stopped, incident no longer wanted")
-            raise FixStopped("the incident is no longer wanted")
 
-        try:
-            turn = converse(transcript, tools)
-        except ModelRefused as declined:
-            # Final, and final for its own reason: the evidence would be
-            # declined again, so the turns left are not worth spending.
-            #
-            # Without the refusal's own account, which is the adapter's - a stop
-            # reason - and nothing the model wrote: a refusal comes with no
-            # words, and that one reached the walk, Slack and the postmortem as
-            # "(stop_reason=refusal)". Kept as the cause, for the log.
-            raise FixDeclined("the model declined to write a fix") from declined
-        except AnswerTruncated as cut_short:
-            # A bound was too small, which is what `FixNotAnswered` already
-            # means - but room rather than turns, and that difference is the
-            # whole of what a reader can act on. Code-Fix asks for the
-            # model's entire output ceiling, so an answer that still did not
-            # fit is a fix too large to write as whole files, and neither a
-            # wider budget nor another attempt changes that.
-            #
-            # Said without the truncation's own account, the adapter's stop
-            # reason, for the reason a refusal is. Kept as the cause.
-            logger.warning("answer truncated")
+class _Writing:
+    """The fix's conversation as the turn loop drives it (`converse_until`):
+    what each turn means, what the model is told next, and every way it ends.
+    Two endings are returned from their turn - a verdict that there is nothing
+    to change, and the answer about the patch in hand - and every other is a
+    failure, so it is raised."""
 
-            raise FixNotAnswered(
-                "the fix did not fit in the room the model had to write it"
-            ) from cut_short
+    def __init__(self,
+                 tools: list[ToolDefinition],
+                 shown: list[ThreadMessage],
+                 spend: Budget,
+                 *,
+                 settings: FixSettings,
+                 search: SourceSearcher,
+                 search_by_meaning: MeaningSearcher,
+                 list_files: FileLister,
+                 read_file: FileReader,
+                 code_outside: CodeOutsideReader,
+                 leads: Leads) -> None:
+        self._tools = tools
+        self._shown = shown
+        self._spend = spend
+        self._settings = settings
+        self._search = search
+        self._search_by_meaning = search_by_meaning
+        self._list_files = list_files
+        self._read_file = read_file
+        self._code_outside = code_outside
+        self._leads = leads
+        # The submission the question is open about, and how the code outside its
+        # patch uses what it changes.
+        self._asked: SubmittedFix | None = None
+        self._asked_outside: list[CodeUse] = []
+        # Whether a submission has been sent back for speaking of code outside its
+        # patch as a group - which happens once.
+        self._group_sent_back = False
+        # Whether the last submission was sent back, for any reason, with nothing
+        # submitted since.
+        self._last_sent_back = False
+        # Whether the budget is stretched past its bounds by one call, for the
+        # rewrite of a submission sent back or for the answer to its question - and
+        # whether the answer's has been given. Each is given once, and the
+        # rewrite's never after the answer's: a rewrite then would be written and
+        # never asked about.
+        self._room_for_its_rewrite = False
+        self._room_for_its_answer = False
+        self._answer_room_given = False
 
-        spend.record(turn)
-        transcript.append(turn)
+    def goes_on(self) -> bool:
+        going_on = (not self._spend.bounds_reached() or self._room_for_its_rewrite
+                    or self._room_for_its_answer)
+        self._room_for_its_rewrite = self._room_for_its_answer = False
 
+        return going_on
+
+    def stopped(self) -> NoReturn:
+        logger.info("fix stopped, incident no longer wanted")
+        raise FixStopped("the incident is no longer wanted")
+
+    def tools(self) -> list[ToolDefinition]:
+        return self._tools
+
+    def declined(self, declined: ModelRefused, /) -> NoReturn:
+        # Final, and final for its own reason: the evidence would be
+        # declined again, so the turns left are not worth spending.
+        #
+        # Without the refusal's own account, which is the adapter's - a stop
+        # reason - and nothing the model wrote: a refusal comes with no
+        # words, and that one reached the walk, Slack and the postmortem as
+        # "(stop_reason=refusal)". Kept as the cause, for the log.
+        raise FixDeclined("the model declined to write a fix") from declined
+
+    def cut_short(self, cut_short: AnswerTruncated, /) -> NoReturn:
+        # A bound was too small, which is what `FixNotAnswered` already
+        # means - but room rather than turns, and that difference is the
+        # whole of what a reader can act on. Code-Fix asks for the
+        # model's entire output ceiling, so an answer that still did not
+        # fit is a fix too large to write as whole files, and neither a
+        # wider budget nor another attempt changes that.
+        #
+        # Said without the truncation's own account, the adapter's stop
+        # reason, for the reason a refusal is. Kept as the cause.
+        logger.warning("answer truncated")
+
+        raise FixNotAnswered(
+            "the fix did not fit in the room the model had to write it"
+        ) from cut_short
+
+    def on_turn(self, turn: Turn, /) -> Ended[tuple[SubmittedFix | AnswerToTheQuestion,
+                                                    list[CodeUse]]] | Exchange:
         verdict = _the_verdict_in(turn)
 
         if verdict is not None:
-            return verdict, []
+            return Ended((verdict, []))
 
         submitted = _the_submission_in(turn)
         answered = _the_answer_in(turn)
@@ -606,10 +656,11 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
         ) and (brings_a_test(submitted.files) or changes_only_configuration(
             proposed.path for proposed in submitted.files
         )):
-            outside = _the_code_outside(submitted, settings, code_outside, list_files)
+            outside = _the_code_outside(submitted, self._settings, self._code_outside,
+                                        self._list_files)
             group = (the_group_outside(submitted.explanation or "", submitted.patch(),
                                        outside.listing, outside.read.defined)
-                     if outside is not None and not sent_back else None)
+                     if outside is not None and not self._group_sent_back else None)
 
             if outside is not None and group is not None:
                 # Sent back before it is asked anything, with what the code
@@ -618,22 +669,24 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
                 # trips the check is asked its question rather than sent back
                 # until the budget runs out and the fix with it.
                 logger.info("explanation speaks of code outside the patch as a group")
-                sent_back = last_sent_back = True
-                room_for_its_rewrite = bool(spend.bounds_reached()) and not answer_room_given
+                self._group_sent_back = self._last_sent_back = True
+                self._room_for_its_rewrite = (bool(self._spend.bounds_reached())
+                                              and not self._answer_room_given)
                 results = _sent_back(turn, _spoken_of_together(turn, group, outside.read))
             else:
                 # Asked about rather than returned. A second submission
                 # replaces the first, and is asked about in turn.
-                last_sent_back = False
-                asked = submitted
-                asked_outside = outside.read.uses if outside is not None else []
-                room_for_its_answer = bool(spend.bounds_reached()) and not answer_room_given
-                answer_room_given = answer_room_given or room_for_its_answer
+                self._last_sent_back = False
+                self._asked = submitted
+                self._asked_outside = outside.read.uses if outside is not None else []
+                self._room_for_its_answer = (bool(self._spend.bounds_reached())
+                                             and not self._answer_room_given)
+                self._answer_room_given = self._answer_room_given or self._room_for_its_answer
                 results = [_the_question_or_not_run(call) for call in turn.tool_calls]
-        elif answered is not None and asked is not None and submitted is None:
+        elif answered is not None and self._asked is not None and submitted is None:
             # The answer about the patch in hand. Yes holds it back; no lets it
             # be opened.
-            return (answered if answered.answer else asked), asked_outside
+            return Ended(((answered if answered.answer else self._asked), self._asked_outside))
         elif submitted is not None and submitted.files and (
             not_source := the_paths_whose_content_is_not_source(submitted.files)
         ):
@@ -642,7 +695,7 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
             # propose. Sent back for the reason an empty one is: the model has
             # decided what to write and is one turn from writing it properly.
             logger.warning("patch is not source", extra={"paths": not_source})
-            last_sent_back = True
+            self._last_sent_back = True
             results = _sent_back(turn, _that_is_not_source(turn, not_source))
         elif submitted is not None and submitted.files:
             # A patch to code that brings no test, which proves nothing however
@@ -650,7 +703,7 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
             # model that keeps sending it runs out, and no pull request is
             # opened on a fix its postmortem would send a reader to test.
             logger.warning("patch brings no test")
-            last_sent_back = True
+            self._last_sent_back = True
             results = _sent_back(turn, _no_test_was_brought(turn))
         elif submitted is not None:
             # A patch with nothing in it, which the submission's own schema
@@ -666,63 +719,65 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
             # model that keeps sending this runs out instead, and running out
             # is what a reader is told.
             logger.warning("patch was empty")
-            last_sent_back = True
+            self._last_sent_back = True
             results = _sent_back(turn, _no_patch_was_attached(turn))
         else:
             results = [
-                _an_answer_that_counts_for_nothing(call, asked)
+                _an_answer_that_counts_for_nothing(call, self._asked)
                 if call.name == ANSWER_TOOL_NAME
                 else the_answer_to(
-                    call, settings, search, search_by_meaning, list_files, read_file
+                    call, self._settings, self._search, self._search_by_meaning,
+                    self._list_files, self._read_file
                 )
                 for call in turn.tool_calls
             ]
 
-        if last_sent_back:
+        if self._last_sent_back:
             # A submission sent back withdraws the one asked before it, as a
             # second submission replaces the first: what is awaited now is the
             # submission sent again, and no question is open.
-            asked, asked_outside = None, []
+            self._asked, self._asked_outside = None, []
 
         # Asked after every turn, as `still_wanted` is before one: a person
         # writes while the model reads, and what they wrote rides on this
         # reply rather than waiting for a fix there may never be another of.
-        written_since = not_yet_shown(leads(), shown)
-        shown = [*shown, *written_since]
+        written_since = not_yet_shown(self._leads(), self._shown)
+        self._shown = [*self._shown, *written_since]
 
         # No warning to submit while a question is open: what is wanted then
         # is the answer, and "submit the fix now" would ask for the patch
         # already sent.
-        transcript.append(_what_it_is_told_next(
+        return _what_it_is_told_next(
             results,
-            one_call_left=spend.is_on_its_last_call() and asked is None,
+            one_call_left=self._spend.is_on_its_last_call() and self._asked is None,
             news=what_people_wrote_since(written_since),
-            question_open=asked is not None
-        ))
-
-    if asked is not None:
-        raise FixNotAnswered(
-            "the agent submitted a fix and never said whether it needs code "
-            "outside the repository"
+            question_open=self._asked is not None
         )
 
-    # Which bound ended it, named for the human who has to act on it. It was
-    # "turns" while the call count was the only way to run out; there are
-    # three ways now, they are widened in three different places, and
-    # widening the one that was never the problem is a wasted afternoon.
-    bounds = ", ".join(bound.value for bound in spend.bounds_reached())
+    def ran_out(self) -> NoReturn:
+        if self._asked is not None:
+            raise FixNotAnswered(
+                "the agent submitted a fix and never said whether it needs code "
+                "outside the repository"
+            )
 
-    # A submission was made and sent back, which is not the same as none made:
-    # told none was, a reader looks at an agent that never got as far as a fix.
-    if last_sent_back:
+        # Which bound ended it, named for the human who has to act on it. It was
+        # "turns" while the call count was the only way to run out; there are
+        # three ways now, they are widened in three different places, and
+        # widening the one that was never the problem is a wasted afternoon.
+        bounds = ", ".join(bound.value for bound in self._spend.bounds_reached())
+
+        # A submission was made and sent back, which is not the same as none made:
+        # told none was, a reader looks at an agent that never got as far as a fix.
+        if self._last_sent_back:
+            raise FixNotAnswered(
+                f"the agent's last submission was sent back, and it ran out of {bounds} "
+                "before submitting again"
+            )
+
         raise FixNotAnswered(
-            f"the agent's last submission was sent back, and it ran out of {bounds} "
-            "before submitting again"
+            f"the agent read until it ran out of {bounds} without submitting a fix"
         )
-
-    raise FixNotAnswered(
-        f"the agent read until it ran out of {bounds} without submitting a fix"
-    )
 
 
 def _what_it_is_told_next(results: list[ToolResult],

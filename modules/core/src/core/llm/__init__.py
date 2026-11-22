@@ -34,12 +34,14 @@ from core.llm.recorded_client import RecordedLLMClient
 from core.llm.replying import told_next
 from core.llm.sending_back import sent_back
 from core.llm.traced_client import TracedLLMClient
+from core.llm.turns import Ended, TurnPolicy, converse_until
 
 __all__ = [
     "AnswerTruncated",
     "ClientFor",
     "Conversation",
     "Conversations",
+    "Ended",
     "LLMClient",
     "ModelDidNotAnswer",
     "ModelProvider",
@@ -49,9 +51,11 @@ __all__ = [
     "RequestRejected",
     "TracedLLMClient",
     "TurnPaused",
+    "TurnPolicy",
     "ask_until_answered",
     "build_llm_client",
     "conversations_through",
+    "converse_until",
     "on_one_line",
     "sent_back",
     "the_call",

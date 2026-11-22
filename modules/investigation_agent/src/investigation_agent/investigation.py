@@ -19,7 +19,7 @@ import re
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import replace
-from typing import Any, Final, assert_never
+from typing import Any, Final, NoReturn, assert_never
 
 from core import parse_iso, to_iso, to_iso_minute
 from core.anomaly import (
@@ -46,7 +46,9 @@ from core.events import (
 from core.llm import (
     AnswerTruncated,
     Conversations,
+    Ended,
     ModelRefused,
+    converse_until,
     on_one_line,
     the_call,
     the_calls,
@@ -86,6 +88,7 @@ from core.models import (
     ToolCall,
     ToolDefinition,
     ToolResult,
+    Turn,
     Weighing,
     WorseWhen,
     labelled,
@@ -632,56 +635,123 @@ def investigate(
         ))
     ]
 
-    while True:
-        if not still_wanted():
-            logger.info("investigation stopped, incident no longer wanted")
+    return converse_until(
+        _Investigating(
+            alert=alert,
+            incident_id=incident_id,
+            earlier_candidates=earlier_candidates,
+            metric_buckets=metric_buckets,
+            dispatcher=dispatcher,
+            narrator=narrator,
+            readings_cover_the_incident=the_incident_was_read,
+            placement=placement,
+            onset=established,
+            tools=tools,
+            shown=shown,
+            weighed=weighed,
+            spend=spend,
+            leads=leads
+        ),
+        converse=speak,
+        transcript=transcript,
+        record=spend.record,
+        still_wanted=still_wanted
+    )
 
-            return _stopped(alert, incident_id, earlier_candidates, dispatcher)
 
-        try:
-            turn = speak(transcript, _the_tools_for(tools, shown))
-        except AnswerTruncated as cut_short:
-            # Charged before anything else, because running out of room means
-            # the model generated to its cap and was stopped there: the turn
-            # carried nothing back and was billed in full for it.
-            #
-            # Then ended, rather than asked again. A retry here would put the
-            # same question to the same evidence - the transcript is
-            # unchanged by a turn that carried nothing - through a seam that
-            # has no more room to offer it, so it differs from the first
-            # attempt only by resampling, and reliably spends another whole
-            # cap of output to discover that. When the seam can carry a
-            # larger bound, a retry becomes a thing with a mechanism behind
-            # it and this is where it goes back.
-            spend.record(cut_short.billed)
-            logger.warning("answer truncated")
+class _Investigating:
+    """The investigation's conversation as the turn loop drives it
+    (`converse_until`): what each turn means, what the model is told next, and
+    every way it ends - each a Findings, so each is returned. It never runs out
+    of turns there: the bounds end it inside a turn, once what the turn asked
+    for has been dispatched."""
 
-            return replace(
-                _cut_short(alert, incident_id, earlier_candidates, metric_buckets, dispatcher,
-                           narrator),
-                readings_cover_the_incident=the_incident_was_read,
-                placement=placement,
-                leads_weighed=_the_leads_weighed(shown, weighed),
-                onset=established
-            )
-        except ModelRefused:
-            logger.warning("model declined to answer")
+    def __init__(self,
+                 *,
+                 alert: Alert,
+                 incident_id: str,
+                 earlier_candidates: int,
+                 metric_buckets: list[MetricBucket],
+                 dispatcher: Dispatcher,
+                 narrator: Narrator,
+                 readings_cover_the_incident: bool,
+                 placement: RecordedPlacement | None,
+                 onset: EstablishedOnset,
+                 tools: list[ToolDefinition],
+                 shown: list[ThreadMessage],
+                 weighed: dict[str, Weighing],
+                 spend: Budget,
+                 leads: Leads) -> None:
+        self._alert = alert
+        self._incident_id = incident_id
+        self._earlier_candidates = earlier_candidates
+        self._metric_buckets = metric_buckets
+        self._dispatcher = dispatcher
+        self._narrator = narrator
+        self._readings_cover_the_incident = readings_cover_the_incident
+        self._placement = placement
+        self._onset = onset
+        self._tools = tools
+        self._shown = shown
+        self._weighed = weighed
+        self._spend = spend
+        self._leads = leads
 
-            return replace(
-                _declined(alert, incident_id, earlier_candidates, metric_buckets, dispatcher,
-                          narrator),
-                readings_cover_the_incident=the_incident_was_read,
-                placement=placement,
-                leads_weighed=_the_leads_weighed(shown, weighed),
-                onset=established
-            )
+    def goes_on(self) -> bool:
+        return True
 
-        spend.record(turn)
-        transcript.append(turn)
+    def stopped(self) -> Findings:
+        logger.info("investigation stopped, incident no longer wanted")
+
+        return _stopped(self._alert, self._incident_id, self._earlier_candidates,
+                        self._dispatcher)
+
+    def tools(self) -> list[ToolDefinition]:
+        return _the_tools_for(self._tools, self._shown)
+
+    def cut_short(self, cut_short: AnswerTruncated, /) -> Findings:
+        # Charged before anything else, because running out of room means
+        # the model generated to its cap and was stopped there: the turn
+        # carried nothing back and was billed in full for it.
+        #
+        # Then ended, rather than asked again. A retry here would put the
+        # same question to the same evidence - the transcript is
+        # unchanged by a turn that carried nothing - through a seam that
+        # has no more room to offer it, so it differs from the first
+        # attempt only by resampling, and reliably spends another whole
+        # cap of output to discover that. When the seam can carry a
+        # larger bound, a retry becomes a thing with a mechanism behind
+        # it and this is where it goes back.
+        self._spend.record(cut_short.billed)
+        logger.warning("answer truncated")
+
+        return replace(
+            _cut_short(self._alert, self._incident_id, self._earlier_candidates,
+                       self._metric_buckets, self._dispatcher, self._narrator),
+            readings_cover_the_incident=self._readings_cover_the_incident,
+            placement=self._placement,
+            leads_weighed=_the_leads_weighed(self._shown, self._weighed),
+            onset=self._onset
+        )
+
+    def declined(self, declined: ModelRefused, /) -> Findings:
+        logger.warning("model declined to answer")
+
+        return replace(
+            _declined(self._alert, self._incident_id, self._earlier_candidates,
+                      self._metric_buckets, self._dispatcher, self._narrator),
+            readings_cover_the_incident=self._readings_cover_the_incident,
+            placement=self._placement,
+            leads_weighed=_the_leads_weighed(self._shown, self._weighed),
+            onset=self._onset
+        )
+
+    def on_turn(self, turn: Turn, /) -> Ended[Findings] | Exchange:
+        shown, weighed = self._shown, self._weighed
         # Read before the answer, because it decides whether refusing one can
         # lead anywhere: past the last turn there is no turn to weigh a lead in,
         # and a refusal there throws away the answer and weighs nothing.
-        reached = spend.bounds_reached()
+        reached = self._spend.bounds_reached()
 
         # Weighed before the answer is read, so a turn that weighs and answers
         # together is answered with its weighings counted. Only this turn's
@@ -695,7 +765,7 @@ def investigate(
                           if not weighing.failed}
         answering = the_call(turn, ANSWER_TOOL)
         answered = (None if answering is None
-                    else _the_answer_in(answering, incident_id, earlier_candidates))
+                    else _the_answer_in(answering, self._incident_id, self._earlier_candidates))
         unweighed = [label for label, _lead in labelled(shown) if label not in weighed_beside]
 
         if answered is None:
@@ -721,31 +791,31 @@ def investigate(
 
         if isinstance(answered, list):
             for candidate in answered:
-                _say_formed(narrator, candidate)
+                _say_formed(self._narrator, candidate)
 
-            narrator.say(ChannelsUnread, channels=dispatcher.channels_unread)
+            self._narrator.say(ChannelsUnread, channels=self._dispatcher.channels_unread)
 
             # Only the weighings made beside it. Past the last turn an answer
             # is taken without one, and the lead goes back unweighed rather
             # than with a reason never weighed against that answer.
-            return Findings(
+            return Ended(Findings(
                 candidates=answered,
-                already_read=dispatcher.readings,
-                readings_cover_the_incident=the_incident_was_read,
-                placement=placement,
+                already_read=self._dispatcher.readings,
+                readings_cover_the_incident=self._readings_cover_the_incident,
+                placement=self._placement,
                 leads_weighed=_the_leads_weighed(
                     shown,
                     {label: weighing for label, weighing in weighed.items()
                      if label in weighed_beside}
                 ),
-                onset=established,
-                deployment_changes=dispatcher.deployment_changes
-            )
+                onset=self._onset,
+                deployment_changes=self._dispatcher.deployment_changes
+            ))
 
         results = [
             *([answered] if answered is not None else []),
             *weighings,
-            *(dispatcher.dispatch(call) for call in turn.tool_calls
+            *(self._dispatcher.dispatch(call) for call in turn.tool_calls
               if call.name not in (ANSWER_TOOL, WEIGH_TOOL))
         ]
 
@@ -753,30 +823,33 @@ def investigate(
             logger.info("investigation ran out of budget",
                         extra={"bounds": [bound.value for bound in reached]})
 
-            return replace(
+            return Ended(replace(
                 _ran_out(
-                    alert, incident_id, earlier_candidates, metric_buckets, reached, dispatcher,
-                    narrator
+                    self._alert, self._incident_id, self._earlier_candidates,
+                    self._metric_buckets, reached, self._dispatcher, self._narrator
                 ),
-                readings_cover_the_incident=the_incident_was_read,
-                placement=placement,
+                readings_cover_the_incident=self._readings_cover_the_incident,
+                placement=self._placement,
                 leads_weighed=_the_leads_weighed(shown, weighed),
-                onset=established
-            )
+                onset=self._onset
+            ))
 
         # Asked before every turn, as `still_wanted` is: a person writes while
         # the model reads, and what they wrote rides on the next result rather
         # than waiting for an investigation there may never be.
-        written_since = not_yet_shown(leads(), shown)
+        written_since = not_yet_shown(self._leads(), shown)
         first_new = len(shown) + 1
-        shown = [*shown, *written_since]
+        self._shown = [*shown, *written_since]
 
-        transcript.append(_what_the_model_is_told_next(
+        return _what_the_model_is_told_next(
             results,
-            spend.is_on_its_last_call(),
+            self._spend.is_on_its_last_call(),
             news=_leads_written_since(written_since, first_new),
-            leads_shown=bool(shown)
-        ))
+            leads_shown=bool(self._shown)
+        )
+
+    def ran_out(self) -> NoReturn:
+        raise AssertionError("an investigation always goes on; its bounds end it in a turn")
 
 
 def _the_placement_recorded(service: str,
