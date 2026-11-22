@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 from argus_testkit import Assertion, Scenario
+from postmortem_rendering.section_keys import SynopsisPartKey
 from postmortem_rendering.synopsis_text import the_parts
 
 from postmortem_rendering_test.framework.synopses import (
@@ -23,14 +24,13 @@ from postmortem_rendering_test.framework.synopses import (
 
 @pytest.mark.unit
 def test_every_part_is_said_under_its_heading_in_the_order_the_synopsis_reads() -> None:
+    # Read off the keys, so a key with no part here is a heading missing.
     Scenario() \
         .when(
             lambda: [part.heading for part in the_parts(a_synopsis_read())]
         ) \
         .then(
-            _they_are([SOME_HEADINGS["overview"], SOME_HEADINGS["when"],
-                       SOME_HEADINGS["impact"], SOME_HEADINGS["resolution"],
-                       SOME_HEADINGS["human-cost"]])
+            _they_are([SOME_HEADINGS[key] for key in SynopsisPartKey])
         )
 
 
@@ -42,9 +42,8 @@ def test_the_resolution_alone_is_said_as_a_list() -> None:
             lambda: {part.heading: part.listed for part in the_parts(a_synopsis_read())}
         ) \
         .then(
-            _they_are({SOME_HEADINGS["overview"]: False, SOME_HEADINGS["when"]: False,
-                       SOME_HEADINGS["impact"]: False, SOME_HEADINGS["resolution"]: True,
-                       SOME_HEADINGS["human-cost"]: False})
+            _they_are({SOME_HEADINGS[key]: key is SynopsisPartKey.RESOLUTION
+                       for key in SynopsisPartKey})
         )
 
 
@@ -54,7 +53,7 @@ def test_each_title_says_its_people_minutes_and_cost_with_its_range_then_the_tot
 
     Scenario() \
         .when(
-            lambda: _the_lines_under(SOME_HEADINGS["human-cost"])
+            lambda: _the_lines_under(SOME_HEADINGS[SynopsisPartKey.HUMAN_COST])
         ) \
         .then(
             _they_are([f"{a_row_of_two.title}: {a_row_of_two.people} people, "
@@ -71,7 +70,7 @@ def test_each_title_says_its_people_minutes_and_cost_with_its_range_then_the_tot
 def test_a_figure_is_said_before_what_it_is() -> None:
     Scenario() \
         .when(
-            lambda: _the_lines_under(SOME_HEADINGS["impact"])
+            lambda: _the_lines_under(SOME_HEADINGS[SynopsisPartKey.IMPACT])
         ) \
         .then(
             _they_are([f"{A_DURATION_CARD.value} - {A_DURATION_CARD.label}",

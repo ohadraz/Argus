@@ -10,14 +10,18 @@ where a link is the claim, where it lands.
 from __future__ import annotations
 
 import io
+from collections.abc import Sequence
 from typing import Any
 
 import pytest
 from argus_testkit import Assertion, Scenario, all_of
+from postmortem_rendering.section_keys import SynopsisPartKey
 from postmortem_rendering.synopsis_pdf import synopsis_as_pdf
 from pypdf import PdfReader
 
 from postmortem_rendering_test.framework.synopses import (
+    EVERY_PART_IN_ORDER,
+    SOME_HEADINGS,
     SOME_POSTMORTEM_ADDRESS,
     a_synopsis_read,
     the_parts_missing_or_out_of_order,
@@ -31,7 +35,20 @@ def test_every_part_is_printed_in_the_order_the_synopsis_reads() -> None:
             lambda: synopsis_as_pdf(a_synopsis_read())
         ) \
         .then(
-            _it_says_every_part_in_order()
+            _it_says_every_part_in_order(EVERY_PART_IN_ORDER)
+        )
+
+
+@pytest.mark.unit
+def test_every_part_key_is_printed_under_its_own_heading_in_the_keys_own_order() -> None:
+    # Read off the keys, so a key the file has no part for is a heading
+    # missing here - never a part printed as another's.
+    Scenario() \
+        .when(
+            lambda: synopsis_as_pdf(a_synopsis_read())
+        ) \
+        .then(
+            _it_says_every_part_in_order([SOME_HEADINGS[key] for key in SynopsisPartKey])
         )
 
 
@@ -63,10 +80,10 @@ def _the_text_of(pdf: bytes) -> str:
                              for page in PdfReader(io.BytesIO(pdf)).pages).split())
 
 
-def _it_says_every_part_in_order() -> Assertion[bytes]:
+def _it_says_every_part_in_order(parts: Sequence[str]) -> Assertion[bytes]:
     def assertion(pdf: bytes) -> bool:
         said = _the_text_of(pdf)
-        missing = the_parts_missing_or_out_of_order(said)
+        missing = the_parts_missing_or_out_of_order(said, parts)
         if missing:
             raise AssertionError(
                 f"Expected every part in order, missing or out of order: {missing}, "

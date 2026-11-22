@@ -39,6 +39,7 @@ from postmortem_rendering.rendering import RenderedPostmortem, render
 from postmortem_rendering.resolution import ReportedResolution, the_reported_resolution
 from postmortem_rendering.resolution_list import the_resolution_list
 from postmortem_rendering.review import ReviewRow, ReviewSection, the_review
+from postmortem_rendering.section_keys import SectionKey, SynopsisPartKey
 from postmortem_rendering.supporting import (
     SupportingSection,
     a_reference,
@@ -75,9 +76,11 @@ __all__ = [
     "Role",
     "RuledOutLine",
     "Run",
+    "SectionKey",
     "StepRow",
     "SupportingSection",
     "SynopsisLines",
+    "SynopsisPartKey",
     "TimelineRow",
     "TimelineSection",
     "TriggerSection",

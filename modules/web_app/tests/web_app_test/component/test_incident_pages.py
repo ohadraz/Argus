@@ -91,6 +91,7 @@ from incident_record.repository import (
     taken_actions,
 )
 from postgres import connect_from_env
+from postmortem_rendering import SectionKey
 
 from web_app_test.framework.application import app
 from web_app_test.framework.assertions import (
@@ -106,17 +107,6 @@ from web_app_test.framework.reading import attribute, page_at
 # The chat platform's name, as its adapter gives it - what a reader is
 # told a report came from, and what its references are filed under.
 THE_CHAT_PLATFORM = "Slack"
-
-# What htmx's "ask again in a moment" looks like in the rendered page. Named
-# because two assertions read it and they must read the same thing: one saying
-# the page polls and one saying it has stopped, disagreeing about the spelling,
-# would both pass on a page that does neither.
-
-# The postmortem's sections, by the names the page gives them, in the order the
-# template puts them.
-POSTMORTEM_SECTIONS = ["summary", "impact", "cause", "hypotheses", "trigger", "resolution",
-                       "detection", "action-items", "lessons", "timeline", "leads",
-                       "response-effort", "supporting", "review"]
 
 # The demo app's own names, taken from Argus-Demo-Target-App: its service, the
 # rules it alerts by and the uid of the first of them, the flag its scenarios
@@ -1408,7 +1398,9 @@ def test_the_postmortem_page_shows_the_template_s_sections_in_its_order() -> Non
             lambda: page_at(f"/incidents/{incident_id}/postmortem")
         ) \
         .then(
-            the_page_shows("section", *POSTMORTEM_SECTIONS)
+            # Every section by its key, so a key the template has no block
+            # for is a section missing here.
+            the_page_shows("section", *SectionKey)
         )
 
 
@@ -1430,8 +1422,7 @@ def test_a_postmortem_section_with_nothing_in_it_is_still_shown_but_what_people_
             lambda: page_at(f"/incidents/{incident_id}/postmortem")
         ) \
         .then(
-            the_page_shows("section", *[section for section in POSTMORTEM_SECTIONS
-                                        if section != "leads"])
+            the_page_shows("section", *[key for key in SectionKey if key is not SectionKey.LEADS])
         )
 
 

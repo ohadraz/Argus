@@ -4,10 +4,12 @@ the Slack message has to say, in the order it has to say them.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from decimal import Decimal
 from typing import Final, NamedTuple
 
 from postmortem_rendering import Card, Line, Run
+from postmortem_rendering.section_keys import SynopsisPartKey
 from postmortem_rendering.synopsis import CostRow, HumanCost, SynopsisLines
 
 
@@ -24,8 +26,10 @@ SOME_POSTMORTEM_ADDRESS: Final = "https://argus.example/incidents/kuki/postmorte
 SOME_CURRENCY: Final = "USD"
 SOME_FLAG: Final = "monthly-spend-feature"
 SOME_TITLE: Final = f"Checkout failed while {SOME_FLAG} was on"
-SOME_HEADINGS: Final = {"overview": "Overview", "when": "When", "impact": "Impact",
-                        "resolution": "Resolution", "human-cost": "Human cost"}
+SOME_HEADINGS: Final = {SynopsisPartKey.OVERVIEW: "Overview", SynopsisPartKey.WHEN: "When",
+                        SynopsisPartKey.IMPACT: "Impact",
+                        SynopsisPartKey.RESOLUTION: "Resolution",
+                        SynopsisPartKey.HUMAN_COST: "Human cost"}
 SOME_WINDOW: Final = "2026-11-09 14:03 to 14:10 UTC"
 SOME_STEPS: Final = (f"Turned {SOME_FLAG} off - recovered",
                      "Draft pull request #12 left for review")
@@ -106,12 +110,12 @@ def _every_figure_of(spent: TitleSpent) -> tuple[str, ...]:
 # address.
 EVERY_PART_IN_ORDER: Final = (
     SOME_TITLE,
-    SOME_HEADINGS["overview"], SOME_OVERVIEW,
-    SOME_HEADINGS["when"], SOME_WINDOW,
-    SOME_HEADINGS["impact"], A_DURATION_CARD.value, A_DURATION_CARD.label,
+    SOME_HEADINGS[SynopsisPartKey.OVERVIEW], SOME_OVERVIEW,
+    SOME_HEADINGS[SynopsisPartKey.WHEN], SOME_WINDOW,
+    SOME_HEADINGS[SynopsisPartKey.IMPACT], A_DURATION_CARD.value, A_DURATION_CARD.label,
     A_LOSS_CARD.value, A_LOSS_CARD.label,
-    SOME_HEADINGS["resolution"], *SOME_STEPS,
-    SOME_HEADINGS["human-cost"],
+    SOME_HEADINGS[SynopsisPartKey.RESOLUTION], *SOME_STEPS,
+    SOME_HEADINGS[SynopsisPartKey.HUMAN_COST],
     *(figure for spent in (*TWO_TITLES_SPENT, THEIR_TOTAL_SPENT)
       for figure in _every_figure_of(spent)),
     *SOME_NOTES,
@@ -119,12 +123,12 @@ EVERY_PART_IN_ORDER: Final = (
 )
 
 
-def the_parts_missing_or_out_of_order(said: str) -> list[str]:
-    """Each of `EVERY_PART_IN_ORDER` not found after the one before it - empty
-    where the form says every part, in order."""
+def the_parts_missing_or_out_of_order(said: str, parts: Sequence[str]) -> list[str]:
+    """Each of `parts` not found after the one before it - empty where the form
+    says every one of them, in order."""
     missing: list[str] = []
     after = 0
-    for part in EVERY_PART_IN_ORDER:
+    for part in parts:
         found = said.find(part, after)
         if found < 0:
             missing.append(part)

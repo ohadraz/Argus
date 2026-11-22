@@ -14,6 +14,7 @@ from typing import Final
 
 from postmortem_rendering.lines import Line
 from postmortem_rendering.rendering import RenderedPostmortem
+from postmortem_rendering.section_keys import SectionKey
 from postmortem_rendering.synopsis_text import card_said
 
 # Between the cells of a table's row.
@@ -35,10 +36,10 @@ def as_text(rendered: RenderedPostmortem) -> str:
     ])
 
 
-def _headed(key: str, heading: str, rendered: RenderedPostmortem) -> str:
+def _headed(key: SectionKey, heading: str, rendered: RenderedPostmortem) -> str:
     """A section's heading - the timeline's with the zone its rows' times are
     in, as the page says it once there rather than on every row."""
-    return f"{heading} {rendered.timeline.zone}" if key == "timeline" else heading
+    return f"{heading} {rendered.timeline.zone}" if key is SectionKey.TIMELINE else heading
 
 
 def _the_summary(rendered: RenderedPostmortem) -> Iterator[str]:
@@ -226,19 +227,24 @@ def _the_review(rendered: RenderedPostmortem) -> Iterator[str]:
 
 
 # How each section is said, by the key `render` names it by.
-_SECTIONS: Final[dict[str, Callable[[RenderedPostmortem], Iterator[str]]]] = {
-    "summary": _the_summary,
-    "impact": _the_impact,
-    "cause": _the_cause,
-    "hypotheses": _the_hypotheses,
-    "trigger": _the_trigger,
-    "resolution": _the_resolution,
-    "detection": _the_detection,
-    "action-items": _the_action_items,
-    "lessons": _the_lessons,
-    "timeline": _the_timeline,
-    "leads": _the_leads,
-    "response-effort": _the_response_effort,
-    "supporting": _the_supporting_information,
-    "review": _the_review
+_SECTIONS: Final[dict[SectionKey, Callable[[RenderedPostmortem], Iterator[str]]]] = {
+    SectionKey.SUMMARY: _the_summary,
+    SectionKey.IMPACT: _the_impact,
+    SectionKey.CAUSE: _the_cause,
+    SectionKey.HYPOTHESES: _the_hypotheses,
+    SectionKey.TRIGGER: _the_trigger,
+    SectionKey.RESOLUTION: _the_resolution,
+    SectionKey.DETECTION: _the_detection,
+    SectionKey.ACTION_ITEMS: _the_action_items,
+    SectionKey.LESSONS: _the_lessons,
+    SectionKey.TIMELINE: _the_timeline,
+    SectionKey.LEADS: _the_leads,
+    SectionKey.RESPONSE_EFFORT: _the_response_effort,
+    SectionKey.SUPPORTING: _the_supporting_information,
+    SectionKey.REVIEW: _the_review
 }
+# A section with no words would be a KeyError when the judge first reads a
+# document: refused as this module is imported instead.
+if set(_SECTIONS) != set(SectionKey):
+    raise TypeError(f"the text has no way to say the sections "
+                    f"{sorted(str(key) for key in set(SectionKey) - set(_SECTIONS))}")

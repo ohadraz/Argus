@@ -41,10 +41,6 @@ from web_app_test.framework.assertions import (
 )
 from web_app_test.framework.reading import page_at
 
-# What htmx's "ask again in a moment" looks like in the rendered page. Named
-# because the claim is about the page continuing to ask at all, and a spelling
-# repeated in each test is one that can drift in one of them.
-
 
 @pytest.mark.component
 def test_the_front_page_says_when_nothing_is_happening() -> None:

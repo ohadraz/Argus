@@ -50,6 +50,7 @@ from postmortem_rendering.look import (
 )
 from postmortem_rendering.rendering import RenderedPostmortem
 from postmortem_rendering.review import ReviewRow
+from postmortem_rendering.section_keys import SectionKey, SynopsisPartKey
 from postmortem_rendering.synopsis import HumanCost, SynopsisLines
 
 _PACKAGE: Final = Path(__file__).parent
@@ -203,7 +204,9 @@ def as_pdf(rendered: RenderedPostmortem) -> bytes:
 
     for key, heading in rendered.headings.items():
         kept = _KEPT_WITH_ITS_HEADING[key](pdf, rendered) if key in _KEPT_WITH_ITS_HEADING else 0.0
-        _a_heading(pdf, f"{heading} {rendered.timeline.zone}" if key == "timeline" else heading,
+        _a_heading(pdf,
+                   f"{heading} {rendered.timeline.zone}" if key is SectionKey.TIMELINE
+                   else heading,
                    keep_with=kept)
         _SECTIONS[key](pdf, rendered)
 
@@ -222,17 +225,7 @@ def synopsis_as_pdf(synopsis: SynopsisLines) -> bytes:
 
     for key, heading in synopsis.headings.items():
         _a_heading(pdf, heading)
-        if key == "overview":
-            _a_paragraph(pdf, synopsis.overview)
-        elif key == "when":
-            _a_paragraph(pdf, synopsis.window)
-        elif key == "impact":
-            _tiles(pdf, synopsis.impact)
-        elif key == "resolution":
-            for said in synopsis.resolution:
-                _an_item(pdf, [Run(text=said)])
-        else:
-            _the_human_cost(pdf, synopsis.human_cost)
+        _PARTS[key](pdf, synopsis)
 
     if synopsis.postmortem_at is not None:
         pdf.ln(3)
@@ -1772,30 +1765,71 @@ def _how_tall_a_review_row_is(pdf: _Sheet, row: ReviewRow) -> float:
 
 
 # How each section is printed, by the key `render` names it by.
-_SECTIONS: Final[dict[str, Callable[[_Sheet, RenderedPostmortem], None]]] = {
-    "summary": _the_summary,
-    "impact": _the_impact,
-    "cause": _the_cause,
-    "hypotheses": _the_hypotheses,
-    "trigger": _the_trigger,
-    "resolution": _the_resolution,
-    "detection": _the_detection,
-    "action-items": _the_action_items,
-    "lessons": _the_lessons,
-    "timeline": _the_timeline,
-    "leads": _the_leads,
-    "response-effort": _the_response_effort,
-    "supporting": _the_supporting_information,
-    "review": _the_review
+_SECTIONS: Final[dict[SectionKey, Callable[[_Sheet, RenderedPostmortem], None]]] = {
+    SectionKey.SUMMARY: _the_summary,
+    SectionKey.IMPACT: _the_impact,
+    SectionKey.CAUSE: _the_cause,
+    SectionKey.HYPOTHESES: _the_hypotheses,
+    SectionKey.TRIGGER: _the_trigger,
+    SectionKey.RESOLUTION: _the_resolution,
+    SectionKey.DETECTION: _the_detection,
+    SectionKey.ACTION_ITEMS: _the_action_items,
+    SectionKey.LESSONS: _the_lessons,
+    SectionKey.TIMELINE: _the_timeline,
+    SectionKey.LEADS: _the_leads,
+    SectionKey.RESPONSE_EFFORT: _the_response_effort,
+    SectionKey.SUPPORTING: _the_supporting_information,
+    SectionKey.REVIEW: _the_review
 }
 
 # How much of a section its heading is kept with, for a section whose start
 # cannot break - its columns, or a table's first row - by the same key. Every
 # other heading is kept with the start of its section alone.
-_KEPT_WITH_ITS_HEADING: Final[dict[str, Callable[[_Sheet, RenderedPostmortem], float]]] = {
-    "hypotheses": _the_start_of(_the_hypotheses_table),
-    "resolution": _the_start_of(_the_resolution_table),
-    "action-items": _the_start_of(_the_action_items_table),
-    "lessons": _the_lessons_kept_together,
-    "timeline": _the_start_of(_the_timeline_table)
+_KEPT_WITH_ITS_HEADING: Final[dict[SectionKey, Callable[[_Sheet, RenderedPostmortem], float]]] = {
+    SectionKey.HYPOTHESES: _the_start_of(_the_hypotheses_table),
+    SectionKey.RESOLUTION: _the_start_of(_the_resolution_table),
+    SectionKey.ACTION_ITEMS: _the_start_of(_the_action_items_table),
+    SectionKey.LESSONS: _the_lessons_kept_together,
+    SectionKey.TIMELINE: _the_start_of(_the_timeline_table)
 }
+
+
+def _the_synopsis_overview(pdf: _Sheet, synopsis: SynopsisLines) -> None:
+    _a_paragraph(pdf, synopsis.overview)
+
+
+def _the_synopsis_window(pdf: _Sheet, synopsis: SynopsisLines) -> None:
+    _a_paragraph(pdf, synopsis.window)
+
+
+def _the_synopsis_impact(pdf: _Sheet, synopsis: SynopsisLines) -> None:
+    _tiles(pdf, synopsis.impact)
+
+
+def _the_synopsis_resolution(pdf: _Sheet, synopsis: SynopsisLines) -> None:
+    for said in synopsis.resolution:
+        _an_item(pdf, [Run(text=said)])
+
+
+def _the_synopsis_human_cost(pdf: _Sheet, synopsis: SynopsisLines) -> None:
+    _the_human_cost(pdf, synopsis.human_cost)
+
+
+# How each part of the synopsis is printed, by the key `the_synopsis` names it
+# by - each its own, so no part is printed as another's.
+_PARTS: Final[dict[SynopsisPartKey, Callable[[_Sheet, SynopsisLines], None]]] = {
+    SynopsisPartKey.OVERVIEW: _the_synopsis_overview,
+    SynopsisPartKey.WHEN: _the_synopsis_window,
+    SynopsisPartKey.IMPACT: _the_synopsis_impact,
+    SynopsisPartKey.RESOLUTION: _the_synopsis_resolution,
+    SynopsisPartKey.HUMAN_COST: _the_synopsis_human_cost
+}
+
+# A section or part with no way to be printed would be a KeyError when a
+# document is made: refused as this module is imported instead.
+if set(_SECTIONS) != set(SectionKey):
+    raise TypeError(f"the PDF has no way to print the sections "
+                    f"{sorted(str(key) for key in set(SectionKey) - set(_SECTIONS))}")
+if set(_PARTS) != set(SynopsisPartKey):
+    raise TypeError(f"the PDF has no way to print the synopsis's parts "
+                    f"{sorted(str(key) for key in set(SynopsisPartKey) - set(_PARTS))}")

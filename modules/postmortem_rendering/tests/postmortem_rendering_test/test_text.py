@@ -22,6 +22,7 @@ from core.models import (
     TimelineEntry,
 )
 from postmortem_rendering.rendering import RenderedPostmortem, render
+from postmortem_rendering.section_keys import SectionKey
 from postmortem_rendering.text import as_text
 
 from postmortem_rendering_test.framework.builders import (
@@ -67,6 +68,24 @@ def test_the_text_says_every_section_under_its_heading_in_the_page_s_order() -> 
 
 
 @pytest.mark.unit
+def test_the_text_says_a_heading_for_every_section_key_in_the_keys_own_order() -> None:
+    # Read off the keys rather than off what was rendered, so a key the text
+    # has no section for is a heading missing here, not a section quietly
+    # left out of what the judge reads.
+    Scenario() \
+        .given(
+            rendered := render(a_postmortem_with_every_section_filled(), an_alert(),
+                               [a_person_resolved_it(by=SOME_PERSON)], the_page_of)
+        ) \
+        .when(
+            lambda: as_text(rendered)
+        ) \
+        .then(
+            _headed_in_order(tuple(_the_heading_said(rendered, key) for key in SectionKey))
+        )
+
+
+@pytest.mark.unit
 def test_the_text_says_what_a_section_says_under_its_own_heading() -> None:
     # Under its own: a judge told a cause stood in another section would be
     # reading a different document.
@@ -80,7 +99,8 @@ def test_the_text_says_what_a_section_says_under_its_own_heading() -> None:
             lambda: as_text(rendered)
         ) \
         .then(
-            _said_between(rendered.headings["cause"], rendered.headings["hypotheses"],
+            _said_between(rendered.headings[SectionKey.CAUSE],
+                          rendered.headings[SectionKey.HYPOTHESES],
                           [SOME_ROOT_CAUSE, SOME_STEP])
         )
 
@@ -156,15 +176,22 @@ def test_what_the_alert_found_is_said_in_impact_with_its_label() -> None:
             lambda: as_text(rendered)
         ) \
         .then(
-            _said_between(rendered.headings["impact"], rendered.headings["cause"],
+            _said_between(rendered.headings[SectionKey.IMPACT],
+                          rendered.headings[SectionKey.CAUSE],
                           [f"{SOME_ALERT_LABEL}: {rendered.impact.finding}"])
         )
 
 
 def _the_page_s_headings(rendered: RenderedPostmortem) -> tuple[str, ...]:
     """Every heading as the page says it - the timeline's with its zone."""
-    return tuple(f"{heading} {rendered.timeline.zone}" if key == "timeline" else heading
-                 for key, heading in rendered.headings.items())
+    return tuple(_the_heading_said(rendered, key) for key in rendered.headings)
+
+
+def _the_heading_said(rendered: RenderedPostmortem, key: SectionKey) -> str:
+    """A section's heading as the page says it - the timeline's with its zone."""
+    heading = rendered.headings[key]
+
+    return f"{heading} {rendered.timeline.zone}" if key is SectionKey.TIMELINE else heading
 
 
 def _headed_in_order(headings: tuple[str, ...]) -> Assertion[str]:

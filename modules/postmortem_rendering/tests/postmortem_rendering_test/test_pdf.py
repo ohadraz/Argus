@@ -47,6 +47,7 @@ from fpdf import FPDF
 from narration import said_as_a_day, said_as_a_time
 from postmortem_rendering.pdf import as_pdf
 from postmortem_rendering.rendering import RenderedPostmortem, render
+from postmortem_rendering.section_keys import SectionKey
 from pypdf import PageObject, PdfReader
 from pypdf.generic import ContentStream
 
@@ -93,6 +94,22 @@ def test_the_title_comes_first_then_every_section_in_the_page_s_order() -> None:
                                "Lessons learned", "Timeline", "What people told Argus",
                                "Response effort", "Supporting information",
                                "Review checklist"))
+
+
+@pytest.mark.unit
+def test_the_pdf_heads_a_section_for_every_section_key_in_the_keys_own_order() -> None:
+    # Read off the keys rather than off what was rendered, so a key the PDF
+    # has no section for is a heading missing here.
+    Scenario() \
+        .given(
+            some_rendered := render(a_postmortem(symptom=None, leads=[_a_lead("dont care")]),
+                                    an_alert(), [], the_page_of)
+        ) \
+        .when(
+            lambda: as_pdf(some_rendered)
+        ) \
+        .then(
+            _it_reads_in_order(*(some_rendered.headings[key] for key in SectionKey)))
 
 
 @pytest.mark.unit

@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import NamedTuple
 
 from postmortem_rendering.impact import Card
+from postmortem_rendering.section_keys import SynopsisPartKey
 from postmortem_rendering.synopsis import CostRow, SynopsisLines
 
 
@@ -24,19 +25,23 @@ class Part(NamedTuple):
 def the_parts(synopsis: SynopsisLines) -> tuple[Part, ...]:
     """Every part, in the order the synopsis reads, each under its heading."""
     cost = synopsis.human_cost
-    said = {
-        "overview": Part(synopsis.headings["overview"], (synopsis.overview.said,)),
-        "when": Part(synopsis.headings["when"], (synopsis.window.said,)),
-        "impact": Part(synopsis.headings["impact"],
-                       tuple(card_said(card) for card in synopsis.impact)),
-        "resolution": Part(synopsis.headings["resolution"], synopsis.resolution, listed=True),
-        "human-cost": Part(synopsis.headings["human-cost"],
-                           (*(_a_row(row) for row in cost.rows),
-                            *((_a_row(cost.total),) if cost.total is not None else ()),
-                            *cost.notes))
+    headings = synopsis.headings
+    said: dict[SynopsisPartKey, Part] = {
+        SynopsisPartKey.OVERVIEW: Part(headings[SynopsisPartKey.OVERVIEW],
+                                       (synopsis.overview.said,)),
+        SynopsisPartKey.WHEN: Part(headings[SynopsisPartKey.WHEN], (synopsis.window.said,)),
+        SynopsisPartKey.IMPACT: Part(headings[SynopsisPartKey.IMPACT],
+                                     tuple(card_said(card) for card in synopsis.impact)),
+        SynopsisPartKey.RESOLUTION: Part(headings[SynopsisPartKey.RESOLUTION],
+                                         synopsis.resolution, listed=True),
+        SynopsisPartKey.HUMAN_COST: Part(headings[SynopsisPartKey.HUMAN_COST],
+                                         (*(_a_row(row) for row in cost.rows),
+                                          *((_a_row(cost.total),) if cost.total is not None
+                                            else ()),
+                                          *cost.notes))
     }
 
-    return tuple(said[key] for key in synopsis.headings)
+    return tuple(said[key] for key in headings)
 
 
 def card_said(card: Card) -> str:

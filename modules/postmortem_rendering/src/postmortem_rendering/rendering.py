@@ -38,36 +38,42 @@ from postmortem_rendering.lessons import LessonList, the_lessons
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.resolution import the_escalation, the_reported_resolution
 from postmortem_rendering.review import ReviewSection, the_review
+from postmortem_rendering.section_keys import SectionKey
 from postmortem_rendering.supporting import SupportingSection, the_supporting_information
 from postmortem_rendering.timeline import TimelineRow, TimelineSection, the_timeline
 from postmortem_rendering.trigger import TriggerSection, the_trigger
 
-# Every section by the name a destination knows it by, and the heading it is
-# shown under, in the order it is read.
-_HEADINGS: Final = {
-    "summary": "Summary",
-    "impact": "Impact",
-    "cause": "Root cause and contributing factors",
-    "hypotheses": "Hypotheses considered",
-    "trigger": "Trigger",
-    "resolution": "Resolution",
-    "detection": "Detection",
-    "action-items": "Action items",
-    "lessons": "Lessons learned",
-    "timeline": "Timeline",
-    "leads": "What people told Argus",
-    "response-effort": "Response effort",
-    "supporting": "Supporting information",
-    "review": "Review checklist"
+# Every section by the key a destination knows it by, and the heading it is
+# shown under - in the keys' own order, which is the order it is read.
+_HEADINGS: Final[dict[SectionKey, str]] = {
+    SectionKey.SUMMARY: "Summary",
+    SectionKey.IMPACT: "Impact",
+    SectionKey.CAUSE: "Root cause and contributing factors",
+    SectionKey.HYPOTHESES: "Hypotheses considered",
+    SectionKey.TRIGGER: "Trigger",
+    SectionKey.RESOLUTION: "Resolution",
+    SectionKey.DETECTION: "Detection",
+    SectionKey.ACTION_ITEMS: "Action items",
+    SectionKey.LESSONS: "Lessons learned",
+    SectionKey.TIMELINE: "Timeline",
+    SectionKey.LEADS: "What people told Argus",
+    SectionKey.RESPONSE_EFFORT: "Response effort",
+    SectionKey.SUPPORTING: "Supporting information",
+    SectionKey.REVIEW: "Review checklist"
 }
+# A section with no heading is one no destination prints: refused as this
+# module is imported, rather than found missing from a document.
+if list(_HEADINGS) != list(SectionKey):
+    raise TypeError(f"the headings {[str(key) for key in _HEADINGS]} are not every section, "
+                    f"in order: {[str(key) for key in SectionKey]}")
 
 
 class RenderedPostmortem(BaseModel):
     """Everything a postmortem says, worked out once for every destination.
 
     `headings` names each section shown, in order, by the key a destination
-    knows it by - every section but what people told Argus, which an incident
-    nobody wrote in has none of.
+    knows it by (`SectionKey`) - every section but what people told Argus,
+    which an incident nobody wrote in has none of.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -75,7 +81,7 @@ class RenderedPostmortem(BaseModel):
     incident_id: str
     title: Line
     head: Head
-    headings: dict[str, str]
+    headings: dict[SectionKey, str]
     summary: Line | None
     summary_absent: str | None
     impact: ImpactSection
@@ -149,7 +155,7 @@ def render(postmortem: Postmortem,
         title=a_title(postmortem, alert),
         head=a_head(postmortem, alert, resolution, the_escalation(events)),
         headings={key: heading for key, heading in _HEADINGS.items()
-                  if key != "leads" or leads},
+                  if key is not SectionKey.LEADS or leads},
         summary=_the_summary(postmortem),
         summary_absent=None if postmortem.executive_summary else "No summary was written.",
         impact=impact,

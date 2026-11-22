@@ -35,6 +35,7 @@ from core.models import (
 )
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.rendering import RenderedPostmortem, render
+from postmortem_rendering.section_keys import SectionKey
 
 from postmortem_rendering_test.framework.builders import (
     DONT_CARE_MOMENT,
@@ -83,6 +84,22 @@ def test_an_incident_nobody_wrote_in_has_no_section_for_what_people_said() -> No
         .then(
             the_answer_was(tuple(heading for heading in EVERY_HEADING
                                  if heading != "What people told Argus")))
+
+
+@pytest.mark.unit
+def test_every_section_is_named_by_its_key_in_the_keys_own_order() -> None:
+    # The key is what every destination names a section by - the page, the
+    # PDF, the text - so the sections are the keys, in the order they are
+    # declared, and a key no section answers to is one no destination prints.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(leads=[_a_lead()])
+        ) \
+        .when(
+            lambda: list(render(some_postmortem, an_alert(), [], the_page_of).headings)
+        ) \
+        .then(
+            the_answer_was(list(SectionKey)))
 
 
 @pytest.mark.unit

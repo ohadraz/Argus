@@ -30,6 +30,7 @@ from postmortem_rendering.head import a_head
 from postmortem_rendering.impact import the_impact
 from postmortem_rendering.resolution import ReportedResolution
 from postmortem_rendering.resolution_list import the_resolution_list
+from postmortem_rendering.section_keys import SynopsisPartKey
 from postmortem_rendering.synopsis import CostRow, SynopsisLines, the_synopsis
 
 from postmortem_rendering_test.framework.builders import a_marker, a_postmortem, an_alert
@@ -86,6 +87,12 @@ THEIR_TOTAL = _their_total(TWO_TITLES)
 SOME_BASIS = ["Working year: annual pay bands divided by 2000 hours",
               *(f"Pay band: {cost.title} priced at the midpoint of the title's band"
                 for cost in TWO_TITLES)]
+# Every part by its key, under the heading it is shown under, in the order a
+# reader asks: what happened, when, how bad, what was done, and what it cost.
+EVERY_PART_HEADED = {SynopsisPartKey.OVERVIEW: "Overview", SynopsisPartKey.WHEN: "When",
+                     SynopsisPartKey.IMPACT: "Impact",
+                     SynopsisPartKey.RESOLUTION: "Resolution",
+                     SynopsisPartKey.HUMAN_COST: "Human cost"}
 
 
 @pytest.mark.unit
@@ -96,7 +103,7 @@ def test_the_parts_are_read_in_the_order_a_reader_asks_them() -> None:
                                  SOME_ADDRESS)
         ) \
         .then(
-            _headed(["overview", "when", "impact", "resolution", "human-cost"])
+            _headed(EVERY_PART_HEADED)
         )
 
 
@@ -403,10 +410,12 @@ def _a_row_of(cost: TitleCost) -> CostRow:
                if cost.minimum is not None and cost.maximum is not None else None))
 
 
-def _headed(expected: list[str]) -> Assertion[SynopsisLines]:
+def _headed(expected: dict[SynopsisPartKey, str]) -> Assertion[SynopsisLines]:
+    """Every part's key and heading, in order."""
     def assertion(synopsis: SynopsisLines) -> bool:
-        if list(synopsis.headings) != expected:
-            raise AssertionError(f"Expected the parts {expected}, got {list(synopsis.headings)}.")
+        if list(synopsis.headings.items()) != list(expected.items()):
+            raise AssertionError(f"Expected the parts {list(expected.items())}, got "
+                                 f"{list(synopsis.headings.items())}.")
 
         return True
 

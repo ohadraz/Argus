@@ -24,18 +24,23 @@ from postmortem_rendering.impact import Card, the_impact
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.resolution import ReportedResolution
 from postmortem_rendering.resolution_list import the_resolution_list
+from postmortem_rendering.section_keys import SynopsisPartKey
 from postmortem_rendering.synopsis_figures import the_synopsis_figures
 
-# Every part by the name a destination knows it by, and the heading it is shown
-# under, in the order a reader asks: what happened, when, how bad, what was
-# done, and what it cost the people who answered.
-_HEADINGS: Final = {
-    "overview": "Overview",
-    "when": "When",
-    "impact": "Impact",
-    "resolution": "Resolution",
-    "human-cost": "Human cost"
+# Every part by the key a destination knows it by, and the heading it is shown
+# under - in the keys' own order, which is the order a reader asks.
+_HEADINGS: Final[dict[SynopsisPartKey, str]] = {
+    SynopsisPartKey.OVERVIEW: "Overview",
+    SynopsisPartKey.WHEN: "When",
+    SynopsisPartKey.IMPACT: "Impact",
+    SynopsisPartKey.RESOLUTION: "Resolution",
+    SynopsisPartKey.HUMAN_COST: "Human cost"
 }
+# A part with no heading is one no destination prints: refused as this module
+# is imported, rather than found missing from a synopsis.
+if list(_HEADINGS) != list(SynopsisPartKey):
+    raise TypeError(f"the headings {[str(key) for key in _HEADINGS]} are not every part, "
+                    f"in order: {[str(key) for key in SynopsisPartKey]}")
 
 _NO_TITLE: Final = "No title recorded"
 _TOTAL: Final = "Total"
@@ -79,16 +84,17 @@ class HumanCost(BaseModel):
 class SynopsisLines(BaseModel):
     """Everything the synopsis says, worked out once for every destination.
 
-    `headings` names each part, in order, by the key a destination knows it by.
-    `postmortem_at` is the full postmortem's address, the one address of
-    Argus's the synopsis carries - `None` where none is configured.
+    `headings` names each part, in order, by the key a destination knows it by
+    (`SynopsisPartKey`). `postmortem_at` is the full postmortem's address, the
+    one address of Argus's the synopsis carries - `None` where none is
+    configured.
     """
 
     model_config = ConfigDict(frozen=True)
 
     incident_id: str
     title: Line
-    headings: dict[str, str]
+    headings: dict[SynopsisPartKey, str]
     overview: Line
     window: Line
     impact: tuple[Card, ...]
