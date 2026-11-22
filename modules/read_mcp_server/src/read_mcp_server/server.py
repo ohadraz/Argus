@@ -3,7 +3,8 @@
 Built rather than declared. Every tool below needs configuration, and the
 process that reads configuration is the process that starts: a server assembled
 at import would have bound its windows and its credential before anything could
-say which deployment it was in.
+say which deployment it was in. The process that serves it - its telemetry, its
+pool, its adapters - is `apps.read_mcp`.
 
 What the tools close over is the whole of what this tier may know - a handful of
 narrow slices, none of which has a field that could hold a credential capable of
@@ -14,21 +15,11 @@ in a comment.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
-from typing import Annotated, Final
+from typing import Annotated
 
 from alerting_platform import AlertingPlatform
-from alerting_platform.grafana import Grafana, GrafanaSettings
 from code_host import CodeHostReads
-from code_host.github import GitHubReads, GitHubReadSettings
-from core import (
-    Connections,
-    DatabaseSettings,
-    ReadMcpEndpoint,
-    TelemetrySettings,
-    get_settings,
-    open_pool,
-)
+from core import Connections, ReadMcpEndpoint
 from core.mcp_transport import TracedFastMCP
 from core.models import (
     AlertRuleStanding,
@@ -42,17 +33,12 @@ from core.models import (
     RuleSeries,
     ServiceDependency,
 )
+from core.vector_store import VectorSearch
 from deployment_platform import DeploymentPlatformReads
-from deployment_platform.argocd import ArgoCd, ArgoCdSettings
 from flag_provider import FlagProviderReads
-from flag_provider.unleash import UnleashFrontend, UnleashFrontendSettings
 from metrics_source import MetricsSource, SeriesClassifier
-from metrics_source.prometheus_adapter import buckets_between, what_the_series_is
-from metrics_source.prometheus_settings import PrometheusSettings
 from pydantic import Field
 from repository_index.embedding import an_embedder
-from telemetry import start_telemetry
-from vector_store_qdrant import SearchOpenedOnFirstUse
 
 from read_mcp_server import (
     alert_rules,
@@ -76,23 +62,20 @@ from read_mcp_server.repository import RepositoryReadSettings
 from read_mcp_server.retrieval import TargetServiceSettings
 from read_mcp_server.window import RetrievalSettings
 
-# What this process is called in its telemetry, and the directory its runs are
-# written under.
-_SERVICE: Final = "argus-read-mcp"
-
 logger = logging.getLogger(__name__)
 
 
 def build_server(endpoint: ReadMcpEndpoint,
                  retrieval_settings: RetrievalSettings,
                  target_service: TargetServiceSettings,
-                 metrics_settings: PrometheusSettings,
+                 metrics: MetricsSource,
                  flags: FlagProviderReads,
                  platform: DeploymentPlatformReads,
                  code: CodeHostReads,
                  registry_settings: ServiceRegistrySettings,
                  repository_settings: RepositoryReadSettings,
                  index_settings: IndexReadSettings,
+                 passages: VectorSearch,
                  rules: AlertingPlatform,
                  classify: SeriesClassifier,
                  connections: Connections) -> TracedFastMCP:
@@ -101,7 +84,10 @@ def build_server(endpoint: ReadMcpEndpoint,
     A function rather than module-level code, so that importing this module -
     which the tests do - binds no address and builds no server. The slices
     arrive here and are closed over by the registrations below; nothing beneath
-    this module reads configuration for itself.
+    this module reads configuration for itself. Every vendor this tier reads -
+    the metrics source, the store passages are searched in, the platforms -
+    arrives already built, as its port, from the process's root
+    (`apps.read_mcp`), so nothing here names one.
 
     The tool bodies stay one-line delegations. What they delegate to is where
     the behaviour lives, and where an injection seam a decorated function
@@ -115,17 +101,6 @@ def build_server(endpoint: ReadMcpEndpoint,
     )
 
     fetch_logs = retrieval.target_service_logs(target_service)
-
-    # The port bound to the one vendor this deployment reads metrics from, so
-    # that what the tool is handed names a window and nothing else.
-    def metrics(started_at: datetime,
-                ended_at: datetime,
-                rule_series: RuleSeries | None = None) -> list[MetricBucket]:
-        return buckets_between(
-            started_at, ended_at, metrics_settings, rule_series=rule_series
-        )
-
-    metrics_source: MetricsSource = metrics
 
     # The deploy history for a window, as the change channel asks for it. The
     # deployment channel and the rollout channel are handed the platform itself,
@@ -209,7 +184,7 @@ def build_server(endpoint: ReadMcpEndpoint,
             window_end,
             rule,
             settings=retrieval_settings,
-            source=metrics_source,
+            source=metrics,
             series_of=series_the_rule_watches
         )
 
@@ -476,13 +451,9 @@ def build_server(endpoint: ReadMcpEndpoint,
     # Bound once, like the fetchers above. The embedder and the store are the
     # odd ones: each opens on first use rather than here, so a server that is
     # started and never asked to search by meaning loads no model and reaches
-    # no store. The store's adapter is built here and nowhere else in this
-    # tier, and handed on as the port, which can only search.
+    # no store. The store arrives as the port, which can only search.
     embed = an_embedder()
-    find_passages = meaning.passages_in(
-        SearchOpenedOnFirstUse(index_settings.qdrant_url,
-                               index_settings.repository_index_collection)
-    )
+    find_passages = meaning.passages_in(passages)
     indexed_sha = meaning.the_commit_indexed_for(code.repository, connections)
     head_of = code.head_of
 
@@ -532,61 +503,3 @@ def build_server(endpoint: ReadMcpEndpoint,
         )
 
     return mcp
-
-
-def main() -> None:
-    """The process: one read of the environment, then serve until killed.
-
-    The only place in this server that calls `get_settings`. Everything below
-    is handed the part of the answer it reads, which is what makes the tier a
-    property of the types rather than of what the deployment happened to put in
-    the environment.
-
-    A pool rather than a connection, and held open for the life of the process:
-    the index's watermark is read on every search by meaning, and a handshake
-    per question is one a model waits through. It reads one row and writes
-    none - a database arriving in the read tier does not make the read tier
-    capable of writing (§13).
-
-    Its telemetry is started first and closed last, so what it collected in its
-    final seconds is on disk.
-    """
-    settings = get_settings()
-
-    with (
-        start_telemetry(TelemetrySettings.of(settings), _SERVICE),
-        open_pool(DatabaseSettings.of(settings)) as pool
-    ):
-        build_server(
-            ReadMcpEndpoint.of(settings),
-            RetrievalSettings.of(settings),
-            TargetServiceSettings.of(settings),
-            PrometheusSettings.of(settings),
-            # The flag provider's adapter, built here for the same reason and
-            # handed on as its reads port - holding the evaluation credential
-            # alone, since its settings have nowhere to put another.
-            UnleashFrontend(UnleashFrontendSettings()),
-            # The adapter is built here and nowhere else in this tier, and handed
-            # on typed as the reads port: a write typed anywhere below does not
-            # type-check, which is the tier split held in the code this process
-            # runs as well as in the process boundary.
-            ArgoCd(ArgoCdSettings.of(settings)),
-            # The code host's adapter, built here for the same reason and handed
-            # on as its reads port - holding the read credential alone, since
-            # its settings have nowhere to put the one that pushes.
-            GitHubReads(GitHubReadSettings.of(settings)),
-            ServiceRegistrySettings.of(settings),
-            RepositoryReadSettings.of(settings),
-            IndexReadSettings.of(settings),
-            # The alerting platform's adapter, built here for the same reason and
-            # handed on as its port, and the metrics adapter's account of what a
-            # rule's series measures beside it - the one adapter that may read a
-            # query.
-            Grafana(GrafanaSettings.of(settings)),
-            what_the_series_is,
-            pool.connection
-        ).serve()
-
-
-if __name__ == "__main__":
-    main()

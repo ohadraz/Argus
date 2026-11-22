@@ -16,16 +16,16 @@ future caller could skip.
 Built rather than declared, for the reason the read server is: the process that
 reads configuration is the process that starts, and a server assembled at import
 would have bound its credentials before anything could say which deployment it
-was in.
+was in. The process that serves it - its telemetry, its holds, its adapters - is
+`apps.write_mcp`.
 """
 
 from __future__ import annotations
 
-from typing import Any, Final
+from typing import Any
 
 from code_host import CodeHostWrites
-from code_host.github import GitHub, GitHubSettings
-from core import DatabaseSettings, TelemetrySettings, WriteMcpEndpoint, get_settings, parse_iso
+from core import WriteMcpEndpoint, parse_iso
 from core.models import (
     AcceleratorPinRestored,
     AcceleratorPinUndo,
@@ -46,11 +46,8 @@ from core.models import (
     RestartedService,
 )
 from deployment_platform import DeploymentPlatformWrites, Mark
-from deployment_platform.argocd import ArgoCd, ArgoCdSettings
 from flag_provider import FlagProviderWrites
-from flag_provider.unleash import Unleash, UnleashSettings
 from mcp.server.fastmcp import Context
-from telemetry import start_telemetry
 
 from write_mcp_server import (
     accelerators,
@@ -63,16 +60,7 @@ from write_mcp_server import (
     scaling,
 )
 from write_mcp_server.discarding import DiscardSettings
-from write_mcp_server.fencing import (
-    FencedFastMCP,
-    HoldForAChange,
-    OpensHolds,
-    holds_in_the_database,
-)
-
-# What this process is called in its telemetry, and the directory its runs are
-# written under.
-_SERVICE: Final = "argus-write-mcp"
+from write_mcp_server.fencing import FencedFastMCP, HoldForAChange
 
 
 def build_server(endpoint: WriteMcpEndpoint,
@@ -90,10 +78,11 @@ def build_server(endpoint: WriteMcpEndpoint,
     autoscaler pin and the pin to a card all speak to the deployment platform -
     and all three are handed their port rather than a slice:
     where each is, under what credential and by which routes is its adapter's,
-    built once in `main`. Every credential named belongs to this tier, and none
-    of them belongs in another's calls. What keeps the *tiers* apart is what each
-    server is handed - the read server gets each reads port, and no slice with a
-    field any of these could arrive in - not a check made here.
+    built once by the process's root (`apps.write_mcp`). Every credential named
+    belongs to this tier, and none of them belongs in another's calls. What
+    keeps the *tiers* apart is what each server is handed - the read server gets
+    each reads port, and no slice with a field any of these could arrive in -
+    not a check made here.
 
     The tool bodies stay registration only; the behaviour, and the seams a
     decorated function cannot carry, live in a module per route beside this one.
@@ -715,40 +704,3 @@ def _the_meta_of(ctx: Context[Any, Any, Any]) -> dict[str, Any] | None:
     meta = ctx.request_context.meta
 
     return meta.model_dump() if meta is not None else None
-
-
-def main(holds: OpensHolds = holds_in_the_database) -> None:
-    """The process: one read of the environment, then serve until killed.
-
-    The only place in this server that calls `get_settings`, and the one that
-    starts its telemetry - closed on the way out, so what it collected last is
-    on disk. So are the holds a change is made under, which are the database's
-    own runs: `holds` defaults to them, and a suite that serves the real tools
-    over a run it stands in for hands its own.
-    """
-    settings = get_settings()
-
-    with (
-        start_telemetry(TelemetrySettings.of(settings), _SERVICE),
-        holds(DatabaseSettings.of(settings)) as hold_for_a_change
-    ):
-        build_server(
-            WriteMcpEndpoint.of(settings),
-            # The flag provider's adapter, built here and nowhere else in this
-            # tier and handed on as the writes port, for the platform's reason.
-            Unleash(UnleashSettings()),
-            # The code host's adapter, built here for the same reason and handed
-            # on as the writes port: it holds the credential that pushes, and no
-            # tool below names a route.
-            GitHub(GitHubSettings.of(settings)),
-            # The adapter is built here and nowhere else in this tier, and handed
-            # on as the writes port: no action below names a route.
-            ArgoCd(ArgoCdSettings.of(settings)),
-            DiscardSettings.of(settings),
-            hold_for_a_change,
-            settings.argocd_actor
-        ).serve()
-
-
-if __name__ == "__main__":
-    main()

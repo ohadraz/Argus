@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing import cast
 from unittest.mock import MagicMock, call
 
-from anthropic import BaseModel
 from argus_testkit import Assertion
 from orchestrator.walk.deltas import StateDelta
+from pydantic import BaseModel
 
 
 def assert_that[A](actual: A) -> _AssertThat[A]:

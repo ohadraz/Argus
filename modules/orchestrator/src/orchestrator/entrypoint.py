@@ -16,7 +16,7 @@ from collections.abc import Callable, Mapping
 from typing import Any, Final, cast
 
 import psycopg
-from core import Connections, Holding, get_settings
+from core import Connections, get_settings
 from core.events import StatusChanged
 from core.models import Alert, IncidentStatus
 from core.telemetry import (
@@ -28,7 +28,6 @@ from core.telemetry import (
     UNIT_SECONDS,
     UNIT_WALKS,
 )
-from core.vector_store import VectorSearch
 from incident_record import events_into_connection, publish_beside
 from incident_record.repository import incidents
 from langgraph.checkpoint.postgres import PostgresSaver
@@ -38,10 +37,8 @@ from opentelemetry.metrics import Counter, Histogram, Meter
 from opentelemetry.trace import Status, StatusCode, Tracer
 from psycopg.rows import DictRow, dict_row
 from psycopg_pool import ConnectionPool
-from read_mcp_client import ReadTier
-from write_mcp_client import WriteTier
 
-from orchestrator.assembling import against
+from orchestrator.walk.collaborators import Collaborators
 from orchestrator.walk.graph import build_graph, recursion_limit
 from orchestrator.walk.state import IncidentState
 
@@ -77,12 +74,7 @@ WALK_FAILED_OUTCOME: Final = "failed"
 _SCOPE = __name__
 
 
-def graph_for(connections: Connections,
-              checkpoints: ConnectionPool,
-              read: ReadTier,
-              write: WriteTier,
-              store: VectorSearch | None,
-              holding: Holding) -> GraphOf:
+def graph_for(checkpoints: ConnectionPool, collaborators: Collaborators) -> GraphOf:
     """The compiled graph, built once for the process that asks and kept.
 
     Built lazily and held, because compiling it wires every node, and a walk
@@ -91,10 +83,9 @@ def graph_for(connections: Connections,
     are two graphs against two sets of connections rather than one that
     whichever ran first got to decide.
 
-    The two tiers and the store are passed through rather than built here, for the same
-    reason `connections` and `checkpoints` are: what this function owns is when
-    the graph is compiled, not what the process it belongs to has opened. So is
-    `holding`, the run the process is walking, which the pools are fenced with.
+    The collaborators are handed in already assembled, by the process's root
+    (`apps.worker`): what this function owns is when the graph is compiled, not
+    what the process it belongs to has opened or which vendor answers it.
 
     The checkpointer writes on `checkpoints`, a pool whose connections are as
     `CHECKPOINTER_CONNECTIONS` says, and never sets up its tables: the schema
@@ -109,11 +100,7 @@ def graph_for(connections: Connections,
             # Rows of dicts, because the connections were opened to read them so
             # - which is a setting the pool's type cannot see.
             reading_dicts = cast(ConnectionPool[psycopg.Connection[DictRow]], checkpoints)
-            graph = build_graph(
-                PostgresSaver(reading_dicts),
-                against(connections, read, write, store, holding,
-                        settings=get_settings())
-            )
+            graph = build_graph(PostgresSaver(reading_dicts), collaborators)
 
         return graph
 

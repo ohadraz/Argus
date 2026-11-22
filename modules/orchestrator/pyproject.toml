@@ -3,23 +3,16 @@ name = "argus-orchestrator"
 version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
-    # The `llm` extra because this process's wiring (`assembling`) builds the
-    # model provider's adapter, which imports the vendor's SDK; the agents it
-    # hands the provider to take none.
-    "argus-core[llm,mcp]",
+    # Without the `llm` extra: the model provider's adapter, which imports the
+    # vendor's SDK, is built by the worker's root (`apps.worker`) and handed
+    # to the agents as the port.
+    "argus-core[mcp]",
     "argus-incident_record",
     "argus-narration",
-    "argus-telemetry",
-    # With the store, because the walk is what writes a record and the walk
-    # is what searches for one - and unconditionally, because whether it does
-    # either is read at runtime while this is resolved at install. A worker
-    # with memory off still carries Qdrant and an ONNX runtime; what it does
-    # not do is import them. `incident_memory`'s own extra says why the trade
-    # is taken this way round.
-    "argus-incident_memory[store]",
-    # The vector store's adapter, whose reading side the worker builds and
-    # hands the walk as the port. Opened only where memory is on.
-    "argus-vector_store_qdrant",
+    # Without the store: the walk files a record and composes the one it
+    # files, and searching for one is recall's, which the worker's root builds
+    # over the store and hands the walk as `RecallSimilar`.
+    "argus-incident_memory",
     "argus-investigation_agent",
     "argus-mitigation",
     "argus-codefix_agent",
@@ -30,11 +23,9 @@ dependencies = [
     "argus-oncall_source",
     "argus-pay_band_source",
     "argus-revenue_source",
-    "argus-exchange_rate_source",
-    # The worker builds both tiers' connections, and the walk's sources read
-    # the alert rule and the metrics over the read tier.
+    # The walk's sources read the alert rule and the metrics over the read
+    # tier.
     "argus-read_mcp_client",
-    "argus-write_mcp_client",
     "langgraph>=0.2",
     "langgraph-checkpoint-postgres>=2.0",
     "opentelemetry-api>=1.45",
@@ -62,16 +53,12 @@ dev = [
 [tool.uv.sources]
 argus-core = { workspace = true }
 argus-incident_memory = { workspace = true }
-argus-vector_store_qdrant = { workspace = true }
 argus-incident_record = { workspace = true }
 argus-narration = { workspace = true }
-argus-telemetry = { workspace = true }
 argus-oncall_source = { workspace = true }
 argus-pay_band_source = { workspace = true }
 argus-revenue_source = { workspace = true }
-argus-exchange_rate_source = { workspace = true }
 argus-read_mcp_client = { workspace = true }
-argus-write_mcp_client = { workspace = true }
 argus-argus_testkit = { workspace = true }
 argus-investigation_agent = { workspace = true }
 argus-mitigation = { workspace = true }

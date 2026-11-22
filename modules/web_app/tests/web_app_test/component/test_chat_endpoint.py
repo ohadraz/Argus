@@ -53,8 +53,9 @@ from core.telemetry import ARGUS_INCIDENT_ID
 from fastapi.testclient import TestClient
 from incident_record.repository import conversation, events, incidents, references
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-from web_app.app import app, chat_platform_of
+from web_app.app import chat_platform_of
 
+from web_app_test.framework.application import app
 from web_app_test.framework.assertions import the_response_was
 from web_app_test.framework.event_loop import handed_off_the_event_loop, on_an_event_loop
 from web_app_test.framework.observing import observing_the_app, the_span_named

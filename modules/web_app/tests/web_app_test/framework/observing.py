@@ -15,7 +15,9 @@ from contextlib import contextmanager
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-from web_app.app import app, tracer_of
+from web_app.app import tracer_of
+
+from web_app_test.framework.application import app
 
 
 @contextmanager

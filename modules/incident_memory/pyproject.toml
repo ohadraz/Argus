@@ -10,24 +10,24 @@ dependencies = [
 ]
 
 
-# The store and the model, for whoever reaches them. An extra rather than a
-# hard dependency, in the shape `repository_index` uses: behind it are a Qdrant
-# client and an ONNX runtime, and naming a memory record is not a reason to
-# install either.
+# The model, for whoever searches or keeps. An extra rather than a hard
+# dependency, in the shape `repository_index` uses: behind it is an ONNX
+# runtime, and naming a memory record is not a reason to install one. The
+# store's client is not behind it at all - the adapter is its roots' to build
+# and install.
 #
-# Unlike `repository_index`'s, this extra narrows nothing that is actually installed,
-# and that is worth stating rather than leaving to be discovered. `repository_index`
-# has a dependant that takes it bare - `web_app` writes the watermark row and
-# never searches - where the only distribution depending on this one is
-# `orchestrator`, with `[store]`. It has no choice: whether memory is searched
-# at all is `incident_memory_enabled`, read when the worker starts, and a
-# dependency is resolved long before a process reads anything.
+# `orchestrator` takes it bare: the walk files and composes records and never
+# searches. The two processes that do - the worker, whose root builds recall,
+# and the deliverer - take `[store]` through their roots' extras
+# (`argus-apps[worker]`, `[deliverer]`). The worker has no choice: whether
+# memory is searched at all is `incident_memory_enabled`, read when the worker
+# starts, and a dependency is resolved long before a process reads anything.
 #
-# What does pay off is the split the extra is drawn along. `records`,
+# What pays off is the split the extra is drawn along. `records`,
 # `describing`, `ordering`, `composing` and `filing` reach no store, so the
 # files in `orchestrator` that import them at module scope load neither Qdrant
-# nor an ONNX runtime. `recalling` reaches the store, and its importers in the
-# walk import it inside the factories that run when the process opened one;
+# nor an ONNX runtime. `recalling` reaches the store, and the worker's root
+# imports it inside the factory that runs when the process opened one;
 # `keeping` and `delivering` are the deliverer's, and no walk imports them. A
 # walk with memory off imports nothing it will not use, even though its wheel
 # contains it.
@@ -37,21 +37,15 @@ dependencies = [
 # extra, this one among them, so any other module reaching it is a broken
 # front-door contract rather than an ImportError at the close of a live incident.
 # The store's port is the kernel's and installs nothing; its adapter is the
-# deliverer's to build, and is what this extra installs.
+# deliverer's root's to build (`apps.deliverer`), and installed by that root.
 [project.optional-dependencies]
 store = [
-    # The vector store's adapter, which the deliverer's `main` builds. The
-    # vendor's client comes with it, pinned there once for both corpora.
-    "argus-vector_store_qdrant",
     # The same local, free, keyless embedder the repository index uses, and
     # the same one: it is the kernel's, behind the kernel's door. Chosen for
     # costing nothing and waiting on nobody rather than for retrieval quality -
     # and behind a seam, so a benchmark that blames the model can pass a
     # different one.
     "argus-core[embedding]",
-    # For the deliverer's `main`, which installs the SDK for its process and
-    # sits on this side of the extra already: it writes the store.
-    "argus-telemetry",
 ]
 
 
@@ -66,12 +60,17 @@ dev = [
     # integration tests write to a real Qdrant through the store's adapter,
     # which is the only way to answer whether a record written can be found.
     "argus-incident_memory[store]",
+    # The store's adapter the integration tests write through, which no module
+    # here imports: the deliverer's root builds it and hands `keeping` the port.
+    "argus-vector_store_qdrant",
+    # What the conftest polls the store's readiness with - which arrived with
+    # `telemetry` while the deliverer's `main` lived here.
+    "httpx2",
 ]
 
 
 [tool.uv.sources]
 argus-core = { workspace = true }
-argus-telemetry = { workspace = true }
 argus-vector_store_qdrant = { workspace = true }
 argus-argus_testkit = { workspace = true }
 

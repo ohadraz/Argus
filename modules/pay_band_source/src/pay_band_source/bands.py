@@ -11,7 +11,7 @@ adapter is the only thing that ever knows which vendor it was.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from decimal import Decimal
 
 from core import SettingsSlice
@@ -75,3 +75,8 @@ class PayBand(BaseModel):
 # because the sources publish their whole structure at once and the caller
 # prices several titles from one read.
 type PayBandsByTitle = Mapping[str, PayBand]
+
+# Reading them, as a caller holds it: an adapter already bound to where the
+# source is and what it is asked with, raising `PayBandsUnavailable` where it
+# could not be read. Which adapter is the process's root's to choose.
+type PayBandsRead = Callable[[], PayBandsByTitle]

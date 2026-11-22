@@ -1,4 +1,4 @@
-"""The model provider a suite reaches, built the way a process's wiring builds it.
+"""The model provider a suite reaches, built the way a process's root builds it.
 
 No agent has a default way to reach a model: whoever assembles it hands one
 over. The suites that drive an agent against the Anthropic double, and the

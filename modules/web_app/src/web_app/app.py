@@ -8,9 +8,7 @@ from typing import Annotated, Final
 
 import psycopg
 from alert_source import AlertSource, AlertUnreadable, OnlyResolved
-from alert_source.grafana import GrafanaAlerts
 from chat_platform import ChatDeliveryUnverified, ChatPlatformReads
-from chat_platform.slack import ChatSettings, slack_from
 from core import (
     Connections,
     DatabaseSettings,
@@ -28,7 +26,7 @@ from core.models import (
 )
 from core.schema import require_schema
 from core.telemetry import ARGUS_INCIDENT_ID
-from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -42,8 +40,6 @@ from incident_record import (
 )
 from incident_record.repository import conversation, references
 from oncall_source import OnCallUnavailable
-from oncall_source.pagerduty_adapter import pagerduty_from
-from oncall_source.pagerduty_settings import PagerDutySettings
 from oncall_source.platform import OnCallDeliveryUnverified, OnCallPlatform
 from opentelemetry import propagate, trace
 from opentelemetry.trace import SpanKind, Tracer
@@ -56,13 +52,12 @@ from postmortem_rendering import (
     the_person_who_resolved,
 )
 from push_source import PushSource, PushUnverified
-from push_source.github import GitHubPushes
 from repository_index.records import record_pushed
 
 from web_app import reads
 from web_app.chat import receive_chat_delivery
 from web_app.formatting import from_markdown, marked_up, with_references
-from web_app.oncall import OnCallDeliverySettings, receive_delivery
+from web_app.oncall import receive_delivery
 from web_app.pushes import PushSettings, Watermark, receive_push
 from web_app.views import IncidentDetail, Story, the_rows_held
 
@@ -83,52 +78,72 @@ RESOLVE_SPAN: Final = "resolve incident"
 # through which door, and a real name arrives with the day somebody can sign in.
 THE_DEMO_USER: Final = "demo user"
 
-# The senders of alerts this deployment hears, each at a route of its own,
-# `/webhooks/alerts/<name>`, named for the sender. The first is heard at
-# `/webhooks/alerts` too, with no name: every sender configured before senders
-# had routes of their own posts there.
-GRAFANA_ALERTS: Final = "grafana"
-THE_UNNAMED_SENDER: Final = GRAFANA_ALERTS
+# Every route this application serves, and nothing about whom it hears from:
+# `an_app` mounts them on an application handed its senders and platforms.
+router = APIRouter()
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
-    """What this process holds for as long as it is up.
+def an_app(*,
+           alert_sources: Mapping[str, AlertSource],
+           the_unnamed_senders_name: str,
+           push_source: PushSource,
+           oncall_platform: OnCallPlatform | None,
+           chat_platform: ChatPlatformReads | None) -> FastAPI:
+    """The application, hearing from the senders and platforms it is handed.
 
-    The pool is opened here and closed here, which is the whole of why it is a
-    lifespan: a process that serves requests wants connections ready before the
-    first one arrives and given back when the last one has been answered. What
-    a route needs, it asks for; what it asks for comes from here.
+    Each arrives already built, typed as its port - the vendor behind it is the
+    process's root's to choose (`apps.web`), and nothing here names one.
+    `alert_sources` are the senders of alerts this deployment hears, each at a
+    route of its own, `/webhooks/alerts/<name>`, by the name it is keyed under;
+    `the_unnamed_senders_name` names the one of them heard at
+    `/webhooks/alerts` too, with no name, where every sender configured before
+    senders had routes of their own posts. The push source holds the secret the
+    deployment was given for it, and nothing that reads a repository. The
+    on-call and the chat platform are `None` where the deployment has none,
+    which is how each one's webhook comes to answer as though it did not exist.
+
+    The pool is opened by the lifespan and closed by it, which is the whole of
+    why it is one: a process that serves requests wants connections ready
+    before the first one arrives and given back when the last one has been
+    answered. What a route needs, it asks for; what it asks for comes from
+    here.
 
     The schema is checked and never applied. This process only reads, and a
     process that only reads is the last one that should be defining the tables
     everything else writes - it was also, while it did, the process every other
     one had to be started after.
     """
-    with open_pool(DatabaseSettings.of(get_settings())) as pool:
-        app.state.connections = pool.connection
-        app.state.push_settings = PushSettings.of(get_settings())
-        # Each sender's adapter, built here and nowhere else, and handed to the
-        # routes as its port. The push source holds the secret the deployment
-        # was given for it, and nothing that reads a repository.
-        app.state.alert_sources = {GRAFANA_ALERTS: GrafanaAlerts()}
-        app.state.push_source = GitHubPushes(app.state.push_settings.github_webhook_secret)
-        # `None` where the deployment has no on-call platform, which is how
-        # its webhook comes to answer as though it did not exist.
-        app.state.oncall_platform = pagerduty_from(
-            PagerDutySettings.of(get_settings()),
-            webhook_secret=OnCallDeliverySettings.of(get_settings()).pagerduty_webhook_secret
+    if the_unnamed_senders_name not in alert_sources:
+        raise ValueError(
+            f"the sender heard with no name, [{the_unnamed_senders_name}], is not among "
+            f"the senders heard: {sorted(alert_sources)}"
         )
-        # `None` where the deployment has no chat workspace, for the same reason.
-        app.state.chat_platform = slack_from(ChatSettings.of(get_settings()))
 
-        with pool.connection() as conn:
-            require_schema(conn)
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
+        """What this process holds for as long as it is up."""
+        with open_pool(DatabaseSettings.of(get_settings())) as pool:
+            app.state.connections = pool.connection
+            app.state.push_settings = PushSettings.of(get_settings())
 
-        yield
+            with pool.connection() as conn:
+                require_schema(conn)
 
+            yield
 
-app = FastAPI(lifespan=lifespan)
+    app = FastAPI(lifespan=lifespan)
+    app.state.alert_sources = alert_sources
+    app.state.the_unnamed_sender = alert_sources[the_unnamed_senders_name]
+    app.state.push_source = push_source
+    app.state.oncall_platform = oncall_platform
+    app.state.chat_platform = chat_platform
+    # Argus's own mark and the one script the page needs, both shipped with the
+    # module and mounted from a path relative to it, so they resolve the same in
+    # the container as in a local checkout.
+    app.mount("/assets", StaticFiles(directory=Path(__file__).parent / "assets"), name="assets")
+    app.include_router(router)
+
+    return app
 
 
 def connections_of(request: Request) -> Connections:
@@ -166,6 +181,16 @@ def alert_sources_of(request: Request) -> Mapping[str, AlertSource]:
     sources: Mapping[str, AlertSource] = request.app.state.alert_sources
 
     return sources
+
+
+def the_unnamed_sender_of(request: Request) -> AlertSource:
+    """The sender of alerts heard at `/webhooks/alerts`, with no name.
+
+    A dependency for the reason the alert sources are one.
+    """
+    sender: AlertSource = request.app.state.the_unnamed_sender
+
+    return sender
 
 
 def push_source_of(request: Request) -> PushSource:
@@ -226,20 +251,12 @@ def tracer_of() -> Tracer:
 type UsingConnections = Annotated[Connections, Depends(connections_of)]
 type UsingPushSettings = Annotated[PushSettings, Depends(push_settings_of)]
 type UsingAlertSources = Annotated[Mapping[str, AlertSource], Depends(alert_sources_of)]
+type UsingTheUnnamedSender = Annotated[AlertSource, Depends(the_unnamed_sender_of)]
 type UsingPushSource = Annotated[PushSource, Depends(push_source_of)]
 type TheBody = Annotated[bytes, Depends(body_of)]
 type UsingOnCallPlatform = Annotated[OnCallPlatform | None, Depends(oncall_platform_of)]
 type UsingChatPlatform = Annotated[ChatPlatformReads | None, Depends(chat_platform_of)]
 type Tracing = Annotated[Tracer, Depends(tracer_of)]
-
-# Argus's own mark and the one script the page needs, both shipped with the
-# module and mounted from a path relative to it, so they resolve the same in
-# the container as in a local checkout.
-app.mount(
-    "/assets",
-    StaticFiles(directory=Path(__file__).parent / "assets"),
-    name="assets",
-)
 
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
@@ -255,19 +272,19 @@ templates.env.filters["marked_up"] = marked_up
 templates.env.filters["from_markdown"] = from_markdown
 
 
-@app.post("/webhooks/alerts", status_code=202)
+@router.post("/webhooks/alerts", status_code=202)
 def receive_alert(request: Request,
                   body: TheBody,
-                  sources: UsingAlertSources,
+                  sender: UsingTheUnnamedSender,
                   connections: UsingConnections,
                   tracer: Tracing) -> dict[str, str | None]:
     """Where a sender configured with no name of its own delivers an alert:
-    heard as the deployment's first sender, Grafana. Everything it does is
+    heard as the one sender the deployment hears unnamed. Everything it does is
     `receive_alert_from`'s."""
-    return _an_alert(body, request, sources[THE_UNNAMED_SENDER], connections, tracer)
+    return _an_alert(body, request, sender, connections, tracer)
 
 
-@app.post("/webhooks/alerts/{source}", status_code=202)
+@router.post("/webhooks/alerts/{source}", status_code=202)
 def receive_alert_from(source: str,
                        request: Request,
                        body: TheBody,
@@ -330,8 +347,8 @@ def _an_alert(body: bytes,
         return {"incident_id": incident_id}
 
 
-@app.post("/webhooks/github/push", status_code=202)
-def receive_github_push(request: Request,
+@router.post("/webhooks/github/push", status_code=202)
+def receive_a_push(request: Request,
                         body: TheBody,
                         connections: UsingConnections,
                         settings: UsingPushSettings,
@@ -367,7 +384,7 @@ def receive_github_push(request: Request,
     return {"recorded": recorded}
 
 
-@app.post("/webhooks/oncall", status_code=202)
+@router.post("/webhooks/oncall", status_code=202)
 def receive_oncall_delivery(request: Request,
                             body: TheBody,
                             platform: UsingOnCallPlatform,
@@ -414,7 +431,7 @@ def receive_oncall_delivery(request: Request,
     return {"received": "true"}
 
 
-@app.post("/webhooks/slack/events")
+@router.post("/webhooks/slack/events")
 def receive_chat_event(request: Request,
                        body: TheBody,
                        platform: UsingChatPlatform,
@@ -430,7 +447,7 @@ def receive_chat_event(request: Request,
     return _a_chat_delivery(body, request, platform, connections, tracer)
 
 
-@app.post("/webhooks/slack/interactions")
+@router.post("/webhooks/slack/interactions")
 def receive_chat_interaction(request: Request,
                              body: TheBody,
                              platform: UsingChatPlatform,
@@ -584,7 +601,7 @@ def _the_watermark_kept_by(connections: Connections) -> Watermark:
     return record
 
 
-@app.post("/incidents/{incident_id}/withdraw")
+@router.post("/incidents/{incident_id}/withdraw")
 def withdraw(incident_id: str,
              connections: UsingConnections,
              tracer: Tracing) -> dict[str, str]:
@@ -634,7 +651,7 @@ def withdraw(incident_id: str,
     return {"incident_id": incident_id, "status": IncidentStatus.WITHDRAWN}
 
 
-@app.post("/incidents/{incident_id}/resolve")
+@router.post("/incidents/{incident_id}/resolve")
 def resolve(incident_id: str,
             response: Response,
             connections: UsingConnections,
@@ -688,7 +705,7 @@ def resolve(incident_id: str,
     return {"incident_id": incident_id, "status": IncidentStatus.RESOLVED}
 
 
-@app.get("/", response_class=HTMLResponse)
+@router.get("/", response_class=HTMLResponse)
 def live_page(request: Request, connections: UsingConnections) -> HTMLResponse:
     """What is happening now: the front door.
 
@@ -702,7 +719,7 @@ def live_page(request: Request, connections: UsingConnections) -> HTMLResponse:
         )
 
 
-@app.get("/now", response_class=HTMLResponse)
+@router.get("/now", response_class=HTMLResponse)
 def live_body(request: Request, connections: UsingConnections) -> HTMLResponse:
     """The front page's own poll, and the whole of what it swaps in.
 
@@ -717,7 +734,7 @@ def live_body(request: Request, connections: UsingConnections) -> HTMLResponse:
         )
 
 
-@app.get("/history", response_class=HTMLResponse)
+@router.get("/history", response_class=HTMLResponse)
 def history_page(request: Request, connections: UsingConnections) -> HTMLResponse:
     """Every incident Argus has been woken for, newest first.
 
@@ -730,7 +747,7 @@ def history_page(request: Request, connections: UsingConnections) -> HTMLRespons
         )
 
 
-@app.get("/history/list", response_class=HTMLResponse)
+@router.get("/history/list", response_class=HTMLResponse)
 def history_list(request: Request, connections: UsingConnections) -> HTMLResponse:
     """The list on its own, for the history's poll to swap in.
 
@@ -744,7 +761,7 @@ def history_list(request: Request, connections: UsingConnections) -> HTMLRespons
         )
 
 
-@app.get("/incidents/{incident_id}", response_class=HTMLResponse)
+@router.get("/incidents/{incident_id}", response_class=HTMLResponse)
 def incident_page(request: Request,
                   incident_id: str,
                   connections: UsingConnections) -> HTMLResponse:
@@ -759,7 +776,7 @@ def incident_page(request: Request,
     )
 
 
-@app.get("/incidents/{incident_id}/walk", response_class=HTMLResponse)
+@router.get("/incidents/{incident_id}/walk", response_class=HTMLResponse)
 def incident_walk(request: Request,
                   incident_id: str,
                   connections: UsingConnections) -> HTMLResponse:
@@ -786,7 +803,7 @@ def incident_walk(request: Request,
     )
 
 
-@app.get("/incidents/{incident_id}/postmortem", response_class=HTMLResponse)
+@router.get("/incidents/{incident_id}/postmortem", response_class=HTMLResponse)
 def postmortem_page(request: Request,
                     incident_id: str,
                     connections: UsingConnections) -> HTMLResponse:
@@ -820,7 +837,7 @@ def postmortem_page(request: Request,
     )
 
 
-@app.get("/incidents/{incident_id}/postmortem.pdf")
+@router.get("/incidents/{incident_id}/postmortem.pdf")
 def postmortem_pdf(request: Request,
                    incident_id: str,
                    connections: UsingConnections) -> Response:
@@ -843,7 +860,7 @@ def postmortem_pdf(request: Request,
                              f'attachment; filename="argus-postmortem-{incident_id}.pdf"'})
 
 
-@app.get("/incidents/{incident_id}/synopsis.pdf")
+@router.get("/incidents/{incident_id}/synopsis.pdf")
 def synopsis_pdf(request: Request,
                  incident_id: str,
                  connections: UsingConnections) -> Response:

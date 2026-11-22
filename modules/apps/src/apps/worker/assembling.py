@@ -1,13 +1,15 @@
-"""Where a deployment supplies what a walk is supplied with.
+"""Where the worker supplies what a walk is supplied with.
 
-`walk.collaborators` says what a walk takes; this builds the real ones, for a
-process that has a database, a model and two tiers. The only thing here that
-knows a database can be had is `against`.
+`orchestrator.walk.collaborators` says what a walk takes; this builds the real
+ones, for a process that has a database, a model and two tiers - and is the
+one place in the worker that names a vendor: the model provider, the on-call
+platform, the payment provider, the rate provider, the HR source and the store
+long-term memory is searched in. Every one of them is built here and handed to
+the agents and the postmortem's sources as its port.
 
-Outside the walk rather than in it, because it names the repositories and the
-gathering, and each of those names the walk - the repositories its ports, the
-gathering what its investigation says it asked for: a wiring kept inside the
-walk made the walk and both of them import one another.
+Part of the worker's root rather than of the Orchestrator, because choosing
+what a process runs against is the root's: a library that built its own
+adapters is a library nobody can install without its vendors.
 """
 
 from __future__ import annotations
@@ -24,7 +26,9 @@ from core.anomaly import AnomalyThresholds
 from core.autonomy import admit
 from core.embedding import an_embedder
 from core.llm import ModelProvider, build_llm_client, conversations_through
+from core.llm.adapters.anthropic_adapter import AnthropicProvider
 from core.vector_store import VectorSearch
+from exchange_rate_source.frankfurter import ExchangeRateSettings, rates_published_for
 from incident_memory.records import RememberedIncident
 from incident_record import (
     calls_into,
@@ -52,15 +56,18 @@ from mitigation import (
 )
 from oncall_source.pagerduty_adapter import pagerduty_from
 from oncall_source.pagerduty_settings import PagerDutySettings
-from postmortem_writing import judge_policy, postmortem_policy, synopsis_policy
-from read_mcp_client import ReadTier
-from write_mcp_client import WriteTier
-
 from orchestrator.gathering import write_postmortem_for, write_synopsis_for
 from orchestrator.records import Records
 from orchestrator.sources import the_real_sources
 from orchestrator.walk.collaborators import Collaborators
 from orchestrator.walk.ports import RecallSimilar, Resuming
+from pay_band_source import PayBandSettings
+from pay_band_source.bamboohr_adapter import pay_bands
+from postmortem_writing import Sources, judge_policy, postmortem_policy, synopsis_policy
+from read_mcp_client import ReadTier
+from revenue_source.stripe_adapter import charges_between
+from revenue_source.stripe_settings import StripeSettings
+from write_mcp_client import WriteTier
 
 _logger = logging.getLogger(__name__)
 
@@ -76,7 +83,7 @@ class IncidentMemorySettings(SettingsSlice):
     Declared here rather than in `incident_memory`, whose walk-side modules
     read no configuration at all - they are handed a store and an embedder,
     and deciding what those are for a walk is this module's job. The deliverer
-    reads a slice of its own, being a process of its own.
+    reads a slice of its own (`apps.deliverer`), being a process of its own.
     """
 
     incident_memory_enabled: bool
@@ -128,11 +135,10 @@ def the_models_at(settings: LLMSettings) -> ModelProvider:
     The one place the worker names a model vendor. Built here and handed to
     every agent as the port, so that which provider answers is decided once,
     where the process is assembled, rather than by a default inside each agent.
-    The adapter is imported here, where it is built, so that naming this
-    module loads no vendor's SDK.
+    Its adapter is imported at the top, as every adapter a root builds is:
+    nothing imports a root, so the SDK it loads is loaded for this process
+    alone.
     """
-    from core.llm.adapters.anthropic_adapter import AnthropicProvider
-
     return AnthropicProvider(settings)
 
 
@@ -211,13 +217,7 @@ def against(connections: Connections,
     # Built once rather than per postmortem: which provider answers which
     # question is a fact about the deployment, and the only thing that differs
     # between two incidents is which incident is being written up.
-    sources = the_real_sources(
-        settings, connections, read, thresholds,
-        # The worker reads the platform and never hears from it, so it holds
-        # no webhook secret - an empty one refuses every delivery, and none
-        # ever reaches this process to refuse.
-        oncall=pagerduty_from(PagerDutySettings.of(settings), webhook_secret="")
-    )
+    sources = the_sources_for(settings, connections, read, thresholds)
     # Whoever answers every agent's model calls, chosen once for the process.
     models = the_models_at(LLMSettings.of(settings))
     # The grounding judge both writers are read by, at its own model and
@@ -394,6 +394,34 @@ def against(connections: Connections,
         record_weighing=records.weighing,
         what_argus_did=records.what_argus_did,
         max_rounds=settings.investigation_max_rounds
+    )
+
+
+def the_sources_for(settings: Settings,
+                    connections: Connections,
+                    read: ReadTier,
+                    thresholds: AnomalyThresholds) -> Sources:
+    """Every source a postmortem reads, each answered by the provider this
+    deployment is configured for.
+
+    The configuration is sliced once, here, and each provider is handed only
+    its own slice. A provider that never learns a credential's name cannot leak
+    it into a postmortem, and one holding the whole of `Settings` would be able
+    to read every credential Argus has in order to ask about money. Which is
+    why this takes the whole of it, and is meant to: it is the narrowing
+    itself, and the one place each provider's vendor is named. Binding a
+    provider to its slice reaches nothing; each asks only when a postmortem
+    does.
+    """
+    return the_real_sources(
+        settings, connections, read, thresholds,
+        # The worker reads the platform and never hears from it, so it holds
+        # no webhook secret - an empty one refuses every delivery, and none
+        # ever reaches this process to refuse.
+        oncall=pagerduty_from(PagerDutySettings.of(settings), webhook_secret=""),
+        charges=partial(charges_between, settings=StripeSettings.of(settings)),
+        published=partial(rates_published_for, settings=ExchangeRateSettings.of(settings)),
+        bands=partial(pay_bands, PayBandSettings.of(settings))
     )
 
 

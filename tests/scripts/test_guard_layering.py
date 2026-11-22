@@ -6,14 +6,16 @@ cannot reach - a vector store, a chat platform's SDK - except recall's one read.
 No module but a vendor's adapter may import that vendor's SDK. Both are about
 third parties, which import-linter sees only with a setting that is global and
 turns every other contract against the standard library. No module but a
-vendor's adapter, a process's wiring and the debts listed may name that vendor
-in code, which is no import at all. And no module outside the walk and the
-kernel may make an admission: the Mitigator imports the autonomy policy for the
-type its write accepts, and import-linter cannot allow the type and forbid
-`admit` beside it. Their failure is silent, like every
-guard's: a rule that stopped matching passes every build while the import it
-was written against comes back. So each case builds the graph or the source it
-is about, and asks the rule what it makes of it.
+vendor's adapter, a process's root and the debts listed may name that vendor
+in code, which is no import at all. No module outside the walk, the worker's
+root and the kernel may make an admission: the Mitigator imports the autonomy
+policy for the type its write accepts, and import-linter cannot allow the type
+and forbid `admit` beside it. And no process's root may import a workspace
+package its process does not install, which is an extra of `apps` - something
+import-linter cannot read at all. Their failure is silent, like every guard's:
+a rule that stopped matching passes every build while the import it was
+written against comes back. So each case builds the graph or the source it is
+about, and asks the rule what it makes of it.
 
 Built by hand rather than read from the workspace, because the cases are about
 imports the workspace must not have.
@@ -22,18 +24,23 @@ imports the workspace must not have.
 from __future__ import annotations
 
 import pytest
-from argus_testkit import Assertion, Scenario
+from argus_testkit import Assertion, Scenario, the_answer_was
 from grimp import ImportGraph
 
 from scripts.guard_layering import (
     the_admissions_made_outside_the_walk,
     the_chains_to_a_store_the_fence_cannot_reach,
+    the_processes_reaching_past_their_extra,
     the_stale_allowances,
     the_vendors_named_outside_their_adapter,
     the_vendors_spoken_past_their_adapter,
+    the_workspace_packages_named_by,
+    what_each_process_installs,
 )
 
-THE_WALK = {"orchestrator"}
+# The packages that walk an incident, the worker's root among them: it builds
+# what the walk is handed, the store it searches included.
+THE_WALK = {"apps.worker", "orchestrator"}
 
 # The packages that are somebody else's, which the rule is about reaching.
 THIRD_PARTIES = {"qdrant_client", "slack_sdk"}
@@ -44,9 +51,9 @@ def test_a_walk_module_importing_the_vector_store_is_refused() -> None:
     # The import the rule exists for: the walk writing to the store itself,
     # where a write for a run another claim holds is one nothing refuses.
     Scenario() \
-        .given(a_graph := _a_graph_with(("orchestrator.assembling", "qdrant_client"))) \
+        .given(a_graph := _a_graph_with(("apps.worker.assembling", "qdrant_client"))) \
         .when(lambda: the_chains_to_a_store_the_fence_cannot_reach(a_graph, THE_WALK)) \
-        .then(_these_are_refused([("orchestrator.assembling", "qdrant_client")]))
+        .then(_these_are_refused([("apps.worker.assembling", "qdrant_client")]))
 
 
 @pytest.mark.unit
@@ -55,22 +62,22 @@ def test_a_walk_module_reaching_the_vector_store_through_the_writing_side_is_ref
     # adapter writes to the store as surely as one that holds the client.
     Scenario() \
         .given(a_graph := _a_graph_with(
-            ("orchestrator.assembling", "vector_store_qdrant.indexing"),
+            ("apps.worker.assembling", "vector_store_qdrant.indexing"),
             ("vector_store_qdrant.indexing", "qdrant_client")
         )) \
         .when(lambda: the_chains_to_a_store_the_fence_cannot_reach(a_graph, THE_WALK)) \
         .then(_these_are_refused([
-            ("orchestrator.assembling", "vector_store_qdrant.indexing", "qdrant_client")
+            ("apps.worker.assembling", "vector_store_qdrant.indexing", "qdrant_client")
         ]))
 
 
 @pytest.mark.unit
 def test_a_walk_module_recalling_through_the_reading_side_passes() -> None:
     # Recall is a read, and a read for a lost run changes nothing anybody else
-    # holds - which is why the walk's wiring may build the adapter's reading side.
+    # holds - which is why the worker's root may build the adapter's reading side.
     Scenario() \
         .given(a_graph := _a_graph_with(
-            ("orchestrator.assembling", "vector_store_qdrant.searching"),
+            ("apps.worker.assembling", "vector_store_qdrant.searching"),
             ("vector_store_qdrant.searching", "qdrant_client")
         )) \
         .when(lambda: the_chains_to_a_store_the_fence_cannot_reach(a_graph, THE_WALK)) \
@@ -85,13 +92,13 @@ def test_a_way_to_the_writing_side_through_the_reading_side_is_refused() -> None
     # every chain passing the reading side would never say so.
     Scenario() \
         .given(a_graph := _a_graph_with(
-            ("orchestrator.assembling", "vector_store_qdrant.searching"),
+            ("apps.worker.assembling", "vector_store_qdrant.searching"),
             ("vector_store_qdrant.searching", "vector_store_qdrant.indexing"),
             ("vector_store_qdrant.indexing", "qdrant_client")
         )) \
         .when(lambda: the_chains_to_a_store_the_fence_cannot_reach(a_graph, THE_WALK)) \
         .then(_these_are_refused([
-            ("orchestrator.assembling", "vector_store_qdrant.searching",
+            ("apps.worker.assembling", "vector_store_qdrant.searching",
              "vector_store_qdrant.indexing", "qdrant_client")
         ]))
 
@@ -112,7 +119,7 @@ def test_a_module_that_walks_nothing_may_import_the_vector_store() -> None:
     # from rows the fence has already let through.
     Scenario() \
         .given(a_graph := _a_graph_with(
-            ("incident_memory.delivering", "vector_store_qdrant.indexing"),
+            ("apps.deliverer", "vector_store_qdrant.indexing"),
             ("vector_store_qdrant.indexing", "qdrant_client")
         )) \
         .when(lambda: the_chains_to_a_store_the_fence_cannot_reach(a_graph, THE_WALK)) \
@@ -143,11 +150,11 @@ def test_the_vendors_adapter_importing_its_sdk_passes() -> None:
 
 @pytest.mark.unit
 def test_a_module_reaching_a_vendors_sdk_through_its_adapter_passes() -> None:
-    # A process's wiring builds the adapter, and the adapter speaks the vendor:
+    # A process's root builds the adapter, and the adapter speaks the vendor:
     # that is the port working, not reached past.
     Scenario() \
         .given(a_graph := _a_graph_with(
-            ("incident_memory.delivering", "vector_store_qdrant.indexing"),
+            ("apps.deliverer", "vector_store_qdrant.indexing"),
             ("vector_store_qdrant.indexing", "qdrant_client")
         )) \
         .when(lambda: the_vendors_spoken_past_their_adapter(a_graph)) \
@@ -242,22 +249,122 @@ def test_the_mitigator_referring_to_admit_on_the_policy_module_is_refused(
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("module", ["orchestrator.walk.mitigating", "core.autonomy"])
-def test_the_walk_and_the_kernel_may_make_an_admission(module: str) -> None:
+@pytest.mark.parametrize("module", ["orchestrator.walk.mitigating", "apps.worker.assembling",
+                                    "core.autonomy"])
+def test_the_walk_its_root_and_the_kernel_may_make_an_admission(module: str) -> None:
     # The walk asks the policy, at the gate and again as the action is taken;
-    # the kernel is where `admit` is written.
+    # the worker's root binds it into what the walk is handed; the kernel is
+    # where `admit` is written.
     Scenario() \
         .given(sources := {module: _a_module_reading("from core.autonomy import admit")}) \
         .when(lambda: the_admissions_made_outside_the_walk(sources)) \
         .then(_these_admissions_are_refused([]))
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize("module", ["apps.web", "apps.workers"])
+def test_another_root_may_not_make_an_admission(module: str) -> None:
+    # The worker's root, and nothing else of `apps`: the web process admitting
+    # an action would be a change made outside any walk. A root named like the
+    # worker's is not the worker's.
+    Scenario() \
+        .given(sources := {module: _a_module_reading("from core.autonomy import admit")}) \
+        .when(lambda: the_admissions_made_outside_the_walk(sources)) \
+        .then(_these_admissions_are_refused([(module, 1)]))
+
+
+# The workspace's packages, as `root_packages` would name them for these cases.
+THE_WORKSPACE = frozenset({"apps", "communication", "core", "orchestrator", "telemetry",
+                           "web_app"})
+
+# The roots' own configuration, cut down to what a case is about: two base
+# dependencies every root takes, and two processes' extras.
+ROOTS = {
+    "project": {
+        "dependencies": ["argus-core", "argus-telemetry"],
+        "optional-dependencies": {
+            "web": ["argus-web_app", "uvicorn[standard]>=0.30"],
+            "worker": ["argus-core[llm,mcp]", "argus-orchestrator", "psycopg-pool>=3.2"]
+        }
+    }
+}
+
+
+@pytest.mark.unit
+def test_a_process_installs_its_extra_the_base_and_the_roots() -> None:
+    # Workspace packages by import name, and third parties left out: a
+    # distribution's name is not its import name.
+    Scenario() \
+        .when(lambda: what_each_process_installs(ROOTS)) \
+        .then(the_answer_was({"web": {"apps", "core", "telemetry", "web_app"},
+                              "worker": {"apps", "core", "telemetry", "orchestrator"}}))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("requirement", ["argus-core", "argus-core[llm,mcp]",
+                                         "argus-core>=0.1", "argus-core ; python_version>'3'"])
+def test_a_workspace_package_is_named_whatever_its_extras_and_version(requirement: str) -> None:
+    Scenario() \
+        .when(lambda: the_workspace_packages_named_by([requirement])) \
+        .then(the_answer_was({"core"}))
+
+
+@pytest.mark.unit
+def test_a_root_importing_what_its_process_installs_passes() -> None:
+    Scenario() \
+        .given(a_graph := _a_graph_with(
+            ("apps.web", "web_app.app"),
+            ("apps.web", "telemetry"),
+            ("apps.worker.process", "apps.worker.assembling"),
+            ("apps.worker.assembling", "orchestrator.sources")
+        )) \
+        .when(lambda: the_processes_reaching_past_their_extra(
+            a_graph, what_each_process_installs(ROOTS), THE_WORKSPACE)) \
+        .then(_these_are_refused([]))
+
+
+@pytest.mark.unit
+def test_a_root_importing_what_another_process_installs_is_refused() -> None:
+    # The failure the extras exist to prevent: the web process installing an
+    # agent because its root reached for the walk.
+    Scenario() \
+        .given(a_graph := _a_graph_with(
+            ("apps.web", "web_app.app"),
+            ("apps.web", "orchestrator.entrypoint")
+        )) \
+        .when(lambda: the_processes_reaching_past_their_extra(
+            a_graph, what_each_process_installs(ROOTS), THE_WORKSPACE)) \
+        .then(_these_are_refused([("apps.web", "orchestrator")]))
+
+
+@pytest.mark.unit
+def test_a_root_whose_process_has_no_extra_is_refused_everything() -> None:
+    # A process nobody can install: whatever it imports, nothing says it is
+    # there.
+    Scenario() \
+        .given(a_graph := _a_graph_with(("apps.relay", "core"))) \
+        .when(lambda: the_processes_reaching_past_their_extra(
+            a_graph, what_each_process_installs(ROOTS), THE_WORKSPACE)) \
+        .then(_these_are_refused([("apps.relay", "core")]))
+
+
+@pytest.mark.unit
+def test_a_root_importing_a_third_party_is_not_held_to_its_extra() -> None:
+    # A distribution's name is not its import name, so the rule holds the
+    # workspace's packages alone - which `root_packages` names, not the graph.
+    Scenario() \
+        .given(a_graph := _a_graph_with(("apps.web", "web_app.app"), ("apps.web", "uvicorn"))) \
+        .when(lambda: the_processes_reaching_past_their_extra(
+            a_graph, what_each_process_installs(ROOTS), THE_WORKSPACE)) \
+        .then(_these_are_refused([]))
+
+
 # A port, which names what Argus needs and no vendor that answers it.
 THE_CHAT_PORT = "chat_platform.platform"
 # The chat platform's adapter, named for its vendor.
 THE_CHAT_ADAPTER = "chat_platform.slack_posting"
-# A process's wiring, which builds every adapter it hands out.
-THE_WEB_WIRING = "web_app.app"
+# A process's root, which builds every adapter it hands out.
+THE_WEB_WIRING = "apps.web"
 # The alerting platform's adapter, whose own vendor's wire names another vendor.
 THE_ALERTING_ADAPTER = "alerting_platform.grafana"
 # A module with a debt to pay: it names a vendor until the item named for it lands.
@@ -400,8 +507,19 @@ def test_an_adapter_naming_another_vendor_is_refused() -> None:
 
 
 @pytest.mark.unit
+def test_a_module_under_an_allowed_package_may_name_any_vendor() -> None:
+    # The roots are a package, and a root may be a package too: the worker's
+    # binds the walk's vendors in a module of its own.
+    Scenario() \
+        .given(sources := {"apps.worker.assembling": _a_module_reading(
+            "from revenue_source.stripe_adapter import charges_between")}) \
+        .when(lambda: the_vendors_named_outside_their_adapter(sources, {"apps"})) \
+        .then(_these_vendor_names_are_refused([]))
+
+
+@pytest.mark.unit
 def test_an_allowed_module_may_name_any_vendor() -> None:
-    # A process's wiring builds each adapter by its name, which is its job.
+    # A process's root builds each adapter by its name, which is its job.
     Scenario() \
         .given(sources := {THE_WEB_WIRING: _a_module_reading(
             "from chat_platform.slack import slack_from",

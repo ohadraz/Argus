@@ -20,8 +20,9 @@ incident is known by are real rows, because finding them is the question.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, NoReturn
 from unittest.mock import call, create_autospec
 
 import pytest
@@ -327,7 +328,17 @@ def _the_sources_over(platform: Any) -> Sources:
     return the_real_sources(get_settings(), connect_from_env,
                             ReadTier(create_autospec(McpClient, instance=True)),
                             DONT_CARE_THRESHOLDS,
-                            oncall=platform)
+                            oncall=platform,
+                            charges=_never_read("the payment provider"),
+                            published=_never_read("the rate provider"),
+                            bands=_never_read("the HR source"))
+
+
+def _never_read(source: str) -> Callable[..., NoReturn]:
+    def read(*dont_care_args: object, **dont_care_keywords: object) -> NoReturn:
+        raise AssertionError(f"Expected nothing to be read from {source}.")
+
+    return read
 
 
 def _the_platform_was_asked_about(platform: Any, platform_incident: str) -> Assertion[Any]:

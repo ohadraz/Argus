@@ -1,38 +1,30 @@
-"""The payloads an endpoint is sent, in the shape the sender really uses."""
+"""The deliveries an endpoint is sent, in the shape the suite's senders read."""
 
 from __future__ import annotations
 
 from typing import Any
 
+from core.models import Alert
 
-def a_grafana_payload(service: str = "kukibuki",
-                      rule_uid: str | None = None,
-                      status: str = "firing") -> dict[str, Any]:
-    """One alert, firing unless `status` says otherwise, nested the way Grafana
-    nests it - what the alert routes are sent by the deployment's first sender.
+from web_app_test.framework.senders import ONLY_RESOLVED
 
-    Only what an endpoint's cases vary: the service it is about, the rule that
-    fired, in the link to it where Grafana says it, and whether it is firing.
-    Everything else a notification can carry is the Grafana adapter's to read,
-    and staged by that adapter's own suite.
+
+def an_alert_delivery(service: str = "kukibuki",
+                      rule: str | None = None,
+                      resolved: bool = False) -> dict[str, Any]:
+    """One alert about `service`, as the suite's stand-in sender is sent it - or,
+    where `resolved`, a delivery saying only that its rule stopped firing.
+
+    Only what an endpoint's cases vary: the service the alert is about, the
+    rule that fired - which a refiring joins its incident by - and whether it
+    is firing. What a real sender's notification carries is its
+    adapter's to read, and staged by that adapter's own suite.
     """
-    alert: dict[str, Any] = {
-        "status": status,
-        "labels": {
-            "alertname": "HighErrorRate",
-            "service": service,
-            "severity": "critical"
-        },
-        "annotations": {"summary": f"Error rate above threshold on {service}"},
-        "startsAt": "2026-08-14T10:15:00Z",
-        "endsAt": "0001-01-01T00:00:00Z"
-    }
+    if resolved:
+        return {ONLY_RESOLVED: True}
 
-    if rule_uid is not None:
-        alert["generatorURL"] = f"http://grafana.test/alerting/grafana/{rule_uid}/view?orgId=1"
-
-    return {
-        "receiver": "argus-webhook",
-        "status": status,
-        "alerts": [alert]
-    }
+    return Alert(service=service,
+                 alert_name="HighErrorRate",
+                 severity="critical",
+                 summary=f"Error rate above threshold on {service}",
+                 rule=rule).model_dump(mode="json")

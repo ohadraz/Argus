@@ -22,11 +22,11 @@ from alerting_platform import AlertingPlatform
 from code_host import CodeHostReads
 from core import Connections, ReadMcpEndpoint
 from core.models import CodeSearch, ToolDefinition
+from core.vector_store import VectorSearch
 from deployment_platform import DeploymentPlatformReads
 from flag_provider import FlagProviderReads
 from mcp.server.fastmcp import FastMCP
-from metrics_source import SeriesClassifier
-from metrics_source.prometheus_settings import PrometheusSettings
+from metrics_source import MetricsSource, SeriesClassifier
 from read_mcp_client import offered
 from read_mcp_server.meaning import IndexReadSettings
 from read_mcp_server.registry import ServiceRegistrySettings
@@ -67,7 +67,7 @@ def _a_read_tier(mode: CodeSearch) -> FastMCP:
                           log_max_window_minutes=60,
                           metrics_window_minutes=60),
         TargetServiceSettings(target_service_url="http://target.invalid"),
-        PrometheusSettings(prometheus_base_url="http://prometheus.invalid"),
+        create_autospec(MetricsSource, instance=True),
         create_autospec(FlagProviderReads, instance=True),
         create_autospec(DeploymentPlatformReads, instance=True),
         create_autospec(CodeHostReads, instance=True),
@@ -79,6 +79,7 @@ def _a_read_tier(mode: CodeSearch) -> FastMCP:
         IndexReadSettings(qdrant_url="http://qdrant.invalid",
                           repository_index_collection="dont-care-collection",
                           code_search=mode),
+        create_autospec(VectorSearch, instance=True),
         create_autospec(AlertingPlatform, instance=True),
         create_autospec(SeriesClassifier, instance=True),
         create_autospec(Connections, instance=True)

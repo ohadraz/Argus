@@ -7,6 +7,10 @@ to recover - happens here, in a process nobody is holding a connection open to.
 A worker takes work rather than being given it, which is what makes a second
 one harmless and a restart uneventful: the queue is the only coordination, and
 a run whose worker stopped is simply the oldest thing nobody holds a lease on.
+
+The process itself - its pools, its sessions to both tiers, its store, the
+walk's collaborators - is built by its root, `apps.worker`, which hands
+`work_forever` the walk and the unwind it runs.
 """
 
 from __future__ import annotations
@@ -18,57 +22,38 @@ import time
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from datetime import timedelta
-from functools import partial
 from os import getpid
 from typing import Final
 
 import psycopg
 from core import (
     Connections,
-    DatabaseSettings,
     Fence,
     Holding,
-    ReadMcpEndpoint,
     Settings,
-    TelemetrySettings,
-    WriteMcpEndpoint,
     connect_from_env,
     fence,
     get_settings,
-    open_pool,
     utc_now,
     was_lost,
 )
 from core.events import StatusChanged, publish
 from core.llm import ModelUnavailable
 from core.models import IncidentStatus
-from core.schema import require_schema
 from core.telemetry import ARGUS_RUN_ID
 from incident_record import (
     EndedByAPerson,
-    ended_by_a_person_via,
     events_into_connection,
     inside_the_incidents_trace,
 )
 from incident_record.repository import incidents, runs, taken_actions
 from incident_record.repository.incidents import NO_TRACE_CONTEXT
 from incident_record.repository.taken_actions import NoLongerOpen
-from mitigation import an_undo_over
 from opentelemetry import baggage, context
 from opentelemetry.trace import Tracer
 from pydantic import BaseModel, ConfigDict
-from read_mcp_client import read_mcp
-from telemetry import start_telemetry
-from write_mcp_client import write_mcp
 
-from orchestrator.assembling import IncidentMemorySettings, the_store_for
-from orchestrator.entrypoint import CHECKPOINTER_CONNECTIONS, graph_for, run_incident
 from orchestrator.renewing import between_renewals, keep_renewing
-from orchestrator.unwinding import (
-    taken_actions_from,
-    undone_recorded_through,
-    unwind_incident,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -84,10 +69,6 @@ type Unwind = Callable[[str], None]
 
 # What the span one claimed run is worked inside is called.
 RUN_SPAN: Final = "run"
-
-# What this process is called in its telemetry, and the directory its runs are
-# written under.
-_SERVICE: Final = "argus-worker"
 
 # How much longer each wait before trying again is than the one before.
 _EACH_WAIT_OVER_THE_LAST: Final = 5
@@ -605,76 +586,6 @@ def work_forever(connections: Connections,
                 time.sleep(idle_wait)
 
 
-def main() -> None:
-    """The process itself: a pool, three sessions, then take runs until killed.
-
-    Where everything this process needs is built, and the only place that knows
-    a pool exists, that either MCP server has an address, or that the vector
-    store does. A `main` rather than bare module-level code, so that importing
-    this module - which the tests do - starts nothing and opens nothing.
-
-    The clients are held for the life of the worker, which is the point of them:
-    one session per tier, reused by every retrieval of every incident this
-    process walks, rather than a connection and an MCP handshake per tool call.
-    Neither dials anything until the first call, so a worker that finds an empty
-    queue and is killed never opened a socket.
-
-    The store is held on the same terms, and by the same owner: one client for
-    searching long-term memory, opened here and closed here, or none at all
-    where this deployment searches none. What a walk files for memory goes
-    through the pool like its other rows; the deliverer fills the store.
-
-    Both pools are fenced by what the process is holding, so every connection
-    this process opens writes for the run it is walking or for none - the
-    checkpointer's as much as a node's. Nothing here opens one any other way.
-    """
-    settings = get_settings()
-    database = DatabaseSettings.of(settings)
-    holding = Holding()
-
-    with (
-        # First in and last out, so that closing it - which flushes what is
-        # still batched - comes after everything that could have reported.
-        start_telemetry(TelemetrySettings.of(settings), _SERVICE),
-        open_pool(database, holding=holding) as pool,
-        open_pool(database, holding=holding, connection=CHECKPOINTER_CONNECTIONS) as checkpoints,
-        read_mcp(ReadMcpEndpoint.of(settings)) as read,
-        # Only the write tier is told what is held: it makes changes, and a
-        # change is made only for the claim that holds its run.
-        write_mcp(WriteMcpEndpoint.of(settings), holding=holding) as write,
-        the_store_for(IncidentMemorySettings.of(settings)) as store
-    ):
-        connections = pool.connection
-
-        # Before anything is claimed. A worker that took a run and then found no
-        # table to record it in would have marked an incident as being worked on
-        # by a process that is about to die.
-        with pool.connection() as conn:
-            require_schema(conn)
-
-        graph_of = graph_for(connections, checkpoints, read, write, store, holding)
-
-        work_forever(
-            connections,
-            walk=partial(run_incident, connections=connections, graph_of=graph_of),
-            unwind=partial(unwind_incident,
-                           # The same binding the walk uses. A withdrawal puts
-                           # back every change an incident made, which is every
-                           # kind of change it could have made - so an undo
-                           # assembled here from a subset of the walk's
-                           # collaborators would fail on whichever kind this
-                           # copy had not heard about.
-                           undo=an_undo_over(write),
-                           taken_actions_of=taken_actions_from(connections),
-                           record_undone=undone_recorded_through(connections),
-                           # The holding the write client reads, so each
-                           # put-back is marked with the action it puts back.
-                           acting_for=holding.acting_for),
-            ended_by_a_person=ended_by_a_person_via(connections),
-            holding=holding
-        )
-
-
 def this_worker() -> str:
     """Who a claim is held by, in a form a person reading the table can act on.
 
@@ -683,7 +594,3 @@ def this_worker() -> str:
     half of it.
     """
     return f"{socket.gethostname()}/{getpid()}"
-
-
-if __name__ == "__main__":
-    main()

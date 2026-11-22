@@ -15,18 +15,16 @@ with production already changed and no postmortem written.
 
 from __future__ import annotations
 
-from collections.abc import Generator
-from contextlib import contextmanager
+import dataclasses
+from collections.abc import Callable
+from typing import Any, NoReturn
 
-import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario
-from core import Holding, get_settings
-from core.mcp_transport import McpClient
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START
 from langgraph.graph.state import CompiledStateGraph
-from orchestrator.assembling import against
+from orchestrator.walk.collaborators import Collaborators
 from orchestrator.walk.graph import (
     CODEFIX_NODE,
     INVESTIGATOR_NODE,
@@ -41,8 +39,6 @@ from orchestrator.walk.graph import (
     recursion_limit,
 )
 from orchestrator.walk.state import IncidentState
-from read_mcp_client import ReadTier
-from write_mcp_client import WriteTier
 
 type Edge = tuple[str, str]
 
@@ -126,9 +122,10 @@ EVERY_EDGE_IN_THE_WALK: frozenset[Edge] = frozenset({
     (SYNOPSIS_NODE, END)
 })
 
-NOTHING_IS_SERVED_HERE = "http://127.0.0.1:1/mcp"
-# How long a client to it would wait for an answer, which no case here asks for.
-DONT_CARE_ANSWERED_WITHIN = 60.0
+# The two collaborators that are numbers rather than calls, which no case here
+# reads: the graph's shape does not depend on either.
+DONT_CARE_ROUNDS = 3
+DONT_CARE_ATTEMPTS = 2
 
 
 @pytest.mark.unit
@@ -136,7 +133,7 @@ def test_every_node_of_the_walk_is_registered() -> None:
     # A node the graph does not know is a node no incident can reach, and the
     # failure shows up as a router returning a key nobody wired.
     Scenario() \
-        .given(an_assembled_graph := _a_graph_against_no_database()) \
+        .given(an_assembled_graph := _a_graph_over_stand_ins()) \
         .when(lambda: sorted(an_assembled_graph.get_graph().nodes)) \
         .then(_the_nodes_are(sorted([START, END, *EVERY_NODE_IN_THE_WALK])))
 
@@ -147,7 +144,7 @@ def test_every_edge_of_the_walk_is_wired() -> None:
     # is as wrong as one that is missing, and a test naming only what it
     # expects cannot see the first kind.
     Scenario() \
-        .given(an_assembled_graph := _a_graph_against_no_database()) \
+        .given(an_assembled_graph := _a_graph_over_stand_ins()) \
         .when(lambda: _the_edges_of(an_assembled_graph)) \
         .then(_the_edges_are(EVERY_EDGE_IN_THE_WALK))
 
@@ -207,31 +204,30 @@ def test_every_extra_round_pays_for_its_investigation_and_its_candidates() -> No
                             + NODES_PER_ATTEMPT * some_candidates))
 
 
-def _a_graph_against_no_database() -> CompiledStateGraph[IncidentState]:
-    """The real graph, assembled against connections nothing may open.
+def _a_graph_over_stand_ins() -> CompiledStateGraph[IncidentState]:
+    """The real graph, its nodes handed collaborators that are never asked.
 
-    Assembling reaches no database - every collaborator built here is a closure
-    over the connections, opened only when a node actually runs - so a source
-    that refuses to open is both honest and the assertion: anything that did
-    reach for one would fail here rather than silently connect.
+    Its shape is decided as it is built, by the nodes and the routers, and no
+    node asks its collaborators anything until a walk runs one - so each stands
+    in as a call that fails, naming itself, if it is ever made. What a
+    deployment hands the graph, and that assembling it reaches nothing, is the
+    worker's root's to show (`apps_test.worker.test_assembling`).
     """
-    @contextmanager
-    def no_connections() -> Generator[psycopg.Connection]:
-        raise AssertionError("Assembling the graph must not open a connection.")
-        yield  # unreachable, and what makes this a generator
+    stood_in: dict[str, Any] = {
+        field.name: _never_asked(field.name) for field in dataclasses.fields(Collaborators)
+    }
 
-    # No store either: a unit test that held a real `QdrantClient` would open a
-    # session to whatever answers on the configured address, and long-term
-    # memory is not what a graph's shape is assembled to show.
-    return build_graph(MemorySaver(), against(
-        no_connections,
-        ReadTier(McpClient(NOTHING_IS_SERVED_HERE, answered_within=DONT_CARE_ANSWERED_WITHIN)),
-        WriteTier(McpClient(NOTHING_IS_SERVED_HERE, answered_within=DONT_CARE_ANSWERED_WITHIN)),
-        None,
-        Holding(),
-        settings=get_settings()
-    ))
+    return build_graph(MemorySaver(), Collaborators(**(stood_in | {
+        "max_rounds": DONT_CARE_ROUNDS,
+        "attempts_per_subject": DONT_CARE_ATTEMPTS
+    })))
 
+
+def _never_asked(collaborator: str) -> Callable[..., NoReturn]:
+    def asked(*dont_care_args: object, **dont_care_keywords: object) -> NoReturn:
+        raise AssertionError(f"Building the graph must not ask [{collaborator}] anything.")
+
+    return asked
 
 
 def _the_edges_of(graph: CompiledStateGraph[IncidentState]) -> frozenset[Edge]:

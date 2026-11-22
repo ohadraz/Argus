@@ -2,18 +2,18 @@
 
 The metrics port is asked about here because it is the one answered over a
 connection somebody already holds, so its question can be watched on the way
-to the read tier without anything being reached. The on-call and HR ports are
-asked only what they log when they cannot be read, which each says before
-reaching anybody when it holds no credential.
+to the read tier without anything being reached. The HR source is asked only
+what is logged when it cannot be read; which vendor answers it, and how that
+vendor refuses, is the adapter's suite's.
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, NoReturn
 from unittest.mock import Mock, create_autospec
 
 import httpx
@@ -27,7 +27,7 @@ from core.models import AlertRuleStanding, MetricBucket, SeriesQuery
 from mcp.shared.exceptions import McpError
 from mcp.types import ErrorData
 from orchestrator.sources import the_real_sources
-from pay_band_source import PayBandsUnavailable
+from pay_band_source import PayBandsByTitle, PayBandsUnavailable
 from postmortem_writing import Sources
 from read_mcp_client import ReadTier
 
@@ -171,7 +171,7 @@ def test_pay_bands_that_cannot_be_read_are_logged_as_a_warning(
     caplog: pytest.LogCaptureFixture
 ) -> None:
     Scenario() \
-        .given(sources := _the_sources_holding_no_credential()) \
+        .given(sources := _the_sources_whose_bands_cannot_be_read()) \
         .when(lambda: sources.bands()) \
         .then(
             one_record_was_logged(caplog, "orchestrator.sources", logging.WARNING,
@@ -237,23 +237,39 @@ def test_a_rule_the_read_tier_cannot_read_is_answered_as_unread(
 
 
 def _the_sources_over(session: McpClient) -> Sources:
-    """Every source, the read tier among them over `session`."""
+    """Every source, the read tier among them over `session`, and every vendor
+    read one that must not be made."""
     return the_real_sources(
         get_settings(), _connections_that_must_not_be_opened(), ReadTier(session),
-        DONT_CARE_THRESHOLDS, oncall=None
+        DONT_CARE_THRESHOLDS, oncall=None,
+        charges=_never_read("the payment provider"),
+        published=_never_read("the rate provider"),
+        bands=_never_read("the HR source")
     )
 
 
-def _the_sources_holding_no_credential() -> Sources:
-    """Every source configured with nothing to authenticate with, which each one
-    refuses before reaching anybody."""
+def _the_sources_whose_bands_cannot_be_read() -> Sources:
+    """Every source, the HR source among them refusing as an unreadable one does."""
+    def unreadable() -> PayBandsByTitle:
+        raise PayBandsUnavailable(SOME_FAILURE)
+
     return the_real_sources(
-        get_settings().model_copy(update={"hr_api_key": ""}),
+        get_settings(),
         _connections_that_must_not_be_opened(),
         ReadTier(_a_session_that_remembers_what_it_was_asked()),
         DONT_CARE_THRESHOLDS,
-        oncall=None
+        oncall=None,
+        charges=_never_read("the payment provider"),
+        published=_never_read("the rate provider"),
+        bands=unreadable
     )
+
+
+def _never_read(source: str) -> Callable[..., NoReturn]:
+    def read(*dont_care_args: object, **dont_care_keywords: object) -> NoReturn:
+        raise AssertionError(f"Expected nothing to be read from {source}.")
+
+    return read
 
 
 def _a_session_that_remembers_what_it_was_asked() -> Mock:

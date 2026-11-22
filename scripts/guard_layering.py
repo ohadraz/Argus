@@ -36,16 +36,23 @@ And it holds every vendor's *name* to its adapter, which is not an import at all
 a port declaring the vendor's settings, a kernel enum with a member per vendor,
 a stored value spelled for one, an agent reading the vendor's setting. Nothing
 shipped names a vendor in code - an identifier or a string, prose aside - but
-the module named for it, each process's wiring, and the debts listed with what
-clears each.
+the module named for it, each process's root (`apps`), and the debts listed
+with what clears each.
 
 And it holds who may make an admission, which import-linter cannot say either.
 The Mitigator imports the autonomy policy (`core.autonomy`) because its write
 accepts only an `Admitted`, and import-linter allows a module or forbids it -
 it cannot allow the type and forbid `admit` beside it. A Mitigator that could
 call `admit` could hand it any reach it liked, and admit any declared kind
-anywhere; so outside the walk and the kernel, nothing names `admit`, imports
-everything from the policy, or reaches a private name of it.
+anywhere; so outside the walk, the worker's root that binds the walk, and the
+kernel, nothing names `admit`, imports everything from the policy, or reaches a
+private name of it.
+
+And it holds each process's root to what its process installs. The roots are
+one package, `apps`, with one extra per process (`argus-apps[web]`, ...), so
+that installing the web process installs no agent - and import-linter cannot
+read an extra. So every module under `apps.<process>` imports only the
+workspace packages that extra, or the package's own dependencies, name.
 
 A script rather than the `lint-imports` shim, for the reason every other tool
 here is invoked as a module: going through the interpreter avoids the
@@ -59,6 +66,7 @@ import tomllib
 from collections.abc import Collection, Iterable, Mapping
 from io import TextIOWrapper
 from pathlib import Path
+from typing import Any
 
 import grimp
 from grimp import ImportGraph
@@ -107,7 +115,7 @@ STORES_THE_FENCE_CANNOT_REACH = ("qdrant_client", "slack_sdk")
 
 # The one way a walk reaches one of them, and why it may: recall reads, and a
 # read made for a run since taken back changes nothing anybody else holds. The
-# reading side of the store's adapter is what the walk's wiring builds, and
+# reading side of the store's adapter is what the worker's root builds, and
 # nothing beyond it - the writing side reaches the same SDK, and is the
 # contract's to forbid.
 THE_WAY_RECALL_READS = ("vector_store_qdrant.searching", "qdrant_client")
@@ -130,10 +138,10 @@ THE_KERNELS_OWN_SUITE = "modules/core/tests"
 
 # What a suite or a script may still name by path, and why. The Anthropic
 # adapter is absent from `core.llm` so that no agent can reach for a vendor, and
-# only a process's wiring builds it. Outside the source tree two kinds of file
+# only a process's root builds it. Outside the source tree two kinds of file
 # name it all the same: the suites whose subject is the adapter, which exercise
 # it as the kernel's own suite does; and the files that stand where a process's
-# wiring would - the evals, the contract and integration suites, the recording
+# root would - the evals, the contract and integration suites, the recording
 # script and `tests/framework/models.py` - which build it, or read a recorded
 # answer through it, because a process would. An entry here is a claim that
 # every importer is one of those two.
@@ -143,13 +151,20 @@ BEHIND_THE_DOOR = frozenset({"core.llm.adapters.anthropic_adapter"})
 AUTONOMY = "core.autonomy"
 ADMIT = "admit"
 
-# Who may make one: the walk, whose gate and mitigation node ask the policy, and
-# the kernel, where it is written. Everybody else may name `Admitted` - the
-# Mitigator's write accepts nothing else - and never `admit`, since `admit`
-# takes the reach it judges by from its caller: a Mitigator that called it with
-# the address its own action names would admit that action wherever it was
-# aimed.
-WHO_MAY_ADMIT = frozenset({"orchestrator", KERNEL})
+# Who may make one: the walk, whose gate and mitigation node ask the policy; the
+# worker's root, which binds the policy into what the walk is handed; and the
+# kernel, where it is written. Each is a package and everything under it.
+# Everybody else may name `Admitted` - the Mitigator's write accepts nothing
+# else - and never `admit`, since `admit` takes the reach it judges by from its
+# caller: a Mitigator that called it with the address its own action names
+# would admit that action wherever it was aimed.
+WHO_MAY_ADMIT = frozenset({"orchestrator", "apps.worker", KERNEL})
+
+# The package every process's root lives in, its configuration, and how a
+# workspace package is named as a distribution.
+APPS = "apps"
+APPS_CONFIGURATION = MODULES / APPS / "pyproject.toml"
+WORKSPACE_DISTRIBUTION = "argus-"
 
 # Every vendor Argus speaks to, by each spelling code gives it, as the words it
 # is made of. Code and strings alike are read as words - split at an underscore,
@@ -179,20 +194,11 @@ VENDORS = {
 # word (`CD` in `ArgoCD`), a word with or without its capital, or a number.
 WORD = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+")
 
-# Each process's wiring: where adapters are built and handed out as their
-# ports, which is the one job that has to name every vendor it builds. The same
-# modules the layering contracts allow to import each adapter.
-WIRING = frozenset({
-    "communication.watching",
-    "incident_memory.delivering",
-    "message_intent.watching",
-    "orchestrator.assembling",
-    "orchestrator.sources",
-    "read_mcp_server.server",
-    "repository_index.catching_up",
-    "web_app.app",
-    "write_mcp_server.server"
-})
+# Each process's root, and everything beneath it: where adapters are built and
+# handed out as their ports, which is the one job that has to name every vendor
+# it builds. The same package the composition-root contract lets import every
+# adapter.
+WIRING = frozenset({APPS})
 
 # What still names a vendor outside its adapter: which vendors, and what takes
 # them away. An allowance is a debt with a name on it, and covers the vendors it
@@ -229,12 +235,24 @@ SAID_ON_ITS_VENDOR_S_WIRE = {
     "alerting_platform.grafana": frozenset({"prometheus"})
 }
 
-# Every vendor a module may name beside its own, by module: the debts and the
-# words an adapter's wire says, held to the same rule.
+# A vendor's name in an address somebody outside the repository configured, by
+# the module that serves it: the web application's routes the Slack app and the
+# repository's webhook post to. Renaming one breaks a live deployment until both
+# are edited, and buys no decoupling - each route is one sender's door, as
+# `/webhooks/alerts/{source}` is - so they stay, by decision rather than as a
+# debt; reported stale the day the module no longer says them.
+CONFIGURED_OUTSIDE = {
+    "web_app.app": frozenset({"github", "slack"})
+}
+
+# Every vendor a module may name beside its own, by module: the debts, the words
+# an adapter's wire says and the addresses configured outside, held to the same
+# rule.
 ALLOWED_BESIDE_ITS_OWN: dict[str, frozenset[str]] = {
     module: (NOT_YET[module][0] if module in NOT_YET else frozenset())
     | SAID_ON_ITS_VENDOR_S_WIRE.get(module, frozenset())
-    for module in NOT_YET.keys() | SAID_ON_ITS_VENDOR_S_WIRE.keys()
+    | CONFIGURED_OUTSIDE.get(module, frozenset())
+    for module in NOT_YET.keys() | SAID_ON_ITS_VENDOR_S_WIRE.keys() | CONFIGURED_OUTSIDE.keys()
 }
 
 
@@ -431,7 +449,7 @@ def _every_vendor_is_spoken_by_its_adapter_alone() -> None:
                 f"  {importer} -> {vendor}\n      only {SPOKEN_ONLY_BY_ITS_ADAPTER[vendor]} may"
                 for importer, vendor in spoken
             )
-            + "\nHold the port, and let the process's wiring build the adapter.",
+            + "\nHold the port, and let the process's root build the adapter.",
             file=sys.stderr
         )
         sys.exit(1)
@@ -668,8 +686,8 @@ def _no_repository_commits() -> None:
 
 
 def the_admissions_made_outside_the_walk(sources: Mapping[str, str]) -> list[tuple[str, int]]:
-    """Every place a module outside the walk and the kernel reaches `admit`, as
-    the module and the line.
+    """Every place a module outside the walk, the worker's root and the kernel
+    reaches `admit`, as the module and the line.
 
     `sources` is each module's source, keyed by its dotted name - which is what
     says whose it is. Reaching is any spelling that gets `admit` called: importing
@@ -685,9 +703,14 @@ def the_admissions_made_outside_the_walk(sources: Mapping[str, str]) -> list[tup
     return sorted(
         (module, lineno)
         for module, source in sources.items()
-        if module.partition(".")[0] not in WHO_MAY_ADMIT
+        if not _is_within(module, WHO_MAY_ADMIT)
         for lineno in _the_admissions_in(source)
     )
+
+
+def _is_within(module: str, packages: Iterable[str]) -> bool:
+    """Whether `module` is one of `packages` or anything beneath one."""
+    return any(module == package or module.startswith(f"{package}.") for package in packages)
 
 
 def _makes_an_admission(name: str) -> bool:
@@ -768,8 +791,8 @@ def _the_shipped_modules() -> dict[str, Path]:
 
 
 def _only_the_walk_admits() -> None:
-    """Refuses a module outside the walk and the kernel that can make an
-    admission."""
+    """Refuses a module outside the walk, the worker's root and the kernel that
+    can make an admission."""
     modules = _the_shipped_modules()
     reached = the_admissions_made_outside_the_walk(
         {module: path.read_text(encoding="utf-8") for module, path in modules.items()}
@@ -782,7 +805,7 @@ def _only_the_walk_admits() -> None:
                 f"  {modules[module].relative_to(REPOSITORY).as_posix()}:{lineno}"
                 for module, lineno in reached
             )
-            + f"\nOnly {', '.join(sorted(WHO_MAY_ADMIT))} call `{AUTONOMY}.{ADMIT}`; "
+            + f"\nOnly {', '.join(sorted(WHO_MAY_ADMIT))} name `{AUTONOMY}.{ADMIT}`; "
               f"everybody else may name `Admitted` and nothing more of it.",
             file=sys.stderr
         )
@@ -899,7 +922,7 @@ def the_vendors_named_outside_their_adapter(
     return [
         (module, line, vendor, said)
         for module, source in sorted(sources.items())
-        if module not in wiring
+        if not _is_within(module, wiring)
         for line, vendor, said in _what_names_a_vendor(source)
         if vendor not in _whose_adapter(module) | allowed.get(module, frozenset())
     ]
@@ -909,13 +932,14 @@ def the_stale_allowances(sources: Mapping[str, str],
                          wiring: Collection[str] = WIRING,
                          allowed: Mapping[str, frozenset[str]] = ALLOWED_BESIDE_ITS_OWN
                          ) -> list[str]:
-    """Every wiring module that names no vendor, or is not there at all, and
-    every vendor a module is allowed that it no longer names - an allowance
-    outliving its reason, which would let that vendor back in without anybody
-    deciding it should."""
+    """Every wiring package nothing under which names a vendor, or that is not
+    there at all, and every vendor a module is allowed that it no longer names -
+    an allowance outliving its reason, which would let that vendor back in
+    without anybody deciding it should."""
     return sorted(
-        [module for module in wiring
-         if module not in sources or not _what_names_a_vendor(sources[module])]
+        [package for package in wiring
+         if not any(_is_within(module, {package}) and _what_names_a_vendor(source)
+                    for module, source in sources.items())]
         + [f"{module}: {vendor}" for module, vendors in allowed.items()
            for vendor in sorted(vendors)
            if module not in sources
@@ -950,8 +974,93 @@ def _every_vendor_is_named_by_its_adapter_alone() -> None:
             "these allowances outlive their reason - wiring naming no vendor, a vendor "
             "the module no longer names, or a module that is not there:\n"
             + "\n".join(f"  {module}" for module in stale)
-            + "\nTake them out of `WIRING`, `NOT_YET` or `SAID_ON_ITS_VENDOR_S_WIRE` "
-              "in scripts/guard_layering.py.",
+            + "\nTake them out of `WIRING`, `NOT_YET`, `SAID_ON_ITS_VENDOR_S_WIRE` or "
+              "`CONFIGURED_OUTSIDE` in scripts/guard_layering.py.",
+            file=sys.stderr
+        )
+        sys.exit(1)
+
+
+def the_workspace_packages_named_by(requirements: Iterable[str]) -> set[str]:
+    """The workspace packages these requirements install, by import name.
+
+    A workspace package is distributed as `argus-<package>`, so the name is the
+    distribution's without the prefix and without its extras or version. Third
+    parties are left out: a distribution's name is not its import name.
+    """
+    named: set[str] = set()
+
+    for requirement in requirements:
+        distribution = re.split(r"[\[<>=!~;\s]", requirement.strip(), maxsplit=1)[0]
+
+        if distribution.startswith(WORKSPACE_DISTRIBUTION):
+            named.add(distribution.removeprefix(WORKSPACE_DISTRIBUTION))
+
+    return named
+
+
+def what_each_process_installs(configuration: Mapping[str, Any]) -> dict[str, set[str]]:
+    """The workspace packages each process's root may import, by process: its
+    own extra's, the base dependencies every root takes, and the roots' own
+    package - read from the roots' `pyproject.toml`, as `configuration`."""
+    project = configuration.get("project", {})
+    base = the_workspace_packages_named_by(project.get("dependencies", []))
+
+    return {
+        process: base | the_workspace_packages_named_by(requirements) | {APPS}
+        for process, requirements in project.get("optional-dependencies", {}).items()
+    }
+
+
+def the_processes_reaching_past_their_extra(
+    graph: ImportGraph,
+    installs: Mapping[str, set[str]],
+    workspace: Collection[str]
+) -> list[tuple[str, str]]:
+    """Every workspace package a root imports that its process does not install,
+    as the importing module and the package.
+
+    A module's process is the name under `apps` it sits in: `apps.web`, or
+    `apps.worker.assembling`. A root whose process has no extra is a process
+    nobody can install, and everything it imports is refused. Direct imports
+    only: what a package imports in turn is that package's own dependencies'
+    to install. Only `workspace`'s packages are held to it - the packages
+    `root_packages` names; a third party's distribution name is not its import
+    name. Empty where every root imports what its process installs.
+    """
+    roots = graph.find_descendants(APPS) if APPS in graph.modules else set()
+
+    return sorted(
+        (module, package)
+        for module in roots
+        for package in {imported.partition(".")[0]
+                        for imported in graph.find_modules_directly_imported_by(module)}
+        if package in workspace
+        and package not in installs.get(module.split(".")[1], {APPS})
+    )
+
+
+def _every_root_imports_what_its_process_installs() -> None:
+    """Refuses a root that imports a workspace package its extra does not name."""
+    with APPS_CONFIGURATION.open("rb") as configuration:
+        installs = what_each_process_installs(tomllib.load(configuration))
+
+    graph = grimp.build_graph(*sorted(_the_modules_the_contracts_see()), cache_dir=None)
+    reaching = the_processes_reaching_past_their_extra(
+        graph, installs, _the_modules_the_contracts_see()
+    )
+
+    if reaching:
+        declared_in = APPS_CONFIGURATION.relative_to(REPOSITORY).as_posix()
+
+        print(
+            "these roots import a workspace package their process does not install:\n"
+            + "\n".join(
+                f"  {module} -> {package}\n"
+                f"      add {WORKSPACE_DISTRIBUTION}{package} to the "
+                f"[{module.split('.')[1]}] extra in {declared_in}"
+                for module, package in reaching
+            ),
             file=sys.stderr
         )
         sys.exit(1)
@@ -960,8 +1069,8 @@ def _every_vendor_is_named_by_its_adapter_alone() -> None:
 def main() -> None:
     """Checks the graph is whole, the suites behave, no repository commits, every
     vendor's SDK is spoken by its adapter alone and its name named by it alone,
-    the walk reaches no unfenced store and only the walk admits, then runs every
-    contract.
+    the walk reaches no unfenced store, only the walk admits and every root
+    imports what its process installs, then runs every contract.
 
     Those are checked before import-linter rather than after, because
     import-linter exits the process with its own status and anything after it
@@ -980,6 +1089,7 @@ def main() -> None:
     _every_vendor_is_named_by_its_adapter_alone()
     _the_walk_reaches_no_store_the_fence_cannot_reach(_the_walk())
     _only_the_walk_admits()
+    _every_root_imports_what_its_process_installs()
     sys.exit(lint_imports_command())
 
 

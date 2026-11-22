@@ -136,6 +136,7 @@ markers = [
 root_packages = [
     "alert_source",
     "alerting_platform",
+    "apps",
     "chat_platform",
     "code_host",
     "codefix_agent",
@@ -218,33 +219,12 @@ ignore_imports = [
 unmatched_ignore_imports_alerting = "warn"
 
 [[tool.importlinter.contracts]]
-name = "the chat platform is known by its port, and only each process's wiring knows the vendor"
-type = "forbidden"
-source_modules = ["communication", "message_intent", "web_app"]
-forbidden_modules = [
-    "chat_platform.slack",
-    "chat_platform.slack_deliveries",
-    "chat_platform.slack_posting",
-]
-# Where the adapter is built and handed out, typed as the port that process
-# uses. Everything else reaches Slack through what it was handed - which is how
-# a button the Communicator posts and the press the web application reads come
-# to be spelled once, in the adapter, rather than in two modules that each knew
-# Slack.
-ignore_imports = [
-    "communication.watching -> chat_platform.slack",
-    "message_intent.watching -> chat_platform.slack",
-    "web_app.app -> chat_platform.slack",
-]
-unmatched_ignore_imports_alerting = "warn"
-
-[[tool.importlinter.contracts]]
 name = "telemetry installs the SDK and knows only the kernel"
 type = "forbidden"
 source_modules = ["telemetry"]
 forbidden_modules = ["*"]
-# Every process's `main` reaches this, `web_app` included, so whatever it
-# imports every process installs. The kernel, for the settings slice it is
+# Every process's root reaches this, the web process's included, so whatever
+# it imports every process installs. The kernel, for the settings slice it is
 # handed and the names telemetry is spelled in - the keys a log record is
 # stamped with are the ones the spans carry - and nothing else.
 ignore_imports = [
@@ -305,11 +285,13 @@ ignore_imports = [
     # and fail wherever that module is resolved on its own.
     "repository_index.** -> core.embedding",
     "incident_memory.** -> core.embedding",
-    # The walk is the third, and reaches it for a different reason than the two
-    # above: it holds no corpus of its own, it builds the model long-term memory
-    # is written and searched with. It already declares the extra, through
-    # `argus-incident_memory[store]`.
-    "orchestrator.** -> core.embedding",
+    # Two roots are the third, and reach it for a different reason than the two
+    # above: they hold no corpus of their own, they build the model a corpus is
+    # written and searched with - the worker's for recall, the deliverer's for
+    # keeping. Their two extras, `[worker]` and `[deliverer]`, are the ones that
+    # take `core[embedding]`, so no other root is given the door.
+    "apps.worker.** -> core.embedding",
+    "apps.deliverer -> core.embedding",
     # The vector store's ports, and a door for everyone: they import no third
     # party, so naming one installs nothing. The walk types the store it holds
     # by it, the read server the store it searches, and the corpora the store
@@ -320,13 +302,13 @@ ignore_imports = [
     # import no third party, so naming them installs nothing.
     "** -> core.llm",
     # The model provider's adapter, and narrower than any door above: a
-    # process's wiring builds it and hands it out as `core.llm.ModelProvider`,
-    # and nothing else names a model vendor. The worker's and the Intent
-    # Reader's, the two processes that ask a model anything - and the two that
-    # take `core`'s `llm` extra, which carries the vendor's SDK the adapter
-    # imports.
-    "orchestrator.assembling -> core.llm.adapters.anthropic_adapter",
-    "message_intent.watching -> core.llm.adapters.anthropic_adapter",
+    # process's root builds it and hands it out as `core.llm.ModelProvider`,
+    # and nothing else names a model vendor. The worker's root and the Intent
+    # Reader's, the two processes that ask a model anything - and the two
+    # extras, `[worker]` and `[intent_reader]`, that take `core[llm]`, which
+    # carries the vendor's SDK the adapter imports.
+    "apps.worker.** -> core.llm.adapters.anthropic_adapter",
+    "apps.intent_reader -> core.llm.adapters.anthropic_adapter",
     "mitigation.** -> core.mcp_transport",
     "orchestrator.** -> core.mcp_transport",
     "read_mcp_client.** -> core.mcp_transport",
@@ -355,9 +337,12 @@ ignore_imports = [
     # its write accepts. Nobody else has any business with it. A door opens the
     # whole module, so this one would let the Mitigator call `admit` as well -
     # and `admit` judges reach by what its caller hands it. The layering script
-    # holds that half: outside the walk and the kernel, nothing names `admit`.
+    # holds that half: outside the walk, the worker's root and the kernel,
+    # nothing names `admit`. The worker's root is here because it hands the
+    # walk the policy's `admit` for the gate to ask, and it never calls it.
     "orchestrator.** -> core.autonomy",
     "mitigation.** -> core.autonomy",
+    "apps.worker.** -> core.autonomy",
 ]
 unmatched_ignore_imports_alerting = "warn"
 
@@ -374,18 +359,11 @@ forbidden_modules = ["*"]
 # The rows this module does own - the records filed for memory - are its own
 # table, written and read here.
 #
-# By module path, but for the deliverer. The walk's side reaches the kernel
-# through doors - `core.models`, `core.embedding` - and never names
-# it bare. The deliverer is a process, and a process's pool, settings and
-# telemetry come from the bare door; its `main` alone installs the telemetry
-# SDK, as every process's `main` does.
+# By module path: every side of it reaches the kernel through doors -
+# `core.models`, `core.embedding` - and never names it bare. The deliverer's
+# process, which does, is its root's (`apps.deliverer`).
 ignore_imports = [
     "incident_memory.** -> core.**",
-    "incident_memory.delivering -> core",
-    "incident_memory.delivering -> telemetry",
-    # The store's adapter, writing side, which the deliverer's `main` builds and
-    # hands `keeping` as the port.
-    "incident_memory.delivering -> vector_store_qdrant.indexing",
 ]
 unmatched_ignore_imports_alerting = "warn"
 
@@ -393,7 +371,8 @@ unmatched_ignore_imports_alerting = "warn"
 name = "the walk writes to no store the fence cannot reach"
 type = "forbidden"
 # The packages that walk an incident: the Orchestrator and the four agents it
-# delegates to inside a walk. Every write they make is made for the run their
+# delegates to inside a walk, and the worker's root, which builds what they
+# are handed. Every write they make is made for the run their
 # process holds, and the fence refuses it once a newer claim holds that run - but
 # only the database has a fence. A store outside it takes a write from a walk
 # whose run was taken back as readily as from the one that holds it.
@@ -407,6 +386,7 @@ type = "forbidden"
 # import-linter sees a third party only with `include_external_packages`, which
 # is global and turns every `["*"]` contract above against the standard library.
 source_modules = [
+    "apps.worker",
     "codefix_agent",
     "investigation_agent",
     "mitigation",
@@ -456,100 +436,20 @@ ignore_imports = [
     "web_app.** -> postmortem_rendering",
     # The watermark, and nothing else of the index. `repository_index.records` is
     # Postgres alone - one row saying where the repository is - where
-    # `repository_index.catching_up` builds a vector store's adapter and
+    # `repository_index.store` writes passages to a vector store and
     # `repository_index.embedding` loads an ONNX runtime. Named by module rather
     # than as a package so that the day somebody reaches for the other half,
     # the contract says so instead of this process quietly growing an embedding
     # model to serve a page.
     "web_app.** -> repository_index.records",
-    # The on-call platform's port, which a person's resolution there arrives
-    # through - and its PagerDuty adapter, built in the app's lifespan and
-    # nowhere else, so every other module holds the port and none knows the
-    # vendor.
+    # The ports a person's resolution, a person's words in an incident's thread
+    # and their press of an offer, an alert and a push arrive through. Their
+    # adapters are the web process's root's to build (`apps.web`).
     "web_app.** -> oncall_source",
     "web_app.** -> oncall_source.platform",
-    "web_app.app -> oncall_source.pagerduty_adapter",
-    "web_app.app -> oncall_source.pagerduty_settings",
-    # The chat platform's port, which a person's words in an incident's thread
-    # and their press of an offer arrive through - and its Slack adapter, built
-    # in the app's lifespan and nowhere else, for the on-call platform's reason.
     "web_app.** -> chat_platform",
-    "web_app.app -> chat_platform.slack",
-    # The senders' ports, which an alert and a push arrive through - and their
-    # Grafana and GitHub adapters, built in the app's lifespan and nowhere else,
-    # for the on-call platform's reason.
     "web_app.** -> alert_source",
-    "web_app.app -> alert_source.grafana",
     "web_app.** -> push_source",
-    "web_app.app -> push_source.github",
-    # The process's `main`, and only it, installs the telemetry SDK.
-    "web_app.serving -> telemetry",
-]
-unmatched_ignore_imports_alerting = "warn"
-
-[[tool.importlinter.contracts]]
-name = "the servers know the deployment platform by its port, and only their wiring knows the vendor"
-type = "forbidden"
-source_modules = ["read_mcp_server", "write_mcp_server"]
-forbidden_modules = ["deployment_platform.argocd"]
-# Where the adapter is built and handed out, typed as its tier's port. Every
-# other module in either server reaches the platform through what it was handed,
-# so a route or a response field written there is a contract broken here rather
-# than a second copy of Argo CD's wire shape found in review.
-ignore_imports = [
-    "read_mcp_server.server -> deployment_platform.argocd",
-    "write_mcp_server.server -> deployment_platform.argocd",
-]
-unmatched_ignore_imports_alerting = "warn"
-
-[[tool.importlinter.contracts]]
-name = "Argus knows the flag provider by its port, and only each server's wiring knows the vendor"
-type = "forbidden"
-source_modules = ["*"]
-forbidden_modules = ["flag_provider.unleash"]
-# Where the adapters are built and handed out, each typed as its tier's port:
-# the read server's holding the evaluation credential alone, the write server's
-# both. Everything else - the servers' own tools, Mitigation, the walk - reaches
-# the provider through what it was handed, so a route, a token or an event name
-# written anywhere else is a contract broken here rather than a second copy of
-# Unleash's wire shape found in review.
-ignore_imports = [
-    "read_mcp_server.server -> flag_provider.unleash",
-    "write_mcp_server.server -> flag_provider.unleash",
-]
-unmatched_ignore_imports_alerting = "warn"
-
-[[tool.importlinter.contracts]]
-name = "Argus knows the alerting platform by its port, and only the read server's wiring knows the vendor"
-type = "forbidden"
-source_modules = ["*"]
-forbidden_modules = ["alerting_platform.grafana"]
-# Where the adapter is built and handed out, typed as `AlertingPlatform`.
-# Everything else - the read tier's standing, its metrics read - reaches the
-# rules through what it was handed, so a route, a field of a rule's definition
-# or a unit id spelled anywhere else is a contract broken here rather than a
-# second copy of Grafana's shapes found in review.
-ignore_imports = [
-    "read_mcp_server.server -> alerting_platform.grafana",
-]
-unmatched_ignore_imports_alerting = "warn"
-
-[[tool.importlinter.contracts]]
-name = "Argus reads metrics through their port, and only the read server's wiring knows the vendor"
-type = "forbidden"
-source_modules = ["*"]
-forbidden_modules = [
-    "metrics_source.prometheus_adapter",
-    "metrics_source.prometheus_units",
-]
-# Where the adapter is bound and handed out: the minutes as `MetricsSource`, and
-# what a rule's series measures as `SeriesClassifier`. A query is the adapter's
-# to read and nobody else's - so a comparison of PromQL, or a metric's name
-# taken apart, written anywhere else is a contract broken here. The adapter's
-# own modules reach each other.
-ignore_imports = [
-    "metrics_source.prometheus_adapter -> metrics_source.prometheus_units",
-    "read_mcp_server.server -> metrics_source.prometheus_adapter",
 ]
 unmatched_ignore_imports_alerting = "warn"
 
@@ -569,46 +469,93 @@ ignore_imports = [
 unmatched_ignore_imports_alerting = "warn"
 
 [[tool.importlinter.contracts]]
-name = "Argus knows the vector store by its ports, and only each process's wiring knows the vendor"
-type = "forbidden"
-source_modules = ["*"]
-forbidden_modules = ["vector_store_qdrant"]
-# Where the adapter is built and handed out, typed as the port that process
-# uses: the worker's reading side as `VectorSearch`, the read server's likewise,
-# and the two corpus builders' writing side as `VectorIndex`. Everything else -
-# recall, keeping, the index's passes, the read server's search - reaches the
-# store through what it was handed, so a collection, a filter or a point id
-# spelled anywhere else is a contract broken here rather than a second copy of
-# Qdrant's shapes found in review. The adapter's own modules reach each other.
-ignore_imports = [
-    "vector_store_qdrant.** -> vector_store_qdrant.**",
-    "orchestrator.assembling -> vector_store_qdrant.searching",
-    "read_mcp_server.server -> vector_store_qdrant",
-    "incident_memory.delivering -> vector_store_qdrant.indexing",
-    "repository_index.catching_up -> vector_store_qdrant.indexing",
+name = "a process's root, in apps, is the only importer of an adapter, of telemetry, and of a root"
+type = "protected"
+# Ports and Adapters holds only if exactly one place per process chooses the
+# adapters. That place is the process's root - `apps.<process>`, which starts
+# it - and nothing else may name what a root chooses: each vendor's adapter,
+# the telemetry SDK a process installs, and the roots themselves. So every
+# library is handed its vendors as ports, and swapping a vendor is an edit to
+# the roots of the processes that use it and to nothing else.
+#
+# One list of what is chosen, rather than an allowance per process per
+# adapter: a process that comes to build an adapter needs no line here, and a
+# library that reaches for one is refused whoever it is. An adapter added
+# tomorrow is a line in `protected_modules` - which is where a vendor's arrival
+# should be seen.
+#
+# `as_packages` (the default) lets a protected package's own modules reach
+# each other. The ignores below are the adapters whose modules sit beside
+# their port rather than under a package of their own: each is an adapter's
+# own halves, not a process's allowance.
+protected_modules = [
+    "alert_source.grafana",
+    "alerting_platform.grafana",
+    "apps",
+    "chat_platform.slack",
+    "chat_platform.slack_deliveries",
+    "chat_platform.slack_posting",
+    "code_host.github",
+    "core.llm.adapters",
+    "deployment_platform.argocd",
+    "exchange_rate_source.frankfurter",
+    "flag_provider.unleash",
+    "metrics_source.prometheus_adapter",
+    "metrics_source.prometheus_settings",
+    "metrics_source.prometheus_units",
+    "oncall_source.pagerduty_adapter",
+    "oncall_source.pagerduty_settings",
+    "oncall_source.pagerduty_webhooks",
+    "pay_band_source.bamboohr_adapter",
+    "push_source.github",
+    "revenue_source.stripe_adapter",
+    "revenue_source.stripe_settings",
+    "telemetry",
+    "vector_store_qdrant",
 ]
-unmatched_ignore_imports_alerting = "warn"
+allowed_importers = ["apps"]
+ignore_imports = [
+    "chat_platform.slack -> chat_platform.slack_deliveries",
+    "chat_platform.slack -> chat_platform.slack_posting",
+    "chat_platform.slack_posting -> chat_platform.slack_deliveries",
+    "metrics_source.prometheus_adapter -> metrics_source.prometheus_settings",
+    "metrics_source.prometheus_adapter -> metrics_source.prometheus_units",
+    "oncall_source.pagerduty_adapter -> oncall_source.pagerduty_settings",
+    "oncall_source.pagerduty_adapter -> oncall_source.pagerduty_webhooks",
+    "revenue_source.stripe_adapter -> revenue_source.stripe_settings",
+]
 
 [[tool.importlinter.contracts]]
-name = "Argus knows the code host by its ports, and only each process's wiring knows the vendor"
-type = "forbidden"
-source_modules = ["*"]
-forbidden_modules = ["code_host.github"]
-# Where the adapter is built and handed out, typed as the port that process
-# uses: the read server's and the index's holding the read credential alone, as
-# `CodeHostReads`, and the write server's the one that pushes, as
-# `CodeHostWrites`. Everything else - the read tier's channels, the index's
-# passes, the write tier's two code tools - reaches the repository through what
-# it was handed, so a route, a media type or a field of GitHub's answer spelled
-# anywhere else is a contract broken here rather than a second copy of GitHub's
-# wire shape found in review. The adapter's own modules reach each other.
-ignore_imports = [
-    "code_host.github.** -> code_host.github.**",
-    "read_mcp_server.server -> code_host.github",
-    "write_mcp_server.server -> code_host.github",
-    "repository_index.catching_up -> code_host.github",
+name = "only the deliverer's and the index's roots build the vector store's writing side"
+type = "protected"
+# The contract above lets any root name any adapter, and the read tier's root
+# builds the store's reading side - so without this, `apps.read_mcp` could
+# build the side that writes, and the read tier would hold a store it can
+# change (§13). The two roots that fill a store, and nobody else. The walk's
+# contract forbids the worker's root the same, for the fence's reason.
+protected_modules = ["vector_store_qdrant.indexing"]
+allowed_importers = ["apps.deliverer", "apps.indexer"]
+
+[[tool.importlinter.contracts]]
+name = "no process's root reaches another's"
+type = "independence"
+# Each root is one extra of `apps`, and installs what that extra names. A root
+# that reached another - the web process's importing the worker's assembling -
+# would run the other process's packages where they are not installed, and the
+# script's check of each root against its extra reads direct imports alone. So
+# no chain at all from one root to another; what two roots share belongs in a
+# library either can import.
+modules = [
+    "apps.deliverer",
+    "apps.indexer",
+    "apps.intent_reader",
+    "apps.read_mcp",
+    "apps.relay",
+    "apps.schema",
+    "apps.web",
+    "apps.worker",
+    "apps.write_mcp",
 ]
-unmatched_ignore_imports_alerting = "warn"
 
 [[tool.importlinter.contracts]]
 name = "an agent knows the kernel and its own sources, never another agent"

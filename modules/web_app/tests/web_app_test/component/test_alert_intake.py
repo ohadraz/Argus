@@ -14,11 +14,12 @@ from fastapi.testclient import TestClient
 from incident_record.repository import events, incidents, runs
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import SpanKind
-from web_app.app import GRAFANA_ALERTS, app
 
+from web_app_test.framework.application import SOME_SENDER, app
 from web_app_test.framework.assertions import the_response_was
-from web_app_test.framework.builders import a_grafana_payload
+from web_app_test.framework.builders import an_alert_delivery
 from web_app_test.framework.observing import observing_the_app, the_span_named
+from web_app_test.framework.senders import NOT_AN_ALERT
 
 # The state a run is in when nothing has picked it up yet. Named from the
 # repository's own vocabulary rather than spelled out here, so a rename moves
@@ -36,7 +37,7 @@ def test_an_accepted_alert_is_acknowledged_before_anyone_is_on_it() -> None:
     # takes the run. Saying `investigating` here would be claiming attention
     # that a queued incident does not have - and that a worker outage would
     # never correct.
-    some_payload = a_grafana_payload(service="kuki-service")
+    some_payload = an_alert_delivery(service="kuki-service")
 
     with TestClient(app) as client:
         Scenario() \
@@ -57,7 +58,7 @@ def test_the_alert_is_answered_with_an_incident_that_has_not_been_walked() -> No
     # the moment of the answer - one line of account, a queued run - because a
     # graph that had run would have left more of both.
     some_service = "kuki-service"
-    some_payload = a_grafana_payload(service=some_service)
+    some_payload = an_alert_delivery(service=some_service)
 
     with TestClient(app) as client:
         Scenario() \
@@ -74,13 +75,11 @@ def test_the_alert_is_answered_with_an_incident_that_has_not_been_walked() -> No
 
 @pytest.mark.component
 def test_a_resolved_alert_opens_no_incident() -> None:
-    # Grafana sends one when a rule stops firing. It is news about an incident
+    # A sender sends one when a rule stops firing. It is news about an incident
     # that may already be open, never the start of one - and whether a rule has
     # stopped firing is read from the rule, not from this.
     some_service = "kuki-resolved-only"
-    a_resolution = a_grafana_payload(
-        service=some_service, rule_uid="some-rule-that-resolved", status="resolved"
-    )
+    a_resolution = an_alert_delivery(service=some_service, resolved=True)
 
     with TestClient(app) as client:
         Scenario() \
@@ -99,7 +98,7 @@ def test_a_rule_firing_again_joins_the_incident_it_opened() -> None:
     # the incident going on, not a second one beside it.
     some_rule = "some-rule-firing-twice"
     some_service = "kuki-fires-twice"
-    an_alert = a_grafana_payload(service=some_service, rule_uid=some_rule)
+    an_alert = an_alert_delivery(service=some_service, rule=some_rule)
 
     with TestClient(app) as client:
         Scenario() \
@@ -120,7 +119,7 @@ def test_an_alert_is_received_in_a_span_its_incident_keeps() -> None:
     # Where the incident's trace begins. The incident keeps this span's
     # context, and every walk of it continues from there - so a trace read in
     # a backend starts at the alert, not at whichever worker took the run.
-    some_payload = a_grafana_payload(service="kuki-traced")
+    some_payload = an_alert_delivery(service="kuki-traced")
 
     with observing_the_app() as spans, TestClient(app) as client:
         Scenario() \
@@ -137,9 +136,7 @@ def test_an_alert_is_received_in_a_span_its_incident_keeps() -> None:
 def test_a_resolved_alert_is_received_in_a_span_naming_no_incident() -> None:
     # Received all the same - a request came in, and a trace of it is a trace
     # of what this process did - but it opened nothing, and says so.
-    a_resolution = a_grafana_payload(
-        service="kuki-resolved-traced", rule_uid="some-rule-that-resolved", status="resolved"
-    )
+    a_resolution = an_alert_delivery(service="kuki-resolved-traced", resolved=True)
 
     with observing_the_app() as spans, TestClient(app) as client:
         Scenario() \
@@ -157,7 +154,7 @@ def test_an_alert_that_cannot_be_read_is_refused_and_logged_as_a_warning(
 ) -> None:
     # Bad input rather than a fault in Argus, so a refusal the sender is told
     # about and a warning rather than an error. Refused rather than failed, too:
-    # Grafana sends a failure again and a refusal once, and a payload that could
+    # a sender sends a failure again and a refusal once, and a payload that could
     # not be read the first time reads no better the tenth.
     some_payload_naming_no_service = {"alerts": [{"status": "firing"}]}
 
@@ -168,7 +165,7 @@ def test_an_alert_that_cannot_be_read_is_refused_and_logged_as_a_warning(
             ) \
             .then(all_of(
                 the_response_was(HttpStatus.UNPROCESSABLE_ENTITY),
-                _it_was_refused_saying(f"the alert could not be read: {KeyError('labels')!r}"),
+                _it_was_refused_saying(f"the alert could not be read: {NOT_AN_ALERT}"),
                 one_record_was_logged(caplog, "web_app.app", logging.WARNING,
                                       "alert payload rejected", failure=AlertUnreadable)
             ))
@@ -180,12 +177,12 @@ def test_an_alert_delivered_on_its_sender_s_own_route_opens_an_incident() -> Non
     # its shape. The unnamed route is the same sender's, for whoever configured
     # it before senders had routes of their own.
     some_service = "kuki-named-route"
-    some_payload = a_grafana_payload(service=some_service)
+    some_payload = an_alert_delivery(service=some_service)
 
     with TestClient(app) as client:
         Scenario() \
             .when(
-                lambda: client.post(f"/webhooks/alerts/{GRAFANA_ALERTS}", json=some_payload)
+                lambda: client.post(f"/webhooks/alerts/{SOME_SENDER}", json=some_payload)
             ) \
             .then(all_of(
                 _the_alert_was_accepted(),
@@ -199,7 +196,7 @@ def test_an_alert_delivered_on_a_route_no_sender_is_named_by_is_not_found() -> N
     # unreadable - and whoever configured the sender would chase the payload
     # rather than the address.
     some_service = "kuki-unknown-sender"
-    some_payload = a_grafana_payload(service=some_service)
+    some_payload = an_alert_delivery(service=some_service)
 
     with TestClient(app) as client:
         Scenario() \

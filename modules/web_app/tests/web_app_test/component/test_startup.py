@@ -22,7 +22,8 @@ from argus_testkit import Assertion, Scenario, an_error_was_raised, attempting
 from core import connect_from_env
 from core.schema import SchemaNotApplied, reset_schema
 from fastapi.testclient import TestClient
-from web_app.app import app
+
+from web_app_test.framework.application import app
 
 
 @pytest.mark.component

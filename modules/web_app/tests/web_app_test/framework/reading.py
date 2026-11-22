@@ -11,7 +11,8 @@ from __future__ import annotations
 import re
 
 from fastapi.testclient import TestClient
-from web_app.app import app
+
+from web_app_test.framework.application import app
 
 
 def page_at(path: str) -> str:

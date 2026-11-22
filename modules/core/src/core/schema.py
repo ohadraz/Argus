@@ -13,7 +13,6 @@ outlives a restart, and no longer.
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import Final
@@ -21,9 +20,6 @@ from typing import Final
 import psycopg
 from psycopg import sql
 
-from core.db import connect_from_env
-
-logger = logging.getLogger(__name__)
 
 def _upgrade_to_head() -> None:
     """Runs the chain, from wherever the database is to wherever it ends.
@@ -105,11 +101,11 @@ def require_schema(conn: psycopg.Connection,
 def reset_schema(conn: psycopg.Connection) -> None:
     """Throws the schema away and runs the chain against what is left.
 
-    The only way the schema is ever applied - by the job below, and by every
-    suite on its way in. The drop goes first while `001` is still the whole
-    chain: a revision that has only ever run against an empty database is one
-    that can be edited, and the drop is what keeps that true. It goes when the
-    first `002` lands, and this becomes an upgrade like any other.
+    The only way the schema is ever applied - by the job (`apps.schema`), and
+    by every suite on its way in. The drop goes first while `001` is still the
+    whole chain: a revision that has only ever run against an empty database is
+    one that can be edited, and the drop is what keeps that true. It goes when
+    the first `002` lands, and this becomes an upgrade like any other.
 
     Dropping takes `alembic_version` with it, which is the point: the chain is
     then applied from nothing rather than found to be already at head.
@@ -143,31 +139,6 @@ def reset_schema(conn: psycopg.Connection) -> None:
     _upgrade_to_head()
 
 
-def main() -> None:
-    """The job: the schema, applied to the database `Settings` names.
-
-    A module entry point rather than a nox session's body, because the same act
-    is wanted from three places that are not all nox - a local checkout, the e2e
-    stack, and whatever brings this up the day the services are containerized.
-    `nox -s schema` calls this; it does not reimplement it.
-
-    Says which database it applied to, and not how it reached it: the URL
-    carries a password, and a job whose ordinary output is a credential is a job
-    whose output nobody can paste into an issue.
-
-    The one `main` that configures logging for itself. Every other process's
-    logging is set up by `telemetry` as its telemetry starts, but the
-    kernel depends on nothing in this workspace, so this job starts no
-    telemetry and has nothing else to give it a console.
-    """
-    logging.basicConfig(level=logging.INFO)
-
-    with connect_from_env() as conn:
-        reset_schema(conn)
-        logger.info("schema applied to %s on %s:%s",
-                    conn.info.dbname, conn.info.host, conn.info.port)
-
-
 # How long the reset waits for a table somebody else is holding. Long enough
 # to outlast a connection on its way out - a process that has just been killed
 # still holds its locks until the server notices - and short enough that a
@@ -193,7 +164,3 @@ _THE_LATEST_REVISION: Final = "head"
 # processes that refuse would otherwise each write their own version of one
 # sentence, and the sentence is the whole value of the refusal.
 _THE_JOB: Final = "nox -s schema"
-
-
-if __name__ == "__main__":
-    main()

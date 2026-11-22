@@ -7,20 +7,23 @@ dependencies = [
 ]
 
 [dependency-groups]
-# `write_mcp_server` is a *dev* dependency, never a runtime one - the same
-# boundary the read tier draws. The client talks to the server over HTTP and
-# imports nothing from it; it is installed here only because the client's
-# integration test drives a real server process rather than a stub, and
-# `test_module` resolves each module against its own dependencies alone.
+# The write server, through its root in `apps`, is a *dev* dependency, never a
+# runtime one - the same boundary the read tier draws. The client talks to the
+# server over HTTP and imports nothing from it; it is installed here only
+# because the client's integration test drives a real server process rather
+# than a stub, and `test_module` resolves each module against its own
+# dependencies alone.
 dev = [
     "argus-argus_testkit",
-    "argus-write_mcp_server",
+    # The server as its process starts it: its root, which builds every adapter
+    # it serves through.
+    "argus-apps[write_mcp]",
 ]
 
 [tool.uv.sources]
 argus-core = { workspace = true }
 argus-argus_testkit = { workspace = true }
-argus-write_mcp_server = { workspace = true }
+argus-apps = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

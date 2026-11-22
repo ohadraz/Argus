@@ -252,7 +252,7 @@ def running_read_mcp() -> Iterator[type[FakeTargetServiceHandler]]:
     env["GITHUB_API_URL"] = f"{fake_target_service_url}{GITHUB_PREFIX}"
     env["READ_MCP_HOST"] = LOOPBACK
     env["READ_MCP_PORT"] = str(read_mcp_port)
-    read_mcp_process = subprocess.Popen([sys.executable, "-m", "read_mcp_server.server"], env=env)
+    read_mcp_process = subprocess.Popen([sys.executable, "-m", "apps.read_mcp"], env=env)
 
     # Put back whole on the way out, so a variable that was set before keeps
     # its value rather than being deleted with the ones set here.

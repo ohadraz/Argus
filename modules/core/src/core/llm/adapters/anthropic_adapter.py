@@ -4,7 +4,7 @@ Everything vendor-shaped lives here: the model id, the request parameters, how
 Argus's reasoning scale and tool offers are spelled on the wire, how a model's
 own slips into its native call syntax are repaired, and the translation between
 a conversation Argus is holding and the messages the API expects. Callers hold
-an `LLMClient` and pass a `Transcript`; a process's wiring builds an
+an `LLMClient` and pass a `Transcript`; a process's root builds an
 `AnthropicProvider` and hands it out as the port, and nothing else knows that
 Anthropic exists.
 
@@ -774,7 +774,7 @@ def _the_standing_brief(brief: str) -> list[TextBlockParam]:
 class AnthropicProvider:
     """`ModelProvider` answered by Anthropic, reached where `settings` say.
 
-    What a process's wiring builds and hands out as the port. It holds where
+    What a process's root builds and hands out as the port. It holds where
     the API is and with whose key, and builds a client per policy when asked -
     one SDK client each, as the factory always built, so nothing about a
     conversation is shared between two incidents through this.

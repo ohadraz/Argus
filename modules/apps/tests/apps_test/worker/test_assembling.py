@@ -1,6 +1,6 @@
 """What a deployment supplies a walk with, and when it is allowed to reach out.
 
-`against` is the only thing in the Orchestrator that knows a database can be
+`against` is the only thing in the worker that knows a database can be
 had, so it is the only place a graph could quietly acquire one. Two properties
 of it keep the walk testable without infrastructure, and neither is visible from
 inside a node: assembling touches nothing, and every collaborator bound here is
@@ -28,6 +28,12 @@ from unittest.mock import create_autospec
 
 import psycopg
 import pytest
+from apps.worker.assembling import (
+    IncidentMemorySettings,
+    against,
+    the_models_at,
+    the_store_for,
+)
 from argus_testkit import (
     Assertion,
     Scenario,
@@ -39,23 +45,12 @@ from argus_testkit import (
     the_answer_was,
 )
 from core import Connections, Holding, LLMSettings, Settings, get_settings
-from core.mcp_transport import McpClient
 from core.models import ModelPolicy
 from incident_memory.records import RememberedIncident
-from orchestrator.assembling import (
-    IncidentMemorySettings,
-    against,
-    the_models_at,
-    the_store_for,
-)
 from orchestrator.walk.collaborators import Collaborators
 from postmortem_writing import judge_policy, postmortem_policy
 from read_mcp_client import ReadTier
 from write_mcp_client import WriteTier
-
-NOTHING_IS_SERVED_HERE = "http://127.0.0.1:1/mcp"
-# How long a client to it would wait for an answer, which no case here asks for.
-DONT_CARE_ANSWERED_WITHIN = 60.0
 
 # What the mitigation node passes when it performs an action: the policy's
 # admission of it, the plan its claim carries, and three arguments that carry
@@ -76,9 +71,6 @@ WHAT_A_RULE_READ_IS_GIVEN = frozenset({"rule"})
 # the window ends. The settings and the read tier are the binding's.
 WHAT_THE_INVESTIGATION_NODE_ASKS = frozenset({"service", "onset"})
 
-# The two histories a change is recorded in, by the tool each tier answers with.
-CHANGE_EVENTS_TOOL = "get_change_events"
-FLAG_CHANGES_TOOL = "get_recent_flag_changes"
 # One window of one service, which nothing here reads.
 SOME_SERVICE = "io-shop"
 SOME_WINDOW_START = "2026-08-29T20:00:00Z"
@@ -183,18 +175,18 @@ def test_the_investigators_change_channel_asks_each_tier_for_the_history_it_keep
     # its audit log to admin credentials alone.
     Scenario() \
         .given(
-            read := _a_session_answering_nothing_changed(),
-            write := _a_session_answering_nothing_changed()
+            read := _a_read_tier_answering_nothing_changed(),
+            write := _a_write_tier_answering_nothing_changed()
         ) \
         .when(
             lambda: _the_changes_read_through(
-                against(_connections_that_must_not_be_opened(), ReadTier(read), WriteTier(write),
+                against(_connections_that_must_not_be_opened(), read, write,
                         None, Holding(), settings=get_settings())
             )
         ) \
         .then(all_of(
-            _the_session_was_asked_for(read, CHANGE_EVENTS_TOOL),
-            _the_session_was_asked_for(write, FLAG_CHANGES_TOOL)
+            _the_tier_was_asked_only(read, "get_change_events"),
+            _the_tier_was_asked_only(write, "get_recent_flag_changes")
         ))
 
 
@@ -323,7 +315,7 @@ def test_a_process_that_keeps_no_memory_says_so_when_it_starts(
         ) \
         .when(lambda: _what_is_held_inside(the_store_for(settings_keeping_no_memory))) \
         .then(
-            one_record_was_logged(caplog, "orchestrator.assembling", logging.INFO,
+            one_record_was_logged(caplog, "apps.worker.assembling", logging.INFO,
                                   "incident memory disabled")
         )
 
@@ -351,29 +343,50 @@ def _what_is_held_inside(held: AbstractContextManager[Any]) -> Any:
 
 
 def _a_read_tier_that_must_not_be_reached() -> ReadTier:
-    """The read tier, over a session to an address nothing serves.
+    """The read tier, every question to which fails.
 
-    The parallel of the connections above, and it holds for the same reason: a
-    session connects on its first call, so assembling one reaches nothing, and
-    anything that asked it a question would fail here rather than quietly find
-    a real server.
+    The parallel of the connections above, and it holds for the same reason:
+    assembling binds the tier's reads and asks none of them, so anything that
+    asked one would fail here rather than quietly be answered.
     """
-    return ReadTier(McpClient(NOTHING_IS_SERVED_HERE, answered_within=DONT_CARE_ANSWERED_WITHIN))
+    tier: ReadTier = _a_tier_refusing_every_question(ReadTier)
+
+    return tier
 
 
 def _a_write_tier_that_must_not_be_reached() -> WriteTier:
-    """The write tier, over a session to an address nothing serves, for the
-    read tier's reason."""
-    return WriteTier(McpClient(NOTHING_IS_SERVED_HERE, answered_within=DONT_CARE_ANSWERED_WITHIN))
+    """The write tier, every question to which fails, for the read tier's
+    reason."""
+    tier: WriteTier = _a_tier_refusing_every_question(WriteTier)
+
+    return tier
 
 
-def _a_session_answering_nothing_changed() -> Any:
-    """A session to either tier whose every history is empty, recording what
-    it is asked."""
-    session = create_autospec(McpClient, instance=True)
-    session.call.return_value = []
+def _a_tier_refusing_every_question(tier: type[object]) -> Any:
+    stood_in = create_autospec(tier, instance=True)
 
-    return session
+    for name in dir(tier):
+        if not name.startswith("_") and callable(getattr(tier, name)):
+            getattr(stood_in, name).side_effect = AssertionError(
+                f"Assembling must not ask the tier [{name}].")
+
+    return stood_in
+
+
+def _a_read_tier_answering_nothing_changed() -> Any:
+    """The read tier, whose deploy history is empty, recording what it is asked."""
+    read = create_autospec(ReadTier, instance=True)
+    read.get_change_events.return_value = []
+
+    return read
+
+
+def _a_write_tier_answering_nothing_changed() -> Any:
+    """The write tier, whose flag history is empty, recording what it is asked."""
+    write = create_autospec(WriteTier, instance=True)
+    write.get_recent_flag_changes.return_value = []
+
+    return write
 
 
 def _the_changes_read_through(collaborators: Collaborators) -> None:
@@ -382,12 +395,14 @@ def _the_changes_read_through(collaborators: Collaborators) -> None:
     fetch_change_events(SOME_SERVICE, SOME_WINDOW_START, SOME_WINDOW_END)
 
 
-def _the_session_was_asked_for(session: Any, tool: str) -> Assertion[None]:
+def _the_tier_was_asked_only(tier: Any, history: str) -> Assertion[None]:
+    """That `history` was the one question the tier was asked, and asked once."""
     def assertion(dont_care_read: None) -> bool:
-        asked = [call.args[0] for call in session.call.call_args_list]
+        asked = [name for name, dont_care_args, dont_care_keywords in tier.method_calls]
 
-        if asked != [tool]:
-            raise AssertionError(f"Expected the tier to be asked for [{tool}] alone, got {asked}.")
+        if asked != [history]:
+            raise AssertionError(
+                f"Expected the tier to be asked for [{history}] alone, got {asked}.")
 
         return True
 

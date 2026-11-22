@@ -4,17 +4,14 @@ version = "0.1.0"
 requires-python = ">=3.14"
 
 dependencies = [
-    # The `llm` extra because this process's wiring (`watching`) builds the
-    # model provider's adapter, which imports the vendor's SDK.
-    "argus-core[llm]",
+    # Without the `llm` extra: the model provider's adapter, which imports the
+    # vendor's SDK, is built by the process's root (`apps.intent_reader`) and
+    # handed in as the port.
+    "argus-core",
     "argus-incident_record",
     # The incident's timeline said in words, for one question: what a person
     # asking about it is answered from.
     "argus-narration",
-    "argus-telemetry",
-    # The chat platform's port and its Slack adapter, for one question: what
-    # the platform calls the person an offer to resolve is made to.
-    "argus-chat_platform",
     "psycopg[binary]>=3.1",
 ]
 
@@ -32,9 +29,7 @@ dev = [
 argus-core = { workspace = true }
 argus-incident_record = { workspace = true }
 argus-narration = { workspace = true }
-argus-telemetry = { workspace = true }
 argus-argus_testkit = { workspace = true }
-argus-chat_platform = { workspace = true }
 
 
 [build-system]

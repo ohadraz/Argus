@@ -8,8 +8,9 @@ graph hands it over.
 Which is what makes the walk testable without a database. A test builds its own
 record and gets the real nodes, the real state machine and the real routers,
 with only the agents and the repositories standing in for themselves. Where a
-deployment supplies the real ones is `orchestrator.assembling`, outside the
-walk, since it names the repositories that depend on the walk's ports.
+deployment supplies the real ones is the worker's root,
+`apps.worker.assembling`, outside the Orchestrator altogether: it names every
+vendor the walk reads.
 """
 
 from __future__ import annotations

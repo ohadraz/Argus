@@ -9,21 +9,20 @@ dependencies = [
 ]
 
 
-# The store and the model, for whoever reaches them. An extra rather than a
-# hard dependency, for the reason `core` makes `anthropic` and `mcp`
-# extras: the watermark is Postgres and the passages are Qdrant, and the two
-# callers that only need to know which commit was indexed - the push webhook
-# in `web_app`, and anything else asking whether the index is current -
-# would otherwise install an ONNX runtime to write one string in one row.
+# The model, for whoever searches or builds. An extra rather than a hard
+# dependency, for the reason `core` makes `anthropic` and `mcp` extras: the
+# watermark is Postgres and the passages are embedded by a model run in this
+# process, and the two callers that only need to know which commit was indexed
+# - the push webhook in `web_app`, and anything else asking whether the index
+# is current - would otherwise install an ONNX runtime to write one string in
+# one row. The store's client is not behind it: the adapter is the catch-up
+# loop's root's to build and install (`apps.indexer`).
 #
 # Every caller that searches or builds declares `argus-repository_index[store]`, and
 # reaching `repository_index.store` or `repository_index.embedding` without it is a broken
 # layering contract here rather than an ImportError in a live incident.
 [project.optional-dependencies]
 store = [
-    # The vector store's adapter, which the catch-up loop's `main` builds. The
-    # vendor's client comes with it, pinned there once for both corpora.
-    "argus-vector_store_qdrant",
     # The model runs in this process. Chosen for being local, free and
     # dependent on nothing external - not for retrieval quality, which a
     # code-trained hosted model would beat. What it buys instead is that
@@ -33,9 +32,6 @@ store = [
     # Taken through the kernel's door rather than declared here, because the
     # model is the kernel's: long-term memory embeds with one too.
     "argus-core[embedding]",
-    # For the catch-up loop's `main`, which installs the SDK for its process
-    # and sits on this side of the extra already: it imports the store.
-    "argus-telemetry",
 ]
 
 
@@ -52,12 +48,15 @@ dev = [
     # `--all-packages` sync. Without this the module passes locally and fails
     # on a clean runner, which is the worst way round.
     "argus-repository_index[store]",
+    # The store's adapter the integration tests write through, which no module
+    # here imports: the catch-up loop's root (`apps.indexer`) builds it and
+    # hands each pass the port.
+    "argus-vector_store_qdrant",
 ]
 
 
 [tool.uv.sources]
 argus-core = { workspace = true }
-argus-telemetry = { workspace = true }
 argus-code_host = { workspace = true }
 argus-vector_store_qdrant = { workspace = true }
 argus-argus_testkit = { workspace = true }

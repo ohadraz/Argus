@@ -13,6 +13,9 @@ an account that could decide what is done would be a participant
 A process of its own rather than a part of the worker or the web: the worker
 walks incidents for minutes at a time and a message is not a walk, and the web
 answers the chat platform within three seconds, which a model does not.
+
+The process - its pool, the model provider, the chat platform - is built by its
+root, `apps.intent_reader`, and handed to `watch` as ports.
 """
 
 from __future__ import annotations
@@ -23,22 +26,11 @@ from collections.abc import Callable
 from functools import partial
 from typing import Final
 
-from chat_platform.slack import ChatSettings, slack_from
-from core import (
-    Connections,
-    DatabaseSettings,
-    LLMSettings,
-    Settings,
-    TelemetrySettings,
-    get_settings,
-    open_pool,
-    unit_of_work,
-)
-from core.llm import LLMClient, build_llm_client
+from core import Connections, unit_of_work
+from core.llm import LLMClient
 from core.models import (
     IncidentStatus,
     Meaning,
-    ModelPolicy,
     OfferedEnding,
     Reference,
     ThreadMessage,
@@ -47,16 +39,12 @@ from core.replay import Replay
 from incident_record import calls_into, events_into
 from incident_record.repository import conversation, events, incidents
 from narration import build_narration
-from telemetry import start_telemetry
 
 from message_intent.answering import answer
 from message_intent.classifying import classify
 from message_intent.understanding import AnswerOf, MeaningOf, understand
 
 logger = logging.getLogger(__name__)
-
-# What this process is called in its telemetry.
-_SERVICE: Final = "argus-intent"
 
 # How many messages one look asks for: a few looks to catch up after a
 # restart, never an hour of messages in memory at once.
@@ -146,22 +134,6 @@ def _not_understood(connections: Connections) -> NotUnderstood:
     return not_understood
 
 
-def the_model_for(settings: Settings) -> ModelFor:
-    """How this process gets a client for one incident: over the provider its
-    settings point at, under the Intent Reader's own model and effort.
-
-    The one place this process names a model vendor. The provider is built here
-    and handed down as the port, and the adapter is imported here, where it is
-    built, so that naming this module loads no vendor's SDK.
-    """
-    from core.llm.adapters.anthropic_adapter import AnthropicProvider
-
-    return partial(build_llm_client,
-                   AnthropicProvider(LLMSettings.of(settings)),
-                   policy=ModelPolicy(model=settings.intent_model,
-                                      effort=settings.intent_effort))
-
-
 def _understanding(connections: Connections,
                    model_for: ModelFor,
                    person_named: Callable[[str], str | None]) -> Understand:
@@ -213,34 +185,19 @@ def _understanding(connections: Connections,
     return understand_one
 
 
-def main() -> None:
-    """The process itself: a pool, a model, a chat platform, then watch
-    until killed.
+def watch(connections: Connections,
+          model_for: ModelFor,
+          person_named: Callable[[str], str | None],
+          *,
+          pause: float) -> None:
+    """Understands what people write in incidents' threads for as long as the
+    process lives, over the connections, the model and the chat platform its
+    root holds.
 
-    An intent reader with no chat platform is not started at all: nothing would
-    ever be written for it to understand, and a process idling on a record it
-    can never act on is a process somebody has to wonder about.
+    `model_for` is a client per incident over the process's provider, under
+    the Intent Reader's own model and effort; `person_named` is the chat
+    platform's answer to what a person is called.
     """
-    settings = get_settings()
-
-    with start_telemetry(TelemetrySettings.of(settings), _SERVICE):
-        platform = slack_from(ChatSettings.of(settings))
-
-        if platform is None:
-            logger.warning("no chat platform configured")
-            return
-
-        with open_pool(DatabaseSettings.of(settings)) as pool:
-            connections: Connections = pool.connection
-
-            logger.info("intent reader started")
-
-            watch_forever(
-                _not_understood(connections),
-                _understanding(connections, the_model_for(settings), platform.person_named),
-                pause=settings.intent_poll_seconds
-            )
-
-
-if __name__ == "__main__":
-    main()
+    watch_forever(_not_understood(connections),
+                  _understanding(connections, model_for, person_named),
+                  pause=pause)

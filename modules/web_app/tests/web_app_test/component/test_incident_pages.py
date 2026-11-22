@@ -90,8 +90,8 @@ from incident_record.repository import (
     synopses,
     taken_actions,
 )
-from web_app.app import app
 
+from web_app_test.framework.application import app
 from web_app_test.framework.assertions import (
     POLLS_FOR_MORE,
     the_page_keeps_asking,

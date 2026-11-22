@@ -18,8 +18,9 @@ import pytest
 from argus_testkit import Scenario, all_of
 from fastapi.testclient import TestClient
 from push_source import Pushed, PushSource
-from web_app.app import app, push_source_of
+from web_app.app import push_source_of
 
+from web_app_test.framework.application import app
 from web_app_test.framework.assertions import the_response_was
 from web_app_test.framework.event_loop import handed_off_the_event_loop, on_an_event_loop
 

@@ -6,22 +6,15 @@ dependencies = [
     "argus-core",
     "argus-incident_record",
     "argus-narration",
-    "argus-telemetry",
     # Without `[store]`, deliberately. The push webhook writes one row of the
     # index's watermark and indexes nothing, so this process installs neither
     # a vector store nor an embedding model to serve a page.
     "argus-repository_index",
-    # The on-call platform's port and its PagerDuty adapter. A person resolving
-    # an incident there is delivered here, and only the adapter can tell a
-    # person's resolution from anything else the platform sends.
+    # The ports a person's resolution, a person's words in an incident's
+    # thread, an alert and a push arrive through. Their adapters are built by
+    # the process's root (`apps.web`), and this package names none of them.
     "argus-oncall_source",
-    # The chat platform's port and its Slack adapter. A person writing in an
-    # incident's thread, or pressing the button on an offer to resolve, is
-    # delivered here, and only the adapter can tell a person's reply from
-    # anything else the platform sends.
     "argus-chat_platform",
-    # The senders of alerts and of pushes: each port and its adapter. A
-    # sender's delivery is read here, and only its adapter knows its shape.
     "argus-alert_source",
     "argus-push_source",
     # What the postmortem says, in the words the PDF says it in, and the PDF.
@@ -33,7 +26,6 @@ dependencies = [
     # What reads a form's fields. The resolve control posts its note as one,
     # which is what a browser sends without a line of script to say otherwise.
     "python-multipart>=0.0.9",
-    "uvicorn[standard]>=0.30",
 ]
 
 # `reset_schema` runs the migration chain, so this suite needs the extra the
@@ -45,13 +37,15 @@ dependencies = [
 dev = [
     "argus-core[migrations]",
     "argus-argus_testkit",
+    # What the app's spans are asserted through: an SDK's in-memory exporter.
+    # Never a runtime dependency - the process's root installs the SDK.
+    "opentelemetry-sdk>=1.45",
 ]
 
 [tool.uv.sources]
 argus-core = { workspace = true }
 argus-incident_record = { workspace = true }
 argus-narration = { workspace = true }
-argus-telemetry = { workspace = true }
 argus-repository_index = { workspace = true }
 argus-oncall_source = { workspace = true }
 argus-chat_platform = { workspace = true }

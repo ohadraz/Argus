@@ -1,19 +1,18 @@
 """The real answers to everything the Postmortem asks of the world (spec §7.6).
 
 One module, and one job: build the `Sources` record a postmortem is written
-against. Every vendor this deployment reads is named here, at the top, as an
-ordinary import - Stripe, PagerDuty, BambooHR, the rate provider and the read
-tier - because this is a composition root, and a process that needs them is the
-process that pays for them.
+against, from the ports each provider is reached through. Which vendor answers
+each - the payment provider, the rate provider, the HR source, the on-call
+platform - is the worker's root's to choose (`apps.worker`), and each arrives
+here already built; this module names none of them.
 
-That is the whole reason it exists. These imports used to sit *inside* the
-functions that gather a postmortem, each with a note explaining that a unit test
-of the gathering should not have to have a payment SDK installed. The note was
-right about the symptom and wrong about the cause: the gathering already had a
-port record to fill, and filling it with hard-wired adapters hidden behind an
-import statement made an untestable function look testable. With the building
-moved here, `gathering.py` names no vendor at all and takes what it needs as an
-argument.
+These reads used to sit *inside* the functions that gather a postmortem, each
+with a note explaining that a unit test of the gathering should not have to
+have a payment SDK installed. The note was right about the symptom and wrong
+about the cause: the gathering already had a port record to fill, and filling
+it with hard-wired adapters hidden behind an import statement made an
+untestable function look testable. `gathering.py` names no vendor at all and
+takes what it needs as an argument, and so does this.
 
 Each source answers `None` where it could not be read, never zero. A provider
 that is down must not become a postmortem reporting that an incident cost
@@ -38,15 +37,10 @@ from core.models import (
     MetricBucket,
     Reference,
 )
-from exchange_rate_source.frankfurter import (
-    ExchangeRateSettings,
-    rates_published_for,
-)
 from incident_record.repository import exchange_rates, incidents, references
 from oncall_source import OnCallUnavailable, engagement_with
 from oncall_source.platform import OnCallPlatform
-from pay_band_source import PayBandSettings, PayBandsUnavailable
-from pay_band_source.bamboohr_adapter import pay_bands
+from pay_band_source import PayBandsRead, PayBandsUnavailable
 from postmortem_writing import (
     EngagedResponder,
     EngagementAnswer,
@@ -56,11 +50,9 @@ from postmortem_writing import (
     Sources,
 )
 from read_mcp_client import ReadTier
-from revenue_source import taken_between
-from revenue_source.stripe_adapter import charges_between
-from revenue_source.stripe_settings import StripeSettings
+from revenue_source import Charges, taken_between
 
-from orchestrator.rates import todays_rates
+from orchestrator.rates import Published, todays_rates
 
 logger = logging.getLogger(__name__)
 
@@ -70,19 +62,18 @@ def the_real_sources(settings: Settings,
                      read: ReadTier,
                      thresholds: AnomalyThresholds,
                      *,
-                     oncall: OnCallPlatform | None) -> Sources:
+                     oncall: OnCallPlatform | None,
+                     charges: Charges,
+                     published: Published,
+                     bands: PayBandsRead) -> Sources:
     """Every port answered by the provider this deployment is configured for.
 
-    The configuration is sliced once, here, and each source is handed only its
-    own slice. A source that never learns a credential's name cannot leak it
-    into a postmortem, and one holding the whole of `Settings` would be able to
-    read every credential Argus has in order to ask about money.
-
-    Which is why this one takes the whole of it, and is meant to. It is the
-    narrowing itself: four slices come out of here and each goes to the one
-    provider it configures. A slice handed *in* would only move the question
-    of who may read a payment key one call further up, and split the answer
-    across two places.
+    Each provider arrives already built and bound to its own slice of the
+    configuration - `charges` the payment provider's listing, `published` the
+    rate provider's latest table, `bands` the HR source's - by the process's
+    root, which is the one place that names a vendor. What is read off
+    `settings` here is Argus's own: the currency it reports in, the window the
+    read tier serves, the working year.
 
     The read tier arrives as the tier somebody already holds, not as an address
     to dial: a postmortem's metrics are one more question asked over the session
@@ -94,11 +85,11 @@ def the_real_sources(settings: Settings,
     sake of one question would keep it out of the pool for the length of a
     model call.
 
-    `thresholds` is handed in rather than sliced out, unlike everything else
-    here, and for the reason the rest are sliced: there must be exactly one of
-    them. The same value went to the Investigator and to Mitigation, and the
-    postmortem dating recovery on lines of its own is how it would come to
-    report a recovery at a minute Mitigation had refused to confirm on.
+    `thresholds` is handed in rather than read off `settings`, because there
+    must be exactly one of them. The same value went to the Investigator and to
+    Mitigation, and the postmortem dating recovery on lines of its own is how
+    it would come to report a recovery at a minute Mitigation had refused to
+    confirm on.
 
     `oncall` is the on-call platform, already built - or `None`, since a
     deployment need not have one. Handed in because which vendor it is, is the
@@ -107,15 +98,13 @@ def the_real_sources(settings: Settings,
     """
     return Sources(
         thresholds=thresholds,
-        revenue=partial(_the_services_takings,
-                        settings=StripeSettings.of(settings)),
+        revenue=partial(_the_services_takings, charges=charges),
         rates=partial(_todays_rates,
                       connections,
                       base=settings.reporting_currency,
-                      settings=ExchangeRateSettings.of(settings)),
+                      published=published),
         engagement=partial(_who_responded, platform=oncall, connections=connections),
-        bands=partial(_what_a_title_is_worth,
-                      settings=PayBandSettings.of(settings)),
+        bands=partial(_what_a_title_is_worth, read=bands),
         metrics=partial(_metrics_between, read=read,
                         served=timedelta(minutes=settings.metrics_window_minutes)),
         alert_rule=partial(_the_alert_rule, read=read),
@@ -128,18 +117,14 @@ def the_real_sources(settings: Settings,
 def _the_services_takings(started_at: datetime,
                           ended_at: datetime,
                           *,
-                          settings: StripeSettings) -> Mapping[str, Decimal] | None:
+                          charges: Charges) -> Mapping[str, Decimal] | None:
     """What the service took over the incident, read from the payment provider.
 
     A provider that cannot be read - or a deployment holding no credential -
     answers `None` rather than zero. The agent already knows what to do with an
     unanswered question, and "the incident cost nothing" is not it.
     """
-    takings = taken_between(
-        started_at,
-        ended_at,
-        charges=partial(charges_between, settings=settings)
-    )
+    takings = taken_between(started_at, ended_at, charges=charges)
 
     return takings.amounts if takings is not None else None
 
@@ -147,7 +132,7 @@ def _the_services_takings(started_at: datetime,
 def _todays_rates(connections: Connections,
                   *,
                   base: str,
-                  settings: ExchangeRateSettings) -> RateTable | None:
+                  published: Published) -> RateTable | None:
     """The day's rates, fetched once and held against the day nobody answers.
 
     Takes its own connection rather than borrowing the one the gathering holds.
@@ -160,7 +145,7 @@ def _todays_rates(connections: Connections,
             base,
             held_rates=partial(exchange_rates.get_latest_for, conn),
             hold_rates=partial(exchange_rates.record, conn),
-            published=partial(rates_published_for, settings=settings)
+            published=published
         )
 
 
@@ -279,9 +264,7 @@ def _the_platform_incidents_of(incident_id: str,
     return found
 
 
-def _what_a_title_is_worth(*,
-                           settings: PayBandSettings
-                           ) -> Mapping[str, PayBand] | None:
+def _what_a_title_is_worth(*, read: PayBandsRead) -> Mapping[str, PayBand] | None:
     """What each job title the HR source prices is worth a year.
 
     Bands rather than anybody's pay: a band belongs to a level that titles are
@@ -293,7 +276,7 @@ def _what_a_title_is_worth(*,
     simply publishes no cost and says why.
     """
     try:
-        read = pay_bands(settings)
+        priced = read()
     except PayBandsUnavailable:
         logger.warning("pay bands could not be read", exc_info=True)
 
@@ -303,7 +286,7 @@ def _what_a_title_is_worth(*,
                            midpoint=band.midpoint,
                            maximum=band.maximum,
                            currency=band.currency)
-            for title, band in read.items()}
+            for title, band in priced.items()}
 
 
 def _the_alert_rule(rule: str, *, read: ReadTier) -> AlertRuleStanding | None:

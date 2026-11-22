@@ -9,7 +9,7 @@ every caller guess which had happened.
 The vendor lives behind `adapters/` and is not exported. What a caller names is
 `LLMClient`, and what a composition root hands out is a `ModelProvider`;
 which SDK answers is decided by whoever builds that provider, in a process's
-wiring and nowhere else.
+root (`apps`) and nowhere else.
 """
 
 from core.llm.building import build_llm_client

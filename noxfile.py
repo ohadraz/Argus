@@ -580,16 +580,16 @@ def schema(session: nox.Session) -> None:
     Registers `schema` as a nox session, i.e., runnable via
     `uv run python -m nox -s schema`.
     Applies Argus's database schema to whatever database the environment names,
-    by throwing away what is there and applying `core.schema`'s DDL from
-    nothing. It is destructive and that is the design: Argus keeps no migration
-    history, so the DDL is the whole statement of what the database holds, and
-    an edit to it reaches a database only by replacing it.
+    by throwing away what is there and running Alembic's chain to head from
+    nothing. It is destructive and that is the design: while revision `001` is
+    the whole chain it is edited in place, so an edit to it reaches a database
+    only by replacing it. The drop goes when the first `002` lands.
 
-    A wrapper around `python -m core.schema` rather than the job itself.
+    A wrapper around `python -m apps.schema` rather than the job itself.
     The e2e stack applies the schema too, as does anyone with a bare checkout
     and a postgres container, and only some of those are nox.
     """
-    session.run("uv", "run", "python", "-m", "core.schema", external=True)
+    session.run("uv", "run", "python", "-m", "apps.schema", external=True)
 
 @_a_session()
 def index(session: nox.Session) -> None:
@@ -611,7 +611,7 @@ def index(session: nox.Session) -> None:
     bringing a stack up.
     """
     session.run(
-        "uv", "run", "python", "-m", "repository_index.catching_up", external=True
+        "uv", "run", "python", "-m", "apps.indexer", external=True
     )
 
 @_a_session()
@@ -626,12 +626,11 @@ def guard_layering(session: nox.Session) -> None:
     chat platform and telemetry know only the kernel, long-term memory holds
     records rather than reading the incident record, the postmortem's rendering
     works from values it is handed, the page serves HTML without installing an
-    agent, the chat platform, the deployment platform, the flag provider and the
-    vector store are each known by their port with only a process's wiring
-    knowing the vendor,
-    the walk writes to no store the fence cannot reach, no agent knows another
-    agent, and the kernel is reached through its front doors rather than by
-    module path.
+    agent, a process's root (`apps`) is the only importer of an adapter, of
+    telemetry and of a root, only two roots build the vector store's writing
+    side, no root reaches another, the walk writes to no store the fence cannot
+    reach, no agent knows another agent, and the kernel is reached through its
+    front doors rather than by module path.
 
     It also holds the suites to the last two rules, which the contracts cannot:
     import-linter analyzes the packages named in `root_packages`, and a test
@@ -641,7 +640,9 @@ def guard_layering(session: nox.Session) -> None:
     an incident reaches a vendor's store the fence cannot reach. And it holds
     every module to a vendor's SDK being imported by that vendor's adapter
     alone - a contract would see a third party only with a setting that is
-    global.
+    global. And it holds who makes an admission - the walk, the worker's root
+    and the kernel, and nobody else - and each process's root to the workspace
+    packages its own extra of `apps` installs, which no contract can read.
 
     A guard rather than a note in `CLAUDE.md`, because the note was there while
     `incident_record` depended on an agent - a documented invariant nothing
@@ -944,7 +945,7 @@ def integration(session: nox.Session) -> None:
         services.append(_start_service(module_args, env=env))
         _wait_for_http(name, f"{github_double_at}/health", token=token)
 
-        services.append(_start_service(["-m", "write_mcp_server.server"],
+        services.append(_start_service(["-m", "apps.write_mcp"],
                                        env=github_at_the_double))
         _wait_for_http("write_mcp", f"http://{_LOOPBACK}:{write_mcp_port}/mcp")
 
@@ -2172,12 +2173,12 @@ _PAGERDUTY_DOUBLE: tuple[str, list[str], str] = (
 )
 
 _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
-    ("read_mcp", ["-m", "read_mcp_server.server"], f"http://localhost:{_READ_MCP_PORT}/mcp"),
+    ("read_mcp", ["-m", "apps.read_mcp"], f"http://localhost:{_READ_MCP_PORT}/mcp"),
     # Its own process, not a second module inside `read_mcp`: the tier split
     # (spec §12.1, §13) is what makes "read-only" a property of a running
     # process rather than a convention, and a stack that started only one of
     # them would be testing the convention.
-    ("write_mcp", ["-m", "write_mcp_server.server"], f"http://localhost:{_WRITE_MCP_PORT}/mcp"),
+    ("write_mcp", ["-m", "apps.write_mcp"], f"http://localhost:{_WRITE_MCP_PORT}/mcp"),
     _ANTHROPIC_DOUBLE,
     _INTENT_ANTHROPIC_DOUBLE,
     _JUDGE_ANTHROPIC_DOUBLE,
@@ -2199,7 +2200,7 @@ _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
         # listening only on `127.0.0.1` is not reachable from there however the
         # container spells the host.
         "web_app",
-        ["-m", "web_app.serving", "--host", "0.0.0.0", "--port", "8000"],
+        ["-m", "apps.web", "--host", "0.0.0.0", "--port", "8000"],
         "http://localhost:8000/openapi.json"
     ),
     (
@@ -2216,7 +2217,7 @@ _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
         # visible only in the queue, and a run appearing there is the suite's
         # own first step rather than something to wait for here.
         "worker",
-        ["-m", "orchestrator.worker"],
+        ["-m", "apps.worker"],
         None
     ),
     (
@@ -2229,7 +2230,7 @@ _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
         # record arriving in the store, which is what a case about memory asks
         # for - and waits for, since it comes a pass after the walk filed it.
         "memory",
-        ["-m", "incident_memory.delivering"],
+        ["-m", "apps.deliverer"],
         None
     ),
     (
@@ -2243,7 +2244,7 @@ _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
         # a row in the database rather than a port. The pass that mattered was
         # the one before the services.
         "index-catch-up",
-        ["-m", "repository_index.catching_up"],
+        ["-m", "apps.indexer"],
         None
     ),
     (
@@ -2255,7 +2256,7 @@ _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
         # shows up in Slack, and a message arriving there is what a suite is
         # asserting in the first place.
         "relay",
-        ["-m", "communication.watching"],
+        ["-m", "apps.relay"],
         None
     ),
     (
@@ -2269,7 +2270,7 @@ _LOCAL_SERVICES: list[tuple[str, list[str], str | None]] = [
         # No readiness URL, for the relay's reason: what it is ready for shows
         # up in Slack, as an offer.
         "intent",
-        ["-m", "message_intent.watching"],
+        ["-m", "apps.intent_reader"],
         None
     )
 ]
@@ -2487,7 +2488,7 @@ def _run_against_the_stack(
         # the whole of why it is a step of its own: no Argus process applies the
         # schema, so none of them can be the one that has to start first.
         session.run(
-            "uv", "run", "python", "-m", "core.schema", external=True
+            "uv", "run", "python", "-m", "apps.schema", external=True
         )
         services = _the_services_for(
             slack_stands_in, github_stands_in, pagerduty_stands_in, model_stands_in
@@ -2509,7 +2510,7 @@ def _run_against_the_stack(
         # completion here; the loop among the services keeps it current after
         # that.
         session.run(
-            "uv", "run", "python", "-m", "repository_index.catching_up", "--once",
+            "uv", "run", "python", "-m", "apps.indexer", "--once",
             external=True
         )
         _start_each_of(

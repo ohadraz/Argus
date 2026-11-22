@@ -36,13 +36,13 @@ from argus_testkit import (
 from code_host import CodeHostReads
 from core import Connections, ReadMcpEndpoint
 from core.models import CodeSearch
+from core.vector_store import VectorSearch
 from deployment_platform import DeploymentPlatformReads
 from flag_provider import FlagProviderReads, FlagProviderUnavailable
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.types import CallToolResult, Tool
-from metrics_source import SeriesClassifier
-from metrics_source.prometheus_settings import PrometheusSettings
+from metrics_source import MetricsSource, SeriesClassifier
 from read_mcp_server.meaning import IndexReadSettings
 from read_mcp_server.registry import ServiceRegistrySettings
 from read_mcp_server.repository import RepositoryReadSettings
@@ -474,7 +474,7 @@ def _a_read_tier(mode: CodeSearch,
                           log_max_window_minutes=60,
                           metrics_window_minutes=60),
         TargetServiceSettings(target_service_url="http://target.invalid"),
-        PrometheusSettings(prometheus_base_url="http://prometheus.invalid"),
+        create_autospec(MetricsSource, instance=True),
         flags if flags is not None else _a_flag_provider(),
         create_autospec(DeploymentPlatformReads, instance=True),
         code if code is not None else _a_code_host(),
@@ -486,6 +486,7 @@ def _a_read_tier(mode: CodeSearch,
         IndexReadSettings(qdrant_url="http://qdrant.invalid",
                           repository_index_collection="dont-care-collection",
                           code_search=mode),
+        create_autospec(VectorSearch, instance=True),
         create_autospec(AlertingPlatform, instance=True),
         create_autospec(SeriesClassifier, instance=True),
         create_autospec(Connections, instance=True)

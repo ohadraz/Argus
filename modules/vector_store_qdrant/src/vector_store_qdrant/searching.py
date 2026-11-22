@@ -1,9 +1,9 @@
 """Searching a Qdrant collection - `VectorSearch`, answered by the vendor.
 
-The only module a walk's wiring may build, and the one way anything that walks an
-incident reaches the vendor's client: everything here is a read, and a read made
-for a run since taken back changes nothing anybody else holds. The layering guard
-exempts this module's edge to `qdrant_client` and no other.
+The only module the worker's root may build, and the one way anything that
+walks an incident reaches the vendor's client: everything here is a read, and a
+read made for a run since taken back changes nothing anybody else holds. The
+layering guard exempts this module's edge to `qdrant_client` and no other.
 
 The conditions are translated into the vendor's filter and the floor into its
 score threshold, so both are applied while the store ranks rather than to what it
