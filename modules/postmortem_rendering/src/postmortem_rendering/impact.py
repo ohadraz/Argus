@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from typing import Final
 
-from core import level_said_in, said_as_a_share, said_as_a_time
 from core.models import (
     AlarmClaim,
     Alert,
@@ -20,8 +19,8 @@ from core.models import (
     LogsInTheGap,
     PostmortemDocument,
     Unit,
-    said_as_money,
 )
+from narration import level_said_in, said_as_a_share, said_as_a_time, said_as_money
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.formatting import as_span

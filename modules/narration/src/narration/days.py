@@ -1,10 +1,10 @@
 """A day said as Argus says one: the month and the day of the month, "Oct 20".
 
-The kernel's, because every party has to agree on it: narration writes it, the
-page dates its own moments with it, and the postmortem's reader of figures has
-to know one when it meets it. Read word by word, "Oct 20 20:31" is a word, the
-figure "20" and a time, and the brief offered the day of the month to the model
-as a number the incident gave.
+Narration's, and said once, because every party has to agree on it: narration
+writes it, the page dates its own moments with it, and the postmortem's reader
+of figures has to know one when it meets it. Read word by word, "Oct 20 20:31"
+is a word, the figure "20" and a time, and the brief offered the day of the
+month to the model as a number the incident gave.
 
 The months are named here rather than by `strftime`'s `%b`, which follows the
 locale: a spelling that moves with the machine is one the pattern below cannot

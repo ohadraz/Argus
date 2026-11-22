@@ -24,8 +24,8 @@ from core.models import (
     Postmortem,
     TimelineMarker,
     TitleCost,
-    said_as_money,
 )
+from narration import said_as_money
 from postmortem_rendering.head import a_head
 from postmortem_rendering.impact import the_impact
 from postmortem_rendering.resolution import ReportedResolution

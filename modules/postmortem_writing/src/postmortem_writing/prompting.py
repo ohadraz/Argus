@@ -25,15 +25,7 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timedelta
 from typing import Any, Final, NamedTuple
 
-from core import (
-    A_REVISION,
-    level_said_in,
-    parse_iso,
-    said_as_a_share,
-    short_form,
-    the_revision_named,
-    to_iso,
-)
+from core import parse_iso, to_iso
 from core.anomaly import the_end_of_the_onset
 from core.models import (
     NOTHING_RECORDED_AFTER_IT_WAS_OPENED,
@@ -59,12 +51,19 @@ from core.models import (
     Turn,
     Unit,
     Verdict,
+    labelled,
+)
+from narration import (
+    A_REVISION,
     changes_not_listed,
     for_the_candidate,
-    labelled,
+    level_said_in,
     no_logs_listed,
+    said_as_a_share,
+    short_form,
     shorter_than_the_rules_wait,
     the_detection_lesson_said,
+    the_revision_named,
     whether_it_can_be_put_back,
 )
 

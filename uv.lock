@@ -981,11 +981,19 @@ dependencies = [
     { name = "argus-narration" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "argus-argus-testkit" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "argus-core", editable = "modules/core" },
     { name = "argus-narration", editable = "modules/narration" },
 ]
+
+[package.metadata.requires-dev]
+dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
 
 [[package]]
 name = "argus-push-source"

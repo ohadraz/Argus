@@ -1,10 +1,11 @@
 """A day said as narration says one beside a time: the month and the day of
 the month, "Oct 20" - as the rest of the page says one.
 
-The kernel's, because two parties have to agree on it: narration writes it, and
-the postmortem's reader of figures has to know one when it meets it. Read word by
-word, "Oct 20 20:31" is a word, the figure "20" and a time, and the brief offered
-the day of the month to the model as a number the incident gave.
+Narration's, and said once, because two parties have to agree on it: narration
+writes it, and the postmortem's reader of figures has to know one when it meets
+it. Read word by word, "Oct 20 20:31" is a word, the figure "20" and a time,
+and the brief offered the day of the month to the model as a number the
+incident gave.
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ from datetime import UTC, date, datetime
 
 import pytest
 from argus_testkit import Assertion, Scenario, the_answer_was
-from core import A_DAY_SAID, said_as_a_day, said_as_a_time, the_day_said
+from narration import A_DAY_SAID, said_as_a_day, said_as_a_time, the_day_said
 
 
 @pytest.mark.unit

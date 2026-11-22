@@ -11,13 +11,8 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Final
 
-from core import said_as_a_time
-from core.models import (
-    PostmortemDocument,
-    ResolutionStep,
-    for_the_candidate,
-    whether_it_can_be_put_back,
-)
+from core.models import PostmortemDocument, ResolutionStep
+from narration import for_the_candidate, said_as_a_time, whether_it_can_be_put_back
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.formatting import on_the_clock_of

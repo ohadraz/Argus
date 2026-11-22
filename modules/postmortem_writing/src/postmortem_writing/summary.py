@@ -19,7 +19,8 @@ from collections import Counter
 from collections.abc import Callable
 from typing import Final
 
-from core.models import ResolutionStep, whether_it_can_be_put_back
+from core.models import ResolutionStep
+from narration import whether_it_can_be_put_back
 
 from postmortem_writing.estimate import LatencyLevels
 from postmortem_writing.evidence import ActionRecord, IncidentEvidence

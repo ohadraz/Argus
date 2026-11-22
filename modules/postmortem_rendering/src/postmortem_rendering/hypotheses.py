@@ -21,9 +21,8 @@ from collections.abc import Callable
 from datetime import date
 from typing import Final
 
-from core import said_short
 from core.models import HypothesisConsidered, PostmortemDocument
-from narration import as_shown, the_instants_in, the_short_forms
+from narration import as_shown, said_short, the_instants_in, the_short_forms
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.lines import Line, Role, Run

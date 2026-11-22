@@ -11,7 +11,7 @@ from decimal import Decimal
 
 import pytest
 from argus_testkit import Scenario, the_answer_was
-from core.models import said_as_money
+from narration import said_as_money
 
 
 @pytest.mark.unit

@@ -18,7 +18,6 @@ from typing import Any, NamedTuple
 
 import pytest
 from argus_testkit import Assertion, Scenario, all_of
-from core import said_as_a_day, said_as_a_time
 from core.models import (
     ActionItem,
     ActionItemStatus,
@@ -45,6 +44,7 @@ from core.models import (
     WhyNoTrigger,
 )
 from fpdf import FPDF
+from narration import said_as_a_day, said_as_a_time
 from postmortem_rendering.pdf import as_pdf
 from postmortem_rendering.rendering import RenderedPostmortem, render
 from pypdf import PageObject, PdfReader

@@ -12,13 +12,8 @@ from __future__ import annotations
 
 from typing import Final
 
-from core import said_as_a_span
-from core.models import (
-    DetectionLesson,
-    PostmortemDocument,
-    the_detection_lesson_said,
-    within_what_was_accounted_for,
-)
+from core.models import DetectionLesson, PostmortemDocument, within_what_was_accounted_for
+from narration import said_as_a_span, the_detection_lesson_said
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.lines import Line, Role, Run

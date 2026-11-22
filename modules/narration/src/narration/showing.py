@@ -39,12 +39,12 @@ import re
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from typing import Final
 
-from core import said_short, short_form
 from core.events import ChangesRetrieved, FixAttempted, IncidentEvent
 from core.models import CitedChange
 from pydantic import BaseModel, ConfigDict
 
 from narration.narrating import NarrationLine
+from narration.revisions import said_short, short_form
 
 # A name quoted in brackets: not straight after a word, as an index is; nothing
 # inside that a phrase or another bracket would have; and not a link's text.

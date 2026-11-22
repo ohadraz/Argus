@@ -17,7 +17,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from argus_testkit import Assertion, Scenario, the_answer_was
-from core import said_as_a_day, to_iso
+from core import to_iso
+from narration import said_as_a_day
 from narration.clock import a_minute, a_moment, a_moment_with_its_day, a_window, is_a_moment
 
 

@@ -14,7 +14,10 @@ values, and returns values; what puts tags around them belongs to whoever is
 doing the showing.
 """
 
+from narration.actions import for_the_candidate, whether_it_can_be_put_back
 from narration.clock import a_minute, a_moment, a_window, is_a_moment
+from narration.days import A_DAY_SAID, said_as_a_day, said_as_a_time, the_day_said
+from narration.detection import shorter_than_the_rules_wait, the_detection_lesson_said
 from narration.findings import Finding, a_finding, pointed_at
 from narration.flags import (
     FlagToggleRow,
@@ -22,8 +25,10 @@ from narration.flags import (
     on_or_off,
     said_as_a_state,
 )
+from narration.levels import level_given_in, level_said_in, said_as_a_level, said_as_a_share
 from narration.logs import LogLine, a_log_line, the_minutes_logged
 from narration.metrics import BucketRow, a_bucket_row
+from narration.money import said_as_money
 from narration.narrating import (
     A_PERSON,
     THE_CLAIM_WAS_NOT_IN_THE_WINDOW,
@@ -45,6 +50,8 @@ from narration.narrating import (
     where_a_report_came_from,
 )
 from narration.prose import InstantInProse, said_plainly, the_instants_in
+from narration.readings import changes_not_listed, no_logs_listed
+from narration.revisions import A_REVISION, said_short, short_form, the_revision_named
 from narration.showing import (
     ShownRevision,
     as_shown,
@@ -56,9 +63,12 @@ from narration.showing import (
     the_revisions,
     the_short_forms,
 )
+from narration.spans import said_as_a_span
 
 __all__ = [
+    "A_DAY_SAID",
     "A_PERSON",
+    "A_REVISION",
     "BucketRow",
     "CandidateLine",
     "CandidateNamed",
@@ -82,26 +92,44 @@ __all__ = [
     "as_a_clause",
     "as_shown",
     "build_narration",
+    "changes_not_listed",
     "each_wait_told_once",
+    "for_the_candidate",
     "is_a_moment",
+    "level_given_in",
+    "level_said_in",
+    "no_logs_listed",
     "on_or_off",
     "pointed_at",
+    "said_as_a_day",
+    "said_as_a_level",
+    "said_as_a_share",
+    "said_as_a_span",
     "said_as_a_state",
+    "said_as_a_time",
     "said_as_meant",
+    "said_as_money",
     "said_as_shown",
     "said_as_the_document_shows",
     "said_in_full",
     "said_plainly",
+    "said_short",
+    "short_form",
+    "shorter_than_the_rules_wait",
     "shown",
+    "the_day_said",
+    "the_detection_lesson_said",
     "the_instants_in",
     "the_links_in",
     "the_minutes_logged",
     "the_pull_requests",
+    "the_revision_named",
     "the_revisions",
     "the_short_forms",
     "what_the_action_does",
     "what_to_do",
     "what_was_done",
     "what_was_not_done",
-    "where_a_report_came_from"
+    "where_a_report_came_from",
+    "whether_it_can_be_put_back"
 ]

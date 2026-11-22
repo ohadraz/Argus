@@ -80,7 +80,6 @@ from core.models import (
     Verdict,
     as_a_change,
     the_identity_recorded,
-    whether_it_can_be_put_back,
 )
 from core.replay import Recorder, Replay
 from core.replay import nobody as records_nothing
@@ -105,6 +104,7 @@ from narration import (
     what_to_do,
     what_was_done,
     what_was_not_done,
+    whether_it_can_be_put_back,
 )
 from postmortem_rendering import (
     as_text,

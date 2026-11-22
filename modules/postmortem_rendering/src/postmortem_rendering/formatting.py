@@ -13,7 +13,7 @@ import re
 from datetime import UTC, date, datetime, timedelta
 from typing import Final
 
-from core import said_as_a_day, said_as_a_time
+from narration import said_as_a_day, said_as_a_time
 
 # A whole commit as git names one: forty hex digits, lower case.
 _A_WHOLE_COMMIT: Final = re.compile(r"[0-9a-f]{40}")

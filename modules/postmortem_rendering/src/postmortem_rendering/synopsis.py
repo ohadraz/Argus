@@ -15,7 +15,8 @@ from collections.abc import Sequence
 from decimal import ROUND_FLOOR, ROUND_HALF_UP, Decimal
 from typing import Final
 
-from core.models import Alert, ExecutiveSynopsis, Postmortem, TitleCost, said_as_money
+from core.models import Alert, ExecutiveSynopsis, Postmortem, TitleCost
+from narration import said_as_money
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.head import a_head, a_title

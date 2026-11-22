@@ -16,7 +16,8 @@ from decimal import Decimal
 
 import pytest
 from argus_testkit import Assertion, Scenario
-from core.models import Impact, ImpactExtent, Postmortem, said_as_money
+from core.models import Impact, ImpactExtent, Postmortem
+from narration import said_as_money
 from postmortem_rendering.impact import the_impact
 from postmortem_rendering.synopsis_figures import (
     the_synopsis_figures,

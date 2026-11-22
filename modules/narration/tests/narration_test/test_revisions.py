@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 from argus_testkit import Scenario, the_answer_was
-from core import A_REVISION, said_short, short_form, the_revision_named
+from narration import A_REVISION, said_short, short_form, the_revision_named
 
 # Two revisions starting nothing alike.
 SOME_REVISION = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"

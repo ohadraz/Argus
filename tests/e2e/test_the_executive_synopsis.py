@@ -28,8 +28,8 @@ import pytest
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 from chat_platform.slack import SlackSettings
 from core import utc_now
-from core.models import said_as_money
 from incident_record.repository import postmortems
+from narration import said_as_money
 
 from tests.e2e.framework.argus import (
     ARGUS_WEB_BASE_URL,

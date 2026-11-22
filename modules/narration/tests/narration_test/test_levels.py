@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import pytest
 from argus_testkit import Scenario, the_answer_was
-from core import level_given_in, level_said_in, said_as_a_level, said_as_a_share
 from core.models import Unit
+from narration import level_given_in, level_said_in, said_as_a_level, said_as_a_share
 
 
 @pytest.mark.unit

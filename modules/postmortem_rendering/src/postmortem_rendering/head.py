@@ -13,7 +13,6 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from typing import Final
 
-from core import said_as_a_time
 from core.models import (
     ActionItemStatus,
     Alert,
@@ -24,7 +23,7 @@ from core.models import (
     PostmortemDocument,
     TimelineMarker,
 )
-from narration import THE_CLAIM_WAS_NOT_IN_THE_WINDOW
+from narration import THE_CLAIM_WAS_NOT_IN_THE_WINDOW, said_as_a_time
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.formatting import as_revision, on_the_day_and_clock

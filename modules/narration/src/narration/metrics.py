@@ -8,11 +8,11 @@ the narration as the onset.
 
 from __future__ import annotations
 
-from core import said_as_a_level
 from core.models import MetricBucket
 from pydantic import BaseModel
 
 from narration.clock import a_minute
+from narration.levels import said_as_a_level
 
 # The error rate at which a minute is marked on the page. The same figure the
 # Target Service's own console reddens a row at, and copied deliberately rather

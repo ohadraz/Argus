@@ -21,7 +21,7 @@ from collections.abc import Collection, Iterable, Mapping
 from itertools import pairwise
 from typing import Final
 
-from core import the_revision_named
+from narration import the_revision_named
 
 from postmortem_writing.figures import AROUND_A_WORD, Figure, is_a_figure, names_in
 

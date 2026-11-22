@@ -19,7 +19,7 @@ from __future__ import annotations
 import os
 from typing import Final
 
-from core import A_REVISION, short_form, the_revision_named
+from narration import A_REVISION, short_form, the_revision_named
 
 from postmortem_writing.answer import SubmittedPostmortem
 from postmortem_writing.evidence import IncidentEvidence

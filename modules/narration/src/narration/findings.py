@@ -13,10 +13,11 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 
-from core import parse_iso, said_as_a_day, said_as_a_time
+from core import parse_iso
 from core.models import Evidence
 from pydantic import BaseModel
 
+from narration.days import said_as_a_day, said_as_a_time
 from narration.prose import said_plainly
 
 

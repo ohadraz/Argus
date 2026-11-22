@@ -22,7 +22,7 @@ from decimal import Decimal
 
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, the_answer_was
-from core import said_as_a_day, to_iso
+from core import to_iso
 from core.models import (
     ActionItemType,
     CitedEvidence,
@@ -31,6 +31,7 @@ from core.models import (
     Unit,
     Verdict,
 )
+from narration import said_as_a_day
 from postmortem_writing import EngagementAnswer, NotPaged
 from postmortem_writing.answer import (
     SubmittedFactor,

@@ -9,14 +9,8 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from core import said_as_a_span
-from core.models import (
-    Alert,
-    Detection,
-    PostmortemDocument,
-    TimelineMarker,
-    shorter_than_the_rules_wait,
-)
+from core.models import Alert, Detection, PostmortemDocument, TimelineMarker
+from narration import said_as_a_span, shorter_than_the_rules_wait
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.impact import the_alert_s_own_finding

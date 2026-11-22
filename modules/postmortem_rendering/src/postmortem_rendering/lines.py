@@ -16,8 +16,8 @@ from datetime import UTC, date, datetime
 from enum import StrEnum
 from typing import Final
 
-from core import said_as_a_time
 from core.models import OpenedPullRequest
+from narration import said_as_a_time
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.formatting import on_the_day_and_clock

@@ -31,28 +31,20 @@ from decimal import ROUND_HALF_UP, Decimal
 from enum import StrEnum
 from typing import Final
 
-from core import (
+from core import parse_iso, to_iso
+from core.events import HUNK_HEADER, PATCH_LINE_INDENT
+from core.models import CitedEvidence, DetectionLesson, DetectionPart, FirstTold, Quantile, Unit
+from narration import (
     A_DAY_SAID,
     level_given_in,
     level_said_in,
-    parse_iso,
     said_as_a_day,
     said_as_a_level,
     said_as_a_share,
     said_as_a_span,
     said_as_a_time,
-    the_day_said,
-    to_iso,
-)
-from core.events import HUNK_HEADER, PATCH_LINE_INDENT
-from core.models import (
-    CitedEvidence,
-    DetectionLesson,
-    DetectionPart,
-    FirstTold,
-    Quantile,
-    Unit,
     said_as_money,
+    the_day_said,
     the_detection_lesson_said,
 )
 from pydantic import BaseModel

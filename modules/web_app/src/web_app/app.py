@@ -9,12 +9,7 @@ from typing import Annotated, Final
 import psycopg
 from alert_source import AlertSource, AlertUnreadable, OnlyResolved
 from chat_platform import ChatDeliveryUnverified, ChatPlatformReads
-from core import (
-    Connections,
-    DatabaseSettings,
-    open_pool,
-    said_as_a_time,
-)
+from core import Connections, DatabaseSettings, open_pool
 from core.models import (
     Incident,
     IncidentStatus,
@@ -38,6 +33,7 @@ from incident_record import (
     withdraw_incident,
 )
 from incident_record.repository import conversation, references
+from narration import said_as_a_time
 from oncall_source import OnCallUnavailable
 from oncall_source.platform import OnCallDeliveryUnverified, OnCallPlatform
 from opentelemetry import propagate, trace

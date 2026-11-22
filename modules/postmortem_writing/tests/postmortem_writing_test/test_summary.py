@@ -16,15 +16,9 @@ from decimal import Decimal
 
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, the_answer_was
-from core import level_said_in, to_iso
-from core.models import (
-    ActionProgress,
-    OpenedPullRequest,
-    Quantile,
-    Unit,
-    Verdict,
-    said_as_money,
-)
+from core import to_iso
+from core.models import ActionProgress, OpenedPullRequest, Quantile, Unit, Verdict
+from narration import level_said_in, said_as_money
 from postmortem_writing.estimate import ErrorRates, LatencyLevels, RuleSeriesLevels
 from postmortem_writing.summary import said_off_the_page, the_executive_summary
 

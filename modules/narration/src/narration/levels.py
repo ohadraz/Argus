@@ -17,7 +17,7 @@ from __future__ import annotations
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Final
 
-from core.models.unit import Unit
+from core.models import Unit
 
 # How many figures a level is written to, as a reader compares two.
 _LEVEL_FIGURES: Final = 3

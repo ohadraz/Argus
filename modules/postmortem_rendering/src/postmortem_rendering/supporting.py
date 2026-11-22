@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from typing import Final
 
-from core import A_REVISION, parse_iso, said_short
+from core import parse_iso
 from core.events import PATCH_LINE_INDENT
 from core.models import (
     NOTHING_RECORDED_AFTER_IT_WAS_OPENED,
@@ -21,10 +21,8 @@ from core.models import (
     CitedEvidence,
     PostmortemDocument,
     RevisionSource,
-    changes_not_listed,
-    no_logs_listed,
 )
-from narration import the_short_forms
+from narration import A_REVISION, changes_not_listed, no_logs_listed, said_short, the_short_forms
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.lines import Line, Role, Run

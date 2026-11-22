@@ -36,7 +36,7 @@ from argus_testkit import (
     one_record_was_logged,
     the_answer_was,
 )
-from core import parse_iso, said_as_a_span, short_form, to_iso
+from core import parse_iso, to_iso
 from core.events import PATCH_LINE_INDENT, a_changed_file_line
 from core.models import (
     Ask,
@@ -52,6 +52,7 @@ from core.models import (
     Turn,
     Verdict,
 )
+from narration import said_as_a_span, short_form
 from postmortem_writing import DeploymentChangesRecord
 from postmortem_writing.answer import (
     CAUSAL_CHAIN_FIELD,

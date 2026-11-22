@@ -5,8 +5,8 @@ two modules both name - a contract kept inside one of the parties is one the
 other installs an agent to read. `core.llm` holds asking a model something.
 What is exported here is the rest: how a process is configured, how it reaches
 the database, how an id is minted and how a timestamp is spelled - the vocabulary
-every module uses and none of them owns - a revision's short form among them,
-and a level's.
+every module uses and none of them owns. How a day, a level, a span, an amount
+of money or a revision is said in words is narration's.
 
 Configuration is exported three times over. `Settings` is Argus's own
 configuration, which a process reads once where it starts; `AdapterSettings` is
@@ -35,19 +35,10 @@ from core.config import (
     WriteMcpEndpoint,
     get_settings,
 )
-from core.days import A_DAY_SAID, said_as_a_day, said_as_a_time, the_day_said
 from core.db import Connections, connect, connect_from_env, open_pool, unit_of_work
 from core.fencing import Fence, Holding, RunLost, fence, was_lost
 from core.ids import UuidStr, new_id
-from core.levels import (
-    level_given_in,
-    level_said_in,
-    said_as_a_level,
-    said_as_a_share,
-)
 from core.pytest_naming import is_a_test_file
-from core.revisions import A_REVISION, said_short, short_form, the_revision_named
-from core.spans import said_as_a_span
 from core.timestamps import (
     in_real_time,
     parse_iso,
@@ -58,8 +49,6 @@ from core.timestamps import (
 )
 
 __all__ = [
-    "A_DAY_SAID",
-    "A_REVISION",
     "AdapterSettings",
     "Clock",
     "Connections",
@@ -79,22 +68,11 @@ __all__ = [
     "get_settings",
     "in_real_time",
     "is_a_test_file",
-    "level_given_in",
-    "level_said_in",
     "new_id",
     "open_pool",
     "parse_iso",
-    "said_as_a_day",
-    "said_as_a_level",
-    "said_as_a_share",
-    "said_as_a_span",
-    "said_as_a_time",
-    "said_short",
-    "short_form",
     "sleep_on_the_clock",
     "the_clock_named_by",
-    "the_day_said",
-    "the_revision_named",
     "to_iso",
     "to_iso_minute",
     "unit_of_work",

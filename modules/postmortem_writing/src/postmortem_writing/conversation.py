@@ -16,7 +16,6 @@ from collections.abc import Sequence
 from datetime import date
 from typing import Final, NamedTuple
 
-from core import A_REVISION
 from core.llm import LLMClient
 from core.models import (
     Ask,
@@ -28,7 +27,7 @@ from core.models import (
     Transcript,
     Turn,
 )
-from narration import the_short_forms
+from narration import A_REVISION, the_short_forms
 
 from postmortem_writing.answer import (
     CAUSAL_CHAIN_FIELD,

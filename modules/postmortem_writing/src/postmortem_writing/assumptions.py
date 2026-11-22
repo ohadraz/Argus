@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from core.models import said_as_money
+from narration import said_as_money
 
 from postmortem_writing.answer import SubmittedPostmortem
 from postmortem_writing.estimate import Unmeasured, weeks_back_for

@@ -17,8 +17,8 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Final
 
-from core import said_as_a_span
-from core.models import Alert, ImpactExtent, PostmortemDocument, said_as_money
+from core.models import Alert, ImpactExtent, PostmortemDocument
+from narration import said_as_a_span, said_as_money
 
 from postmortem_rendering.impact import the_impact
 
