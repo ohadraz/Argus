@@ -146,6 +146,11 @@ _AN_HOUR_IN_SECONDS = int(timedelta(hours=1).total_seconds())
 _THE_ACTIONS_MINUTE = ACTION_TIME.replace(second=0)
 _THE_FIRST_WHOLE_MINUTE = _THE_ACTIONS_MINUTE + _A_MINUTE
 _THE_FIRST_WHOLE_MINUTE_AFTER = to_iso_minute(_THE_FIRST_WHOLE_MINUTE)
+# A call that straddles a minute: claimed late in the minute ACTION_TIME falls
+# inside, and the write's answer back early in the next. The service restores
+# its rows from the minute it acted in, which is the claim's.
+_CLAIMED_LATE_IN_A_MINUTE = _THE_ACTIONS_MINUTE + timedelta(seconds=58)
+_EARLY_IN_THE_MINUTE_AFTER_THE_CLAIM_S = _THE_FIRST_WHOLE_MINUTE + timedelta(seconds=1)
 # Where a rule evaluation ends, for the cases that read one. The rule ticks on
 # whole minutes, and over the one-minute range those cases read, an evaluation
 # ending as the first whole minute begins covers the minute the action fell
@@ -188,6 +193,10 @@ _PUT_BACK = "put back"
 # in, and the case is about what came after. A case taking an action with no
 # plan - a restart, a discard - hands `None`, which is what such an action has.
 DONT_CARE_PLAN = a_plan_of(an_undo_descriptor_for(DONT_CARE_FLAG))
+# What every action here is dated from: when its claim was written, before the
+# write, and in the minute ACTION_TIME falls inside - so the minute a case's
+# window is built around is the action's own, whatever plan it was taken on.
+_CLAIMED_AT = ACTION_TIME - timedelta(seconds=1)
 
 # Where the incident's own minutes begin in
 # `_a_window_that_flapped_before_the_incident` - after the calm, the earlier
@@ -294,6 +303,7 @@ def test_a_service_that_returns_to_baseline_confirms_the_hypothesis() -> None:
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(
                         DONT_CARE_FLAG, was_enabled=some_old_state
@@ -328,6 +338,7 @@ def test_an_action_nobody_admitted_is_never_written() -> None:
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=writes,
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -360,6 +371,7 @@ def test_a_service_still_departing_when_the_time_allowed_runs_out_is_refuted() -
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=(set_state := _a_flag_setter_changing_from(
                         DONT_CARE_FLAG, was_enabled=some_old_state
@@ -395,6 +407,7 @@ def test_an_action_withdrawn_mid_wait_reaches_no_verdict() -> None:
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(
                         DONT_CARE_FLAG, was_enabled=some_old_state
@@ -436,6 +449,7 @@ def test_an_action_withdrawn_before_it_was_taken_is_never_taken() -> None:
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(set_state=set_state),
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -480,6 +494,7 @@ def test_the_change_is_told_as_made_before_the_service_is_first_looked_at() -> N
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(
                         DONT_CARE_FLAG, was_enabled=some_old_state
@@ -543,6 +558,7 @@ def test_an_attempt_that_ended_before_its_write_tells_of_no_change(
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_attempt[1],
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -572,6 +588,7 @@ def test_an_action_refused_because_the_run_was_lost_is_raised_rather_than_escala
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(set_state=set_state),
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -623,6 +640,8 @@ def test_an_action_lost_after_it_was_sent_is_raised_to_the_walk_and_tells_of_no_
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=the_attempt[1],
+                # Never watched: the answer is lost before the wait begins.
+                acted_from=_CLAIMED_AT,
                 writes=the_attempt[2],
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -653,6 +672,7 @@ def test_a_withdrawn_wait_ends_at_its_next_look_rather_than_at_the_deadline() ->
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(
                         DONT_CARE_FLAG, was_enabled=some_old_state
@@ -687,6 +707,7 @@ def test_a_wait_withdrawn_before_its_first_look_announces_nothing_and_looks_at_n
                 thresholds=_some_thresholds(),
                 incident_id=_SOME_INCIDENT_ID,
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(
                         DONT_CARE_FLAG, was_enabled=some_old_state
@@ -724,6 +745,7 @@ def test_a_wait_withdrawn_while_the_service_is_being_read_says_nothing_about_the
                 thresholds=_some_thresholds(),
                 incident_id=_SOME_INCIDENT_ID,
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
                 ),
@@ -757,6 +779,7 @@ def test_a_wait_withdrawn_while_the_rule_is_being_read_says_nothing_about_the_wa
                 thresholds=_some_thresholds(),
                 incident_id=_SOME_INCIDENT_ID,
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
                 ),
@@ -798,6 +821,7 @@ def test_a_withdrawn_action_is_left_where_it_is_carrying_its_undo() -> None:
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=some_plan,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(set_state=set_state),
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -828,6 +852,7 @@ def test_the_verdict_waits_for_a_minute_that_began_after_the_action() -> None:
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(
                         DONT_CARE_FLAG, was_enabled=some_old_state
@@ -860,6 +885,7 @@ def test_a_look_with_no_minute_since_the_action_says_it_saw_none() -> None:
                 thresholds=_some_thresholds(),
                 incident_id=_SOME_INCIDENT_ID,
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
                 ),
@@ -895,6 +921,7 @@ def test_a_refuted_action_is_undone_in_whichever_direction_it_went(
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(set_state=set_state),
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
@@ -921,6 +948,7 @@ def test_a_confirmed_action_is_left_in_place() -> None:
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(set_state=set_state),
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -952,6 +980,7 @@ def test_an_undo_that_fails_escalates_carrying_both_facts() -> None:
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(set_state=set_state),
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
@@ -986,6 +1015,7 @@ def test_a_flag_changed_from_outside_is_left_as_found() -> None:
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=some_plan,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(set_state=set_state),
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
@@ -1016,6 +1046,7 @@ def test_a_flag_changed_from_outside_is_reported_rather_than_restored() -> None:
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=(set_state := _a_flag_setter_changing_from(
                         some_flag, was_enabled=some_old_state
@@ -1058,6 +1089,7 @@ def test_a_change_left_standing_escalates_carrying_what_the_undo_said() -> None:
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(),
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
@@ -1092,6 +1124,7 @@ def test_a_record_that_cannot_be_read_is_not_written_over() -> None:
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(set_state=set_state),
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
@@ -1121,6 +1154,7 @@ def test_an_action_that_could_not_be_taken_escalates_without_a_verdict() -> None
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(set_state=set_state),
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -1153,6 +1187,7 @@ def test_a_refuted_action_is_put_back_by_the_undo_it_was_given() -> None:
             settings=_some_mitigation_settings(),
             thresholds=_some_thresholds(),
             plan=DONT_CARE_PLAN,
+            acted_from=_CLAIMED_AT,
             writes=the_writes(
                 set_state=_a_flag_setter_changing_from(
                     some_flag, was_enabled=some_old_state
@@ -1193,6 +1228,7 @@ def test_a_confirmed_action_is_said_as_its_kind_said_it() -> None:
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=some_plan,
+                acted_from=_CLAIMED_AT,
                 writes=some_writes,
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -1227,6 +1263,7 @@ def test_a_refuted_change_put_back_ends_as_its_kind_says_it_was_put_back() -> No
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(),
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
@@ -1264,6 +1301,7 @@ def test_a_refuted_change_put_back_as_its_undo_told_it_ends_as_the_undo_said() -
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(),
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
@@ -1329,6 +1367,7 @@ def test_the_change_s_way_back_travels_on_the_outcome_whatever_the_verdict(
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(),
                 fetch_metrics=metrics_reading(a_window()),
                 now=a_clock(ACTION_TIME),
@@ -1435,6 +1474,7 @@ def test_a_read_that_could_not_be_answered_costs_one_pass_and_not_the_incident()
                 thresholds=_some_thresholds(),
                 incident_id=_SOME_INCIDENT_ID,
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(
                         DONT_CARE_FLAG, was_enabled=True
@@ -1491,6 +1531,7 @@ def test_a_wait_that_never_read_the_service_reaches_no_verdict() -> None:
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(set_state=set_state),
                 fetch_metrics=_a_read_that_never_answers(),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
@@ -1543,6 +1584,7 @@ def test_a_change_the_platform_stopped_applying_reaches_no_verdict() -> None:
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(set_state=set_state),
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -1587,6 +1629,7 @@ def test_a_change_still_arriving_is_not_judged_until_it_has() -> None:
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(
                         DONT_CARE_FLAG, was_enabled=some_old_state
@@ -1644,6 +1687,7 @@ def test_the_wait_lasts_as_long_as_the_recovery_it_waits_for_must_hold() -> None
                 incident_id=_SOME_INCIDENT_ID,
                 publisher=published.append,
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=(set_state := _a_flag_setter_changing_from(
                         DONT_CARE_FLAG, was_enabled=True
@@ -1694,6 +1738,7 @@ def test_an_incident_with_no_rhythm_is_given_the_one_clear_minute_it_needs() -> 
                 incident_id=_SOME_INCIDENT_ID,
                 publisher=published.append,
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=(set_state := _a_flag_setter_changing_from(
                         DONT_CARE_FLAG, was_enabled=True
@@ -1736,6 +1781,7 @@ def test_a_source_that_reports_a_minute_late_is_waited_for_a_minute_longer() -> 
                 incident_id=_SOME_INCIDENT_ID,
                 publisher=published.append,
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=(set_state := _a_flag_setter_changing_from(
                         DONT_CARE_FLAG, was_enabled=True
@@ -1778,6 +1824,7 @@ def test_the_minute_a_verdict_is_read_from_follows_the_change_arriving() -> None
                 incident_id=_SOME_INCIDENT_ID,
                 publisher=published.append,
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(
                         DONT_CARE_FLAG, was_enabled=True
@@ -1824,6 +1871,7 @@ def test_the_wait_is_announced_once_the_service_has_been_read() -> None:
                 incident_id=_SOME_INCIDENT_ID,
                 publisher=published.append,
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(
                         DONT_CARE_FLAG, was_enabled=True
@@ -1911,6 +1959,7 @@ def test_a_recovery_is_recorded_after_the_minute_the_incident_began() -> None:
                 thresholds=_some_thresholds(),
                 incident_id=_SOME_INCIDENT_ID,
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
                 ),
@@ -1950,6 +1999,7 @@ def test_a_recovery_the_rule_confirmed_is_recorded_after_the_minute_the_incident
                 thresholds=_some_thresholds(),
                 incident_id=_SOME_INCIDENT_ID,
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
                 ),
@@ -2051,6 +2101,7 @@ def test_a_service_whose_memory_was_reclaimed_confirms_the_restart() -> None:
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=None,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     restart=_a_restarter_bringing_up(some_leaking_service)
                 ),
@@ -2083,6 +2134,7 @@ def test_a_restart_whose_memory_never_fell_is_refuted_though_the_symptoms_eased(
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=None,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     restart=_a_restarter_bringing_up(some_leaking_service)
                 ),
@@ -2119,6 +2171,7 @@ def test_a_restart_that_could_not_be_taken_escalates_without_a_verdict() -> None
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=None,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(),
                 fetch_metrics=metrics_reading(a_window_where_memory_was_reclaimed()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -2152,6 +2205,7 @@ def test_a_refuted_restart_puts_nothing_back_and_says_so() -> None:
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=None,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=nothing_was_ever_written,
                     restart=_a_restarter_bringing_up(some_leaking_service)
@@ -2182,6 +2236,7 @@ def test_a_deployment_that_recovered_after_a_rollback_confirms_it() -> None:
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     restart=_a_restarter_bringing_up(dont_care_service),
                     roll_back=_a_roller_returning(SOME_APPLICATION)
@@ -2218,6 +2273,7 @@ def test_a_scale_out_at_the_ceiling_reaches_the_walk_as_the_refusal_it_is() -> N
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(),
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -2262,6 +2318,7 @@ def test_an_autoscaler_with_no_room_left_is_not_attempted_rather_than_escalated(
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(),
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -2310,6 +2367,7 @@ def test_a_pin_refused_without_the_marker_still_escalates() -> None:
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(),
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -2354,6 +2412,7 @@ def test_a_rollback_whose_platform_was_not_there_is_neither_escalated_nor_exhaus
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(roll_back=the_platform_was_not_answering),
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -2392,6 +2451,7 @@ def test_a_rollback_refused_by_a_platform_that_answered_still_escalates() -> Non
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(roll_back=the_platform_refused_it),
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -2424,6 +2484,7 @@ def test_a_rollback_refused_before_anything_changed_says_nothing_was_changed() -
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(roll_back=the_platform_refused_it),
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -2458,6 +2519,7 @@ def test_a_rollback_refused_after_the_suspension_carries_what_it_left() -> None:
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(roll_back=the_platform_refused_it),
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -2491,6 +2553,7 @@ def test_a_rollback_whose_answer_was_lost_carries_the_suspension_and_is_not_know
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(roll_back=the_answer_was_lost),
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -2522,6 +2585,7 @@ def test_a_write_that_failed_outside_the_tier_is_not_known_to_have_changed_nothi
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(roll_back=roll_back),
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -2555,6 +2619,7 @@ def test_a_pin_whose_platform_was_not_there_is_reported_the_same_way() -> None:
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(pin=the_platform_was_not_answering),
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -2593,6 +2658,7 @@ def test_a_platform_lost_after_the_suspension_still_narrows_and_says_what_it_lef
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(roll_back=the_platform_went_mid_rollback),
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -2624,6 +2690,7 @@ def test_what_a_person_reads_of_a_lost_platform_is_not_the_payload() -> None:
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(roll_back=the_platform_went_mid_rollback),
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -2657,6 +2724,7 @@ def test_a_planned_action_is_written_from_the_plan_it_was_handed() -> None:
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=some_plan,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(roll_back=roll_back),
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -2690,6 +2758,7 @@ def test_a_change_made_since_the_plan_escalates_without_a_verdict() -> None:
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(scale_out=somebody_scaled_it),
                 fetch_metrics=fetch_metrics,
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -2734,6 +2803,7 @@ def test_what_a_person_reads_of_a_change_made_since_carries_none_of_the_markers(
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(scale_out=somebody_scaled_it),
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -2772,6 +2842,7 @@ def test_a_change_made_since_with_only_this_claims_suspension_standing_carries_i
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(scale_out=somebody_scaled_it),
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -2814,6 +2885,7 @@ def test_a_change_made_since_this_claims_own_change_landed_is_recorded_as_perfor
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(scale_out=somebody_moved_it_after),
                 fetch_metrics=fetch_metrics,
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -2997,6 +3069,7 @@ def test_a_service_nobody_could_see_is_refuted_when_the_readings_never_return() 
                 thresholds=_some_thresholds(),
                 onset=THE_ONSET,
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=(set_state := _a_flag_setter_changing_from(
                         DONT_CARE_FLAG, was_enabled=some_old_state
@@ -3045,6 +3118,7 @@ def test_a_blind_spot_is_not_refuted_before_the_readings_have_had_a_chance() -> 
                 thresholds=_some_thresholds(),
                 onset=THE_ONSET,
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(
                         DONT_CARE_FLAG, was_enabled=some_old_state
@@ -3060,7 +3134,7 @@ def test_a_blind_spot_is_not_refuted_before_the_readings_have_had_a_chance() -> 
             the_verdict_is(Verdict.CONFIRMED),
             _the_service_was_looked_at(the_readings_come_back_late, times=2),
             _the_detail_mentions("could be read again"),
-            _the_detail_does_not_mention("never departed")
+            _the_detail_does_not_mention("ever departed")
         ))
 
 
@@ -3088,6 +3162,7 @@ def test_a_look_answering_after_the_deadline_it_was_asked_before_is_not_the_last
                 thresholds=_some_thresholds(),
                 onset=THE_ONSET,
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(
                         DONT_CARE_FLAG, was_enabled=some_old_state
@@ -3128,6 +3203,7 @@ def test_a_read_failing_after_the_deadline_it_was_asked_before_is_not_the_last_l
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(
                         DONT_CARE_FLAG, was_enabled=some_old_state
@@ -3171,6 +3247,7 @@ def test_a_look_failing_at_the_deadline_is_taken_again_and_the_one_that_lands_de
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(
                         DONT_CARE_FLAG, was_enabled=some_old_state
@@ -3213,6 +3290,7 @@ def test_a_service_unread_from_its_deadline_as_long_as_a_read_may_wait_is_not_re
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(set_state=set_state),
                 fetch_metrics=_the_service_read_in_turn(
                     a_still_failing_window(),
@@ -3251,6 +3329,7 @@ def test_a_change_whose_arrival_cannot_be_read_is_asked_about_again() -> None:
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(
                         DONT_CARE_FLAG, was_enabled=some_old_state
@@ -3284,6 +3363,7 @@ def test_a_change_whose_arrival_could_not_be_read_by_the_deadline_reaches_no_ver
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(set_state=set_state),
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
@@ -3331,6 +3411,7 @@ def test_the_minute_the_action_fell_inside_is_not_evidence_the_sight_was_there()
                 thresholds=_some_thresholds(),
                 onset=THE_ONSET,
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(
                         DONT_CARE_FLAG, was_enabled=some_old_state
@@ -3346,8 +3427,124 @@ def test_the_minute_the_action_fell_inside_is_not_evidence_the_sight_was_there()
             the_verdict_is(Verdict.CONFIRMED),
             _the_service_was_looked_at(the_rows_return_as_the_action_lands, times=2),
             _the_detail_mentions("could be read again"),
-            _the_detail_does_not_mention("never departed"),
+            _the_detail_does_not_mention("ever departed"),
             _the_detail_does_not_mention("no longer at the incident's level")
+        ))
+
+
+@pytest.mark.unit
+def test_rows_restored_in_the_minute_before_the_write_answered_are_not_evidence_the_sight_was_there(
+) -> None:
+    # What CI met. The action was claimed in the minute the shop then rolled back
+    # in, and the shop restarts its rows from that minute - but the write's
+    # answer came back in the next one. Dated by the answer, the restored minute
+    # sat before the action, read as the sight being there, and the rollback was
+    # refuted on its first look for a window that never departed. Dated from the
+    # claim, written before the write was sent, it is the action's own.
+    the_rows_return_from_the_claim_s_minute = _metrics_whose_rows_return_from_the_claim_s_minute()
+
+    Scenario() \
+        .given(
+            some_old_state := False,
+            the_rows_return_from_the_claim_s_minute
+        ) \
+        .when(
+            lambda: take_action(
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state))),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                onset=THE_ONSET,
+                plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_LATE_IN_A_MINUTE,
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(
+                        DONT_CARE_FLAG, was_enabled=some_old_state
+                    )
+                ),
+                fetch_metrics=the_rows_return_from_the_claim_s_minute,
+                now=a_clock_frozen_at(_EARLY_IN_THE_MINUTE_AFTER_THE_CLAIM_S),
+                sleep=dont_care_sleep,
+                undo=an_undo_that_put_it_back(DONT_CARE_FLAG)
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            _the_service_was_looked_at(the_rows_return_from_the_claim_s_minute, times=2),
+            _the_detail_mentions("could be read again"),
+            _the_detail_does_not_mention("ever departed")
+        ))
+
+
+@pytest.mark.unit
+def test_a_resumed_watch_does_not_take_rows_restored_before_the_write_answered_as_the_sight(
+) -> None:
+    # The same minute, for a change an earlier worker made and this one watches:
+    # the watch dates the action's minute by what it is handed, not by when it
+    # began watching - which, on a resumed walk, is minutes after the write.
+    the_rows_return_from_the_claim_s_minute = _metrics_whose_rows_return_from_the_claim_s_minute()
+
+    Scenario() \
+        .given(the_rows_return_from_the_claim_s_minute) \
+        .when(lambda: watch_what_was_performed(
+            an_action_setting(DONT_CARE_FLAG, enabled=True),
+            Performed(said=DONT_CARE_WHAT_IT_DID,
+                      undo_descriptor=an_undo_descriptor_for(DONT_CARE_FLAG)),
+            settings=_some_mitigation_settings(),
+            thresholds=_some_thresholds(),
+            onset=THE_ONSET,
+            acted_from=_CLAIMED_LATE_IN_A_MINUTE,
+            fetch_metrics=the_rows_return_from_the_claim_s_minute,
+            now=a_clock_frozen_at(_EARLY_IN_THE_MINUTE_AFTER_THE_CLAIM_S),
+            sleep=dont_care_sleep,
+            undo=an_undo_that_put_it_back(DONT_CARE_FLAG)
+        )) \
+        .then(all_of(
+            the_verdict_is(Verdict.CONFIRMED),
+            _the_service_was_looked_at(the_rows_return_from_the_claim_s_minute, times=2),
+            _the_detail_mentions("could be read again"),
+            _the_detail_does_not_mention("ever departed")
+        ))
+
+
+@pytest.mark.unit
+def test_rows_between_the_onset_and_the_minute_the_action_is_dated_from_are_the_sight_there(
+) -> None:
+    # The other side of the line above: dating the action from its claim moves
+    # where the span ends, not whether it is asked. A row inside it is the
+    # incident being watched, so a window that never departed is refuted on its
+    # first look, as it always was.
+    the_sight_was_there = _metrics_read_after_the_onset_and_before_the_claim_s_minute()
+
+    Scenario() \
+        .given(
+            some_old_state := False,
+            the_sight_was_there
+        ) \
+        .when(
+            lambda: take_action(
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=(not some_old_state))),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                onset=THE_ONSET,
+                plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_LATE_IN_A_MINUTE,
+                writes=the_writes(
+                    set_state=_a_flag_setter_changing_from(
+                        DONT_CARE_FLAG, was_enabled=some_old_state
+                    )
+                ),
+                fetch_metrics=the_sight_was_there,
+                # One look and no more: a wait that took this window for a blind
+                # spot would otherwise wait on it for ever.
+                now=a_clock_that_runs_out_after_one_look(_EARLY_IN_THE_MINUTE_AFTER_THE_CLAIM_S),
+                sleep=dont_care_sleep,
+                undo=an_undo_that_put_it_back(DONT_CARE_FLAG)
+            )
+        ) \
+        .then(all_of(
+            the_verdict_is(Verdict.REFUTED),
+            _the_service_was_looked_at(the_sight_was_there, times=1),
+            _the_detail_mentions("ever departed")
         ))
 
 
@@ -3373,6 +3570,7 @@ def test_the_look_that_sees_a_blind_spot_read_again_is_said_with_when_its_rows_r
                 thresholds=_some_thresholds(),
                 onset=THE_ONSET,
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(
                         DONT_CARE_FLAG, was_enabled=some_old_state
@@ -3410,6 +3608,7 @@ def test_the_wait_on_a_blind_spot_waits_for_its_metrics_to_be_read_again() -> No
                 thresholds=_some_thresholds(),
                 onset=THE_ONSET,
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(
                         DONT_CARE_FLAG, was_enabled=some_old_state
@@ -3462,6 +3661,7 @@ def test_readings_returning_confirms_the_action_that_restored_them() -> None:
                 thresholds=_some_thresholds(),
                 onset=THE_ONSET,
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(
                         DONT_CARE_FLAG, was_enabled=some_old_state
@@ -3499,6 +3699,7 @@ def test_readings_that_return_unwell_still_confirm_the_sight_was_restored() -> N
                 thresholds=_some_thresholds(),
                 onset=THE_ONSET,
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(
                         DONT_CARE_FLAG, was_enabled=some_old_state
@@ -3534,6 +3735,7 @@ def test_an_onset_whose_minutes_were_all_read_is_judged_on_the_levels_as_before(
                 thresholds=_some_thresholds(),
                 onset=THE_ONSET,
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=(set_state := _a_flag_setter_changing_from(
                         DONT_CARE_FLAG, was_enabled=some_old_state
@@ -3646,6 +3848,7 @@ def _an_action_is_taken(metrics: list[MetricBucket],
         thresholds=_some_thresholds(),
         incident_id=incident_id,
         plan=DONT_CARE_PLAN,
+        acted_from=_CLAIMED_AT,
         writes=the_writes(
             set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
         ),
@@ -3795,6 +3998,51 @@ def _metrics_whose_rows_return_in_the_actions_own_minute() -> MagicMock:
     return fetch_metrics
 
 
+def _metrics_whose_rows_return_from_the_claim_s_minute() -> MagicMock:
+    """A blind spot whose rows come back from the minute the action was claimed
+    in, though the write answered in the next.
+
+    The first look carries the claim's minute and nothing after it: whatever it
+    holds, the minute a verdict is read from - the first that wholly followed
+    the answer - is not there yet. The second carries the answer's minute and
+    that one.
+    """
+    the_blind_minutes = {minute: CALM_RATE for minute in range(CALM_MINUTES)}
+    # Offsets rather than instants, derived from the window's shape so they move
+    # with it: the minute ACTION_TIME falls inside, which is the claim's, the one
+    # the answer came back in, and the first that wholly followed the answer.
+    claimed_in = CALM_MINUTES + FAILING_MINUTES - 1
+    answered_in = claimed_in + 1
+    first_whole = answered_in + 1
+
+    fetch_metrics: MagicMock = create_autospec(MetricsFetcher, instance=True)
+    fetch_metrics.side_effect = [
+        a_window_of_minutes(the_blind_minutes | {claimed_in: CALM_RATE}),
+        a_window_of_minutes(the_blind_minutes | {claimed_in: CALM_RATE,
+                                                 answered_in: CALM_RATE,
+                                                 first_whole: CALM_RATE})
+    ]
+
+    return fetch_metrics
+
+
+def _metrics_read_after_the_onset_and_before_the_claim_s_minute() -> MagicMock:
+    """A window the incident was watched through, never departing: a calm row
+    after the onset and before the minute the action was claimed in, and the
+    claim's minute itself."""
+    the_calm_minutes = {minute: CALM_RATE for minute in range(CALM_MINUTES)}
+    # The minute after the onset's, and the claim's.
+    watched_in = CALM_MINUTES + 1
+    claimed_in = CALM_MINUTES + FAILING_MINUTES - 1
+
+    fetch_metrics: MagicMock = create_autospec(MetricsFetcher, instance=True)
+    fetch_metrics.side_effect = [
+        a_window_of_minutes(the_calm_minutes | {watched_in: CALM_RATE, claimed_in: CALM_RATE})
+    ]
+
+    return fetch_metrics
+
+
 def _metrics_recovering_only_after_the_action() -> MagicMock:
     """The first look ends at the action, so no whole minute has followed it
     yet; the second carries one, and only then can a verdict be read."""
@@ -3866,6 +4114,7 @@ def test_a_discard_is_confirmed_by_its_receipt_where_no_series_ever_moved() -> N
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=None,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(discard=the_store_found_both_of_them),
                 fetch_metrics=metrics_reading(a_window_that_never_departed()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -3906,6 +4155,7 @@ def test_a_discard_is_confirmed_by_its_receipt_where_nothing_is_published() -> N
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=None,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(discard=the_store_found_both_of_them),
                 fetch_metrics=metrics_reading([]),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
@@ -3948,6 +4198,7 @@ def test_a_restart_is_not_confirmed_by_a_window_nobody_published() -> None:
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=None,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     restart=_a_restarter_bringing_up(SOME_APPLICATION)
                 ),
@@ -3993,6 +4244,7 @@ def test_a_refuted_discard_puts_nothing_back_and_says_no_undo_was_owed() -> None
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=None,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(discard=a_discard_removing(dont_care_count)),
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
@@ -4028,6 +4280,7 @@ def test_a_restart_is_not_confirmed_by_a_window_that_never_departed() -> None:
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=None,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(restart=the_shop_was_restarted),
                 fetch_metrics=metrics_reading(a_window_that_never_departed()),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
@@ -4061,6 +4314,7 @@ def test_a_verdict_reached_on_the_actions_own_receipt_announces_no_wait() -> Non
                 thresholds=_some_thresholds(),
                 incident_id=_SOME_INCIDENT_ID,
                 plan=None,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(discard=a_discard_removing(dont_care_count)),
                 fetch_metrics=metrics_reading([]),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
@@ -4091,6 +4345,7 @@ def test_a_verdict_on_a_window_that_never_departed_announces_no_wait() -> None:
                 thresholds=_some_thresholds(),
                 incident_id=_SOME_INCIDENT_ID,
                 plan=None,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(restart=_a_restarter_bringing_up(SOME_APPLICATION)),
                 fetch_metrics=metrics_reading(a_window_that_never_departed()),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
@@ -4121,6 +4376,7 @@ def test_a_measured_onset_is_still_judged_on_the_levels_it_always_was() -> None:
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=None,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(restart=the_shop_was_restarted),
                 fetch_metrics=metrics_reading(a_recovered_window()),
                 now=a_clock_frozen_at(ACTION_TIME),
@@ -5514,6 +5770,7 @@ def test_metrics_that_cannot_be_read_do_not_keep_the_rule_from_judging() -> None
                 thresholds=_some_thresholds(),
                 incident_id=_SOME_INCIDENT_ID,
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
                 ),
@@ -5553,6 +5810,7 @@ def test_the_service_is_re_read_for_the_rule_that_paged() -> None:
                 thresholds=_some_thresholds(),
                 incident_id=_SOME_INCIDENT_ID,
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
                 ),
@@ -5906,6 +6164,7 @@ def test_an_incident_withdrawn_while_its_rule_is_watched_is_withdrawn() -> None:
                 thresholds=_some_thresholds(),
                 incident_id=_SOME_INCIDENT_ID,
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
                 ),
@@ -5938,6 +6197,7 @@ def test_an_action_on_an_alert_naming_no_rule_reads_no_rule() -> None:
                 thresholds=_some_thresholds(),
                 incident_id=_SOME_INCIDENT_ID,
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
                 ),
@@ -6026,6 +6286,7 @@ def _an_action_judged_by_the_rule(read_rule: RuleReader,
         thresholds=_some_thresholds(),
         incident_id=_SOME_INCIDENT_ID,
         plan=DONT_CARE_PLAN,
+        acted_from=_CLAIMED_AT,
         writes=the_writes(
             set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
         ),
@@ -6145,6 +6406,7 @@ def test_an_action_withheld_because_nobody_wanted_it_is_logged(
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(set_state=_a_flag_setter_changing_from(
                     DONT_CARE_FLAG, was_enabled=some_old_state
                 )),
@@ -6177,6 +6439,7 @@ def test_a_platform_that_was_not_there_is_logged_as_a_warning(
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(roll_back=_a_roller_that_cannot_reach_the_platform(
                     THE_PLATFORM_DID_NOT_ANSWER
                 )),
@@ -6211,6 +6474,7 @@ def test_an_action_that_could_not_be_taken_is_logged_as_a_warning(
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(set_state=_a_flag_setter_that_cannot_write(
                     dont_care_failure
                 )),
@@ -6242,6 +6506,7 @@ def test_a_read_that_could_not_be_answered_is_logged_as_a_warning(
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
                 ),
@@ -6273,6 +6538,7 @@ def test_a_wait_that_never_read_the_service_is_logged_as_a_warning(
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
                 ),
@@ -6309,6 +6575,7 @@ def test_a_service_unread_from_its_deadline_is_logged_as_a_warning(
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
                 ),
@@ -6385,6 +6652,7 @@ def test_a_change_the_platform_stopped_applying_is_logged_as_a_warning(
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
                 ),
@@ -6417,6 +6685,7 @@ def test_a_change_that_had_not_arrived_by_the_deadline_is_logged_as_a_warning(
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
                 ),
@@ -6447,6 +6716,7 @@ def test_an_arrival_that_could_not_be_read_is_logged_as_a_warning(
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(
                     set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
                 ),
@@ -6481,6 +6751,7 @@ def test_an_undo_that_failed_is_logged_as_an_error(caplog: pytest.LogCaptureFixt
                 settings=_some_mitigation_settings(),
                 thresholds=_some_thresholds(),
                 plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
                 writes=the_writes(set_state=set_state),
                 fetch_metrics=metrics_reading(a_still_failing_window()),
                 now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
@@ -6512,6 +6783,7 @@ def test_a_refuted_change_is_told_as_owed_back_with_what_the_watch_found_before_
             settings=_some_mitigation_settings(),
             thresholds=_some_thresholds(),
             plan=DONT_CARE_PLAN,
+            acted_from=_CLAIMED_AT,
             writes=the_writes(),
             fetch_metrics=metrics_reading(a_still_failing_window()),
             now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
@@ -6554,6 +6826,7 @@ def test_a_refuted_change_the_incident_ended_before_it_was_put_back_stays_owed_a
             settings=_some_mitigation_settings(),
             thresholds=_some_thresholds(),
             plan=DONT_CARE_PLAN,
+            acted_from=_CLAIMED_AT,
             writes=the_writes(),
             fetch_metrics=metrics_reading(a_still_failing_window()),
             now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
@@ -6606,6 +6879,7 @@ def test_a_change_the_watch_did_not_refute_is_owed_back_by_nobody(
             settings=_some_mitigation_settings(),
             thresholds=_some_thresholds(),
             plan=DONT_CARE_PLAN,
+            acted_from=_CLAIMED_AT,
             writes=the_writes(),
             fetch_metrics=a_read(),
             now=a_clock(ACTION_TIME),
@@ -6640,6 +6914,7 @@ def test_a_refuted_change_that_left_nothing_to_put_back_is_owed_back_by_nobody()
             settings=_some_mitigation_settings(),
             thresholds=_some_thresholds(),
             plan=None,
+            acted_from=_CLAIMED_AT,
             writes=the_writes(),
             fetch_metrics=metrics_reading(a_still_failing_window()),
             now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
@@ -6669,6 +6944,7 @@ def test_a_change_already_made_is_watched_and_judged_as_one_just_made_is() -> No
             Performed(said=DONT_CARE_WHAT_IT_DID, undo_descriptor=the_change_made),
             settings=_some_mitigation_settings(),
             thresholds=_some_thresholds(),
+            acted_from=_CLAIMED_AT,
             fetch_metrics=metrics_reading(a_recovered_window()),
             now=a_clock_frozen_at(ACTION_TIME),
             sleep=dont_care_sleep,
@@ -6818,6 +7094,7 @@ def test_a_put_back_owed_on_the_claim_of_a_lost_run_stops_the_attempt_before_it_
             settings=_some_mitigation_settings(),
             thresholds=_some_thresholds(),
             plan=DONT_CARE_PLAN,
+            acted_from=_CLAIMED_AT,
             writes=the_writes(),
             fetch_metrics=metrics_reading(a_still_failing_window()),
             now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
@@ -6959,6 +7236,7 @@ def test_a_claim_s_change_made_since_is_answered_as_the_live_write_s_refusal_is(
         settings=_some_mitigation_settings(),
         thresholds=_some_thresholds(),
         plan=the_plan,
+        acted_from=_CLAIMED_AT,
         writes=the_writes(scale_out=_a_scaler_finding_it_changed_since(
             SOMEBODY_SCALED_IT, left_behind=what_an_earlier_asking_left, performed=performed
         )),

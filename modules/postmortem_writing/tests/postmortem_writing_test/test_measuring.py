@@ -894,6 +894,33 @@ def test_metrics_that_resume_in_the_minute_argus_acted_in_end_the_gap_at_the_act
 
 
 @pytest.mark.unit
+def test_metrics_back_in_the_minute_before_the_write_answered_end_the_gap_at_the_action() -> None:
+    # What CI met, as the write-up reads it. The plan was read late in a minute,
+    # the shop restored its rows from that minute, and the write's answer - which
+    # dates the action - came back in the next. Up to the answer's minute, the
+    # restored rows sat before the action and read as the sight never lost. Up to
+    # the minute the action is dated from - the plan's read, before the write was
+    # sent - they are the action's own, and the stretch ends at the action.
+    the_plan_s_read = STARTED_AT + timedelta(minutes=2, seconds=58)
+    the_action = STARTED_AT + timedelta(minutes=3, seconds=1)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[an_action("dont care", taken_at=the_action,
+                                                              acted_from=the_plan_s_read)])
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(
+                metrics=_metrics_missing_until(the_plan_s_read.replace(second=0))))
+        ) \
+        .then(all_of(
+            _the_metrics_stopped_at(ONSET),
+            _the_metrics_resumed_at(the_action),
+            _ran_for(hours_between(ONSET, the_action))
+        ))
+
+
+@pytest.mark.unit
 def test_metrics_that_resume_minutes_after_argus_acted_resume_at_their_first_minute() -> None:
     the_action = STARTED_AT + timedelta(minutes=2, seconds=20)
     the_first_minute_back = STARTED_AT + timedelta(minutes=4)

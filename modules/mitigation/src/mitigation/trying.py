@@ -166,6 +166,7 @@ def take_action(admitted: Admitted[Action],
                 rule: str | None = None,
                 read_rule: RuleReader | None = None,
                 plan: Planned[Any] | None,
+                acted_from: datetime,
                 writes: PerformingWrites,
                 undo: UndoChange,
                 change_made: ChangeMade = _nobody_told,
@@ -278,6 +279,16 @@ def take_action(admitted: Admitted[Action],
     neither watched nor put back: what the service does now is no longer
     Argus's change alone to answer for.
 
+    `acted_from` is when the action's claim was written - after the plan's read
+    and before the write, so the latest moment known to come before the write
+    was sent, on the walk's own clock as the arrival and the deadlines are - and
+    is where the minutes asked whether the incident was ever watched end. Not the
+    moment the write answered: the call can straddle a minute, and a service
+    that restores its rows from its own minute of the change would have them
+    counted as before it. Required, because a caller that forgot it would have
+    the answer's moment stand in for it, and a blind spot refuted by the very
+    rows it brought back.
+
     `kinds` says which kind an action is, and so whose write performs it and
     whose words describe it; `undoing_kinds` says the same of a change that was
     put back, for the words that end the sentence. Both default to the one
@@ -327,9 +338,9 @@ def take_action(admitted: Admitted[Action],
 
     return watch_what_was_performed(
         action, performed, settings, thresholds, fetch_metrics, now, sleep, still_wanted,
-        arrivals, incident_id, publisher, onset=onset, incident_began=incident_began,
-        rule=rule, read_rule=read_rule, undo=undo, put_back_owed=put_back_owed,
-        undoing_kinds=undoing_kinds
+        arrivals, incident_id, publisher, onset=onset, acted_from=acted_from,
+        incident_began=incident_began, rule=rule, read_rule=read_rule, undo=undo,
+        put_back_owed=put_back_owed, undoing_kinds=undoing_kinds
     )
 
 
@@ -346,6 +357,7 @@ def watch_what_was_performed(action: Action,
                              publisher: Publisher = nobody,
                              *,
                              onset: datetime | None = None,
+                             acted_from: datetime,
                              incident_began: str | None = None,
                              rule: str | None = None,
                              read_rule: RuleReader | None = None,
@@ -359,6 +371,8 @@ def watch_what_was_performed(action: Action,
     another: a walk resumed after the one that made it died holds the change,
     and making it again would be a second write. Every parameter is
     `take_action`'s, said there; `performed` is what the write produced.
+    `acted_from` matters most here: a resumed walk begins watching minutes after
+    the write, so the moment it begins is no date for the action at all.
 
     A refutation that left something to put back is told to `put_back_owed`
     with what the watch found, *before* anything else is done about it, so a
@@ -370,7 +384,7 @@ def watch_what_was_performed(action: Action,
     settled = _what_watching_the_service_settled(
         # Read for the rule that paged, so the recovery is dated on its series.
         partial(fetch_metrics, rule=rule), arrivals(action), now, sleep, still_wanted, settings,
-        thresholds, action.action_type, incident_id, publisher, onset,
+        thresholds, action.action_type, acted_from, incident_id, publisher, onset,
         read_the_rule=(
             partial(read_rule, rule)
             if rule is not None and read_rule is not None
@@ -897,6 +911,7 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
                                        settings: MitigationSettings,
                                        thresholds: AnomalyThresholds,
                                        action_type: ActionType,
+                                       acted_from: datetime,
                                        incident_id: str | None = None,
                                        publisher: Publisher = nobody,
                                        onset: datetime | None = None,
@@ -922,6 +937,17 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
     pass - no minute has finished yet - and asked of the window as a whole it would
     be overturned by the readings the action itself brought back, which arrive
     within the minute.
+
+    Where that span ends is `acted_from`, when the action's claim was written:
+    the latest moment known to come before the write was sent, on the walk's own
+    clock as the arrival and the deadlines are - never the moment its answer
+    came back. The call can straddle a minute, and the service restores its rows
+    from its own minute of the change: dated by the answer, that minute counted
+    as before the action, the rows the action brought back read as the sight
+    having been there all along, and a blind spot was refuted on its first look
+    for a window that never departed. Everything after the action - the first
+    minute a verdict is read from, the deadlines - is still dated by the change
+    arriving.
 
     An onset of `None` is every incident whose onset was measured rather than
     stated, and a measured onset means the window held a departure to measure it
@@ -1288,10 +1314,13 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
 
         # Measured on the first pass that answered and not revisited: the span it
         # asks about ended when the action was taken, so a later pass would be
-        # answering about a window the action itself has already changed.
+        # answering about a window the action itself has already changed. Ended
+        # at the minute the action is dated from rather than the one it arrived
+        # in: a write's answer can come back in the minute after the service
+        # acted, and the service restores its rows from its own minute.
         if the_sight_was_absent is None:
             the_sight_was_absent = _nothing_was_seen_between(
-                buckets, onset, to_iso_minute(arrived_at)
+                buckets, onset, to_iso_minute(acted_from)
             )
             # What the wait waits for, said once this is known and before the
             # wait is: on a blind spot, for the minutes to be published again -
@@ -1623,13 +1652,15 @@ def _nothing_was_seen_between(buckets: Sequence[MetricBucket],
     what its onset was measured from - and one nobody could watch has none of
     them, which is the whole of what a monitoring blind spot is.
 
-    `acted_in_minute` is the minute the action itself fell inside, and the slice
-    stops strictly before it. That minute is aggregated over seconds either side
-    of the change, so it describes neither the service that was failing nor the
-    one that was fixed - and where an action restores the sight, it is the first
-    minute the rows come back in. Counted as evidence the sight was there, it
-    answers this question with the very thing the action did about it, and the
-    incident is then judged on levels whose absence was the incident.
+    `acted_in_minute` is the minute the action itself fell inside - dated from
+    a moment known to come before the write was sent, never from its answer -
+    and the slice stops strictly before it. That minute is aggregated over
+    seconds either side of the change, so it describes neither the service
+    that was failing nor the one that was fixed - and where an action restores
+    the sight, it is the first minute the rows come back in. Counted as
+    evidence the sight was there, it answers this question with the very thing
+    the action did about it, and the incident is then judged on levels whose
+    absence was the incident.
 
     One minute later - the first that wholly followed the change - is the
     watching window's own start, and it is the wrong end of this span for the

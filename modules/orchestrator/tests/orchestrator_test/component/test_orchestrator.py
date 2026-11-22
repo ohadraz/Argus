@@ -1021,6 +1021,7 @@ def _actions_that(*verdicts: Verdict) -> ports.TakeAction:
              /,
              *,
              plan: Any = None,
+             acted_from: datetime | None = None,
              still_wanted: Any = None,
              incident_id: str | None = None,
              publisher: Publisher = nobody,

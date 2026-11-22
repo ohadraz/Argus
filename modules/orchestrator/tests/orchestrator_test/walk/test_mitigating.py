@@ -1365,6 +1365,52 @@ def test_an_action_with_nothing_to_plan_is_claimed_and_taken_with_no_plan(
 
 
 @pytest.mark.unit
+def test_an_action_on_a_plan_is_dated_from_its_claim_not_from_the_plan_s_read(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    still_wanted: MagicMock
+) -> None:
+    # The latest moment known to come before the write was sent, on the walk's
+    # own clock as the arrival and the deadlines are. The plan is read first,
+    # then the claim is written, and only then is the action taken - so the
+    # claim is later than the plan's read and still before the write. The
+    # write's answer can come back a minute after the service acted, and the
+    # service restores what it reports from its own minute, so the wait asks
+    # whether the incident was ever watched up to this moment, never the answer.
+    some_plan = Planned(descriptor=_a_scale_out_of_three(), since=SOME_MOMENT_THE_PLAN_WAS_READ)
+
+    Scenario() \
+        .given(
+            calling(lambda: _this_walk_holds_the_claim(record_action)),
+            calling(lambda: _the_action_came_back(take, Verdict.CONFIRMED)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=ScaleOut(application=SOME_APPLICATION)
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_planning_answering(some_plan),
+                                      resuming=_resuming_nobody_checks(),
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_MOMENT_THE_CLAIM_WAS_WRITTEN))) \
+        .then(all_of(
+            _the_claim_was_written_at(SOME_MOMENT_THE_CLAIM_WAS_WRITTEN, record_action),
+            _the_action_was_dated_from(SOME_MOMENT_THE_CLAIM_WAS_WRITTEN, take)
+        ))
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("verdict", [Verdict.NOT_ATTEMPTED, Verdict.PLATFORM_UNREACHABLE,
                                      Verdict.ESCALATED],
                          ids=lambda verdict: verdict.value)
@@ -1562,6 +1608,54 @@ def test_a_resumed_walk_acting_again_acts_on_the_plan_the_earlier_claim_carries(
                                       still_wanted=still_wanted)) \
         .then(
             _the_action_was_taken_on(the_plan_the_claim_carries, take)
+        )
+
+
+@pytest.mark.unit
+def test_a_resumed_walk_acting_again_dates_the_action_from_the_earlier_claim(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    record_outcome: MagicMock,
+    still_wanted: MagicMock
+) -> None:
+    # The claim is the earlier attempt's, and was written before this write as
+    # it was before the one that was lost - so it is what the action is dated
+    # from, and neither its plan's read nor this walk's own clock is.
+    the_plan_the_claim_carries = Planned(
+        descriptor=FlagUndo(flag=DONT_CARE_FLAG, was_enabled=True),
+        since=SOME_MOMENT_THE_PLAN_WAS_READ
+    )
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                planned=the_plan_the_claim_carries)),
+            calling(lambda: _nothing_of_it_landed(resuming)),
+            calling(lambda: _the_action_came_back(take, Verdict.CONFIRMED)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor()
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(
+            _the_action_was_dated_from(SOME_MOMENT_THE_CLAIM_WAS_WRITTEN, take)
         )
 
 
@@ -3791,6 +3885,60 @@ def _the_action_was_taken_on(plan: Planned[Any] | None,
     return assertion
 
 
+def _the_action_was_dated_from(moment: datetime, take: MagicMock) -> Assertion[StateDelta]:
+    """The action was taken dated from `moment` - what the wait ends the minutes
+    it asks whether the incident was ever watched in at."""
+    def assertion(dont_care_result: StateDelta) -> bool:
+        if not take.called:
+            raise AssertionError(f"Expected the action dated from [{moment}], it was not taken.")
+
+        handed = take.call_args.kwargs.get("acted_from")
+        if handed != moment:
+            raise AssertionError(
+                f"Expected the action dated from [{moment}], it was dated from [{handed}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_claim_was_written_at(moment: datetime,
+                              record_action: MagicMock) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
+        written_at = record_action.call_args.kwargs.get("at")
+
+        if written_at != moment:
+            raise AssertionError(
+                f"Expected the claim written at [{moment}], it was written at [{written_at}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_change_was_watched_from(moment: datetime,
+                                 resuming: ports.Resuming) -> Assertion[StateDelta]:
+    """A change an earlier worker made was watched dated from `moment`."""
+    def assertion(dont_care_result: StateDelta) -> bool:
+        watched = _mocked(resuming.watch)
+
+        if not watched.called:
+            raise AssertionError(f"Expected the change watched from [{moment}], it was not "
+                                 f"watched.")
+
+        handed = watched.call_args.kwargs.get("acted_from")
+        if handed != moment:
+            raise AssertionError(
+                f"Expected the change watched from [{moment}], it was watched from [{handed}]."
+            )
+
+        return True
+
+    return assertion
+
+
 def _an_earlier_attempt_holds_the_claim(
         record_action: MagicMock,
         already_taken: MagicMock,
@@ -4929,6 +5077,10 @@ WHAT_THE_REVERT_SAID = f"set flag [{DONT_CARE_FLAG}] OFF"
 # When an earlier attempt's change was made, as the estate dates it.
 SOME_MOMENT_THE_ESTATE_SAYS_IT_WAS_MADE = SOME_MOMENT_THE_CLAIM_WAS_WRITTEN + timedelta(
     seconds=3)
+# And one in the minute after its claim: a write whose answer came back across a
+# minute boundary.
+SOME_MOMENT_IN_THE_MINUTE_AFTER_THE_CLAIM = SOME_MOMENT_THE_CLAIM_WAS_WRITTEN + timedelta(
+    minutes=1, seconds=2)
 # What a write-tier read found, in its words.
 SOME_FINDING_ON_THE_ESTATE = "flag [dont-care-flag] was changed by [kuki] since Argus set it"
 
@@ -7128,6 +7280,95 @@ def test_a_change_told_as_made_with_no_plan_is_asked_after_on_its_way_back_alone
             _it_was_checked_whether_still_argus_s(no_plan, ITS_PLAN.descriptor, resuming),
             _the_verdict_reported_is(Verdict.CONFIRMED)
         ))
+
+
+@pytest.mark.unit
+def test_a_change_told_as_made_is_watched_from_its_claim(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # The worker died in the wait, and this one watches minutes after the write.
+    # Neither the moment it begins watching nor the one the row says the change
+    # was made is known to come before the write was sent; the claim is, and is
+    # later than its plan's read.
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None,
+                planned=THE_PLAN_THE_ROW_KEPT, progress=ActionProgress.PERFORMED,
+                undo_descriptor=THE_WAY_BACK_THE_ROW_KEPT, performed_at=SOME_MOMENT_IT_WAS_MADE)),
+            calling(lambda: _it_was_found(resuming, ChangeFound(still_argus_s=True))),
+            calling(lambda: _the_watch_came_back(resuming, _an_outcome(Verdict.CONFIRMED))),
+            an_action_taking_incident := _a_resumed_incident()
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(
+            _the_change_was_watched_from(SOME_MOMENT_THE_CLAIM_WAS_WRITTEN, resuming)
+        )
+
+
+@pytest.mark.unit
+def test_a_claim_found_made_is_watched_from_its_claim_not_from_when_the_estate_says_it_was_made(
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    resuming: ports.Resuming,
+    still_wanted: MagicMock
+) -> None:
+    # The worker died after its write and before the row said so; the estate
+    # says the change was made, dated a minute after the claim - a write whose
+    # answer came back across a minute. That date is when the change was said,
+    # which is what the record keeps; the watch is dated from the claim, the
+    # last moment known to come before the write was sent.
+    its_plan = _a_plan_of(_an_action_with_an_undo_descriptor())
+
+    Scenario() \
+        .given(
+            calling(lambda: _an_earlier_attempt_holds_the_claim(
+                record_action, already_taken, nothing_recorded=None, planned=its_plan)),
+            calling(lambda: _it_was_found_made(resuming, Made(
+                descriptor=its_plan.descriptor,
+                made_at=SOME_MOMENT_IN_THE_MINUTE_AFTER_THE_CLAIM))),
+            calling(lambda: _the_watch_came_back(resuming, _an_outcome(Verdict.CONFIRMED))),
+            an_action_taking_incident := _a_resumed_incident()
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=resuming,
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      record_action=record_action,
+                                      complete_action=complete_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted,
+                                      now=_the_clock_at(SOME_NOW))) \
+        .then(
+            _the_change_was_watched_from(SOME_MOMENT_THE_CLAIM_WAS_WRITTEN, resuming)
+        )
 
 
 @pytest.mark.unit

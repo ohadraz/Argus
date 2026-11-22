@@ -822,6 +822,10 @@ def _what_was_done(conn: psycopg.Connection,
     write has no such line, and is dated by its verdict saying so
     (`when_it_was_taken`). The row stands only where the account holds neither.
 
+    And what it is dated from, which the row does say: its claim, written after
+    the plan's read and before the write - the latest moment known to come
+    before the write was sent, on the walk's own clock, as the walk dated it.
+
     And where that line sits in `told`, the timeline the document numbers, so
     the document can mark the line rather than say the action again beside it.
     `told` is `account` told, so the two cannot disagree about how many
@@ -843,6 +847,7 @@ def _what_was_done(conn: psycopg.Connection,
 
     return [
         ActionRecord(taken_at=when_it_was_taken(taken_action, account),
+                     acted_from=taken_action.taken_at,
                      action=_what_it_did(taken_action, said),
                      has_a_way_back=_whether_it_left_a_way_back(taken_action),
                      verdict=taken_action.outcome,

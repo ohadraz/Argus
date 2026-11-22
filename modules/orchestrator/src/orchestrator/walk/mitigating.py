@@ -216,6 +216,18 @@ def mitigation_node(
     planned = planning if isinstance(planning, Planned) else None
     refused = planning if isinstance(planning, Outcome) else None
 
+    # When the claim was written, which is not when the action was: the agent is
+    # called in after it, and the action announced after that. Recorded as the
+    # claim's time, the action came before the agent that took it - so what the
+    # record says it was taken at is its announcement. Kept here because it is
+    # what the action is dated from: after the plan's read and before the write,
+    # the latest moment known to come before the write was sent, and on the
+    # walk's own clock, as the change's arrival and the deadlines are. Never the
+    # write's answer, which can come back a minute after the service acted - and
+    # the service restores its rows from its own minute of the change, which,
+    # counted as before the action, read as the sight having been there.
+    claimed_at = now()
+
     # The claim goes in before anything happens, so that a walk resumed inside
     # this node is refused by the database rather than by a check it could race
     # with. Losing it means an earlier attempt already acted on this candidate -
@@ -235,11 +247,7 @@ def mitigation_node(
         # cap on attempts per subject counts a phrase that comes out different
         # every round.
         subject=state.proposed_action.subject,
-        # When the claim was written, which is not when the action was: the
-        # agent is called in after it, and the action announced after that.
-        # Dated by the claim, the action came before the agent that took it -
-        # so what dates the action is its announcement.
-        at=now(),
+        at=claimed_at,
         # Absent for an action with nothing to plan, and for a plan the tier
         # refused, since none was made.
         planned=planned
@@ -280,8 +288,8 @@ def mitigation_node(
     else:
         try:
             result = _take_on_the_claim(
-                state, take, admission, planned, action_id, acting_for, still_wanted,
-                advance_action, owe_a_put_back, announced, publisher, now
+                state, take, admission, planned, claimed_at, action_id, acting_for,
+                still_wanted, advance_action, owe_a_put_back, announced, publisher, now
             )
         except LostAfterSending:
             logger.warning("the action was asked for and its answer was lost",
@@ -306,6 +314,7 @@ def _take_on_the_claim(state: IncidentState,
                        take: TakeAction,
                        admitted: Admitted[Action],
                        planned: Planned[Any] | None,
+                       acted_from: datetime,
                        action_id: str,
                        acting_for: ActingFor,
                        still_wanted: IsStillWanted,
@@ -319,14 +328,15 @@ def _take_on_the_claim(state: IncidentState,
     # Inside the claim's action, put-back of a refuted change included, so that
     # every write the tier makes for it carries its mark.
     with acting_for(action_id):
-        return _taken(state, take, admitted, planned, still_wanted, advance_action,
-                      owe_a_put_back, announced, publisher, now)
+        return _taken(state, take, admitted, planned, acted_from, still_wanted,
+                      advance_action, owe_a_put_back, announced, publisher, now)
 
 
 def _taken(state: IncidentState,
            take: TakeAction,
            admitted: Admitted[Action],
            planned: Planned[Any] | None,
+           acted_from: datetime,
            still_wanted: IsStillWanted,
            advance_action: AdvanceAction,
            owe_a_put_back: OweAPutBack,
@@ -343,6 +353,7 @@ def _taken(state: IncidentState,
         # earlier claim's - and not one worked out again: the write
         # compares the estate with what the claim recorded.
         plan=planned,
+        acted_from=acted_from,
         **_what_the_wait_is_handed(state, still_wanted, publisher),
         change_made=partial(
             _the_change_was_made,
@@ -963,7 +974,7 @@ def _the_claim_resumed(state: IncidentState,
         if isinstance(answer, Made):
             return _the_found_made_carried_on(state, claimed, answer, resumption)
 
-        return _the_claim_taken(state, planned, answer, resumption)
+        return _the_claim_taken(state, claimed, planned, answer, resumption)
 
 
 def _the_found_made_carried_on(state: IncidentState,
@@ -973,7 +984,9 @@ def _the_found_made_carried_on(state: IncidentState,
     """A claimed change found made: moved on to made, dated by when the estate
     says it was - the only record of when it happened, and no moment at all
     where the estate has none, never this walk's clock - then announced where
-    nothing is on file, and watched as a change told as made is."""
+    nothing is on file, and watched as a change told as made is, from its
+    claim: when the estate says it was made is when it was said, and can be a
+    minute after the service acted."""
     assert state.hypothesis is not None and state.proposed_action is not None
 
     _the_claim_is_told(state, resumption.advance_action, ActionProgress.PERFORMED,
@@ -981,20 +994,23 @@ def _the_found_made_carried_on(state: IncidentState,
     acted_at = made.made_at if made.made_at is not None else claimed.claimed_at
     _announced_where_none_is_on_file(state, acted_at, resumption)
 
-    return _the_change_watched(state, made.descriptor, acted_at, resumption)
+    return _the_change_watched(state, made.descriptor, acted_at, claimed.claimed_at,
+                               resumption)
 
 
 def _the_claim_taken(state: IncidentState,
+                     claimed: ClaimedAction,
                      planned: Planned[Any],
                      not_made: NotMade[Any],
                      resumption: _Resumption) -> StateDelta:
     """A claimed change found not made, taken on its plan as the live walk takes
-    it - unless the autonomy policy now refuses it, when it is a new write
-    nobody admitted (`_the_retake_refused`), or the metrics can no longer judge
-    it, when a change nobody can judge is not made. Either way, what the read
-    said of the claim's is out there all the same is recorded as left behind
-    where the attempt ends before its own change, and known: nothing else of
-    the claim's was made."""
+    it, and dated from its claim as the live walk dates it - unless the autonomy
+    policy now refuses it, when it is a new write nobody admitted
+    (`_the_retake_refused`), or the metrics can no longer judge it, when a
+    change nobody can judge is not made. Either way, what the read said of the
+    claim's is out there all the same is recorded as left behind where the
+    attempt ends before its own change, and known: nothing else of the claim's
+    was made."""
     assert state.hypothesis is not None and state.proposed_action is not None
     left_behind = not_made.left_behind
 
@@ -1018,8 +1034,10 @@ def _the_claim_taken(state: IncidentState,
     announced: list[ActionTaken] = []
 
     try:
+        # Dated from the claim, as the live walk dates it: it was written before
+        # this write as it was before the one that was lost.
         result = _taken(state, resumption.take, resumption.admission, planned,
-                        resumption.still_wanted, resumption.advance_action,
+                        claimed.claimed_at, resumption.still_wanted, resumption.advance_action,
                         resumption.owe_a_put_back, announced, resumption.publisher,
                         resumption.now)
     except LostAfterSending:
@@ -1107,7 +1125,8 @@ def _the_change_made_resumed(state: IncidentState,
                 found.found
             ))
 
-        return _the_change_watched(state, descriptor, acted_at, resumption)
+        return _the_change_watched(state, descriptor, acted_at, claimed.claimed_at,
+                                   resumption)
 
 
 def _whether_it_still_stands(state: IncidentState,
@@ -1132,11 +1151,16 @@ def _whether_it_still_stands(state: IncidentState,
 def _the_change_watched(state: IncidentState,
                         descriptor: UndoDescriptor,
                         acted_at: datetime | None,
+                        acted_from: datetime,
                         resumption: _Resumption) -> StateDelta:
     """A change an earlier worker made, watched as the live walk watches it and
     recorded as the live walk records it - unless the metrics no longer reach
     back to when the incident began, when whether it helped cannot be judged
     and it is handed over, still standing, rather than watched.
+
+    `acted_at` is when it was made, for the record; `acted_from` is what the
+    watch dates the action from - the claim, written before the write was sent,
+    as the live walk dates it.
 
     Acted for the claim's own row by whoever calls it, so a refutation the
     watch puts back is a write marked as that action's.
@@ -1151,6 +1175,7 @@ def _the_change_watched(state: IncidentState,
     result = resumption.resuming.watch(
         state.proposed_action,
         performed_as_recorded(state.proposed_action, descriptor),
+        acted_from=acted_from,
         **_what_the_wait_is_handed(state, resumption.still_wanted, resumption.publisher),
         put_back_owed=partial(
             _the_put_back_is_owed,

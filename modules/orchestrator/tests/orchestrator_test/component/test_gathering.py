@@ -169,6 +169,9 @@ DONT_CARE_REPORTING_LAG_MINUTES = 0
 
 # When an action a case never asks the moment of was taken.
 DONT_CARE_TAKEN_AT = parse_iso("2026-09-02T11:52:00Z")
+# How long before an action's announcement its claim was written: long enough
+# that the two fall in different minutes.
+SOME_GAP_BEFORE_THE_ANNOUNCEMENT = timedelta(seconds=46)
 
 # A message a person wrote in the incident's thread. Any reference does.
 SOME_MESSAGE = Reference(source="some-chat", kind="some-kind", value="some-message")
@@ -2406,6 +2409,36 @@ def test_an_action_is_dated_by_when_it_was_taken_not_by_when_it_was_claimed(
 
 
 @pytest.mark.component
+def test_an_action_is_dated_from_its_claim_whatever_its_announcement_says(
+        a_clean_database: None) -> None:
+    # Where the minutes asked whether the incident was ever watched end: the
+    # last moment known to come before the write was sent, which is the claim.
+    # The announcement is when the change was said, and a write's answer can
+    # come back a minute after the service acted - dated by it, rows the service
+    # restored from its own minute of the change read as the sight never lost.
+    some_taken_at = parse_iso("2026-10-11T23:44:44Z")
+    # Before the announcement, in an earlier minute, so the claim and the
+    # announcement cannot be mistaken for each other.
+    some_claimed_at = some_taken_at - SOME_GAP_BEFORE_THE_ANNOUNCEMENT
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_claimed_then_taken(conn, incident_id, some_taken_at,
+                                                              claimed_at=some_claimed_at))
+            ) \
+            .when(
+                lambda: gather_evidence(conn, incident_id)
+            ) \
+            .then(all_of(
+                _dates_its_one_action_at(some_taken_at),
+                _its_one_action_is_dated_from(some_claimed_at)
+            ))
+
+
+@pytest.mark.component
 def test_an_action_never_performed_is_dated_by_the_verdict_that_says_so(
         a_clean_database: None) -> None:
     # An attempt that ended before its write is announced by nothing, and its
@@ -3342,9 +3375,11 @@ def _an_action_left_at(conn: psycopg.Connection,
 
 def _an_action_claimed_then_taken(conn: psycopg.Connection,
                                   incident_id: str,
-                                  taken_at: datetime) -> None:
-    """One action whose row was claimed before the account says its change was
-    made at `taken_at` - the two moments a walk writes for every action."""
+                                  taken_at: datetime,
+                                  claimed_at: datetime | None = None) -> None:
+    """One action whose row was claimed - at `claimed_at`, or four minutes
+    before, where a case does not say - before the account says its change was
+    made at `taken_at`: the two moments a walk writes for every action."""
     candidate = Hypothesis(incident_id=incident_id,
                            summary="dont care",
                            failure_mode=FailureMode.FEATURE_FLAG_TOGGLE,
@@ -3357,7 +3392,8 @@ def _an_action_claimed_then_taken(conn: psycopg.Connection,
                          subject=SOME_FLAG,
                          outcome=Verdict.CONFIRMED,
                          undo_descriptor=FlagUndo(flag=SOME_FLAG, was_enabled=True),
-                         at=taken_at - timedelta(minutes=4),
+                         at=claimed_at if claimed_at is not None else taken_at - timedelta(
+                             minutes=4),
                          left_behind_known=True)
     events.record(conn, ActionTaken(incident_id=incident_id,
                                     hypothesis_id=candidate.id,
@@ -3463,6 +3499,19 @@ def _points_at_refusals_dated(
             raise AssertionError(
                 f"Expected the refusals to point at lines dated {expected}, "
                 f"and they point at {pointed_at}.")
+
+        return True
+
+    return assertion
+
+
+def _its_one_action_is_dated_from(expected: datetime) -> Assertion[IncidentEvidence]:
+    def assertion(evidence: IncidentEvidence) -> bool:
+        dated_from = [action.acted_from for action in evidence.actions]
+
+        if dated_from != [expected]:
+            raise AssertionError(
+                f"Expected one action dated from [{expected}], got {dated_from}.")
 
         return True
 

@@ -223,12 +223,21 @@ class TakeAction(Protocol):
     # `plan` is the change `PlanAction` worked out and the claim carries, `None`
     # for an action with nothing to plan. Not defaulted: an action taken on a
     # plan nobody chose would be compared against a state nothing wrote down.
+    #
+    # `acted_from` is when the claim was written - after the plan's read and
+    # before the write, so the latest moment known to come before the write is
+    # sent, on the walk's own clock as the arrival and the deadlines are - and is
+    # where the wait ends the minutes it asks whether the incident was ever
+    # watched in. The agent cannot know it: the moment its write answers can be a
+    # minute after the service acted, and the service restores its rows from its
+    # own minute. Not defaulted either, for the same reason as the plan.
     def __call__(
         self,
         admitted: Admitted[Action],
         /,
         *,
         plan: Planned[Any] | None,
+        acted_from: datetime,
         still_wanted: StillWanted = ...,
         incident_id: str | None = None,
         publisher: Publisher = nobody,
@@ -416,7 +425,9 @@ class WatchWhatWasPerformed(Protocol):
     watch refutes it (`mitigation.watch_what_was_performed`) - `TakeAction` from
     the moment its write landed, for a change an earlier worker made.
 
-    Keyword-only after the change, for `TakeAction`'s reasons.
+    Keyword-only after the change, for `TakeAction`'s reasons. `acted_from` is
+    `TakeAction`'s too: when the earlier worker's claim was written, never when
+    this walk begins watching, which is minutes after the write was sent.
     """
 
     def __call__(self,
@@ -424,6 +435,7 @@ class WatchWhatWasPerformed(Protocol):
                  performed: Performed,
                  /,
                  *,
+                 acted_from: datetime,
                  still_wanted: StillWanted = ...,
                  incident_id: str | None = None,
                  publisher: Publisher = nobody,

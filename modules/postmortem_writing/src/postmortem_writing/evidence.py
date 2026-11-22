@@ -89,6 +89,12 @@ class ActionRecord(BaseModel):
     """
 
     taken_at: datetime
+    # When its claim was written - after its plan's read and before its write,
+    # so the latest moment known to come before the write was sent, on the
+    # walk's own clock. Not `taken_at`: that is when it was said, and a write's
+    # answer can come back a minute after the service acted. Required, so a
+    # reader building one says.
+    acted_from: datetime
     action: str
     has_a_way_back: bool
     verdict: str | None
@@ -372,4 +378,15 @@ class IncidentEvidence(BaseModel):
         it made none. Not one never performed, nor one nobody can say was:
         said as the minute Argus acted, either says a change was made."""
         return min((action.taken_at for action in self.actions
+                    if action.progress.its_change_was_made() is True), default=None)
+
+    @property
+    def first_acted_from(self) -> datetime | None:
+        """What the first change Argus made is dated from - the earliest
+        `acted_from` of the actions `first_acted_at` is read from - or `None`
+        where it made none. Where the minutes asked whether the incident was
+        ever watched end: a service that restores its rows from its own minute
+        of the change has them before the write's answer, and counted as before
+        the action they read as the sight having been there all along."""
+        return min((action.acted_from for action in self.actions
                     if action.progress.its_change_was_made() is True), default=None)

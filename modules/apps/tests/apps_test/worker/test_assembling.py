@@ -57,11 +57,11 @@ from read_mcp_client import ReadTier
 from write_mcp_client import WriteTier
 
 # What the mitigation node passes when it performs an action: the policy's
-# admission of it, the plan its claim carries, and three arguments that carry
-# their own defaults. Everything else `take_action` declares has to have been
-# bound at assembly, so anything still required beyond this is a collaborator the
-# walk was never given.
-WHAT_THE_MITIGATION_NODE_SUPPLIES = frozenset({"admitted", "plan"})
+# admission of it, the plan its claim carries, the moment the action is dated
+# from, and three arguments that carry their own defaults. Everything else
+# `take_action` declares has to have been bound at assembly, so anything still
+# required beyond this is a collaborator the walk was never given.
+WHAT_THE_MITIGATION_NODE_SUPPLIES = frozenset({"admitted", "plan", "acted_from"})
 
 # What puts one change back: the descriptor recording it, and nothing else. Which
 # changes to undo and in what order belong to whoever holds the records.

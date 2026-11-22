@@ -317,14 +317,17 @@ def an_action(action: str,
               left_behind_known: bool = True,
               progress: ActionProgress = ActionProgress.PERFORMED,
               tried_before: list[Verdict] | None = None,
-              put_back: bool = False) -> ActionRecord:
+              put_back: bool = False,
+              acted_from: datetime | None = None) -> ActionRecord:
     """One action Argus took - with no verdict, unless a test names one, no
     line of the account saying it, unless a test says where it sits, known
     to have left what it says, unless a test says nobody can tell, performed,
     unless a test says how far it got, tried on no earlier incident, unless
-    a test says what it came to on each, and not put back, unless a test says
-    the walk put it back."""
+    a test says what it came to on each, not put back, unless a test says
+    the walk put it back, and dated from the moment it was taken, unless a
+    test says its write was sent from an earlier one."""
     return ActionRecord(taken_at=taken_at,
+                        acted_from=acted_from if acted_from is not None else taken_at,
                         action=action,
                         has_a_way_back=has_a_way_back,
                         verdict=verdict,

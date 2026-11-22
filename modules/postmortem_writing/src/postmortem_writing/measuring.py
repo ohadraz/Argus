@@ -264,9 +264,10 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
                               evidence.rule)
     # Up to the action only from an onset: an incident with none is dated from
     # its alert, and the walk asks this of no window but one from an onset.
-    sight = _the_sight_lost(metrics, began,
-                            evidence.first_acted_at if evidence.onset_at is not None else None,
-                            evidence.ended_at, sources.metrics_reporting_lag_minutes)
+    acted_from, acted_at = ((evidence.first_acted_from, evidence.first_acted_at)
+                            if evidence.onset_at is not None else (None, None))
+    sight = _the_sight_lost(metrics, began, acted_from, acted_at, evidence.ended_at,
+                            sources.metrics_reporting_lag_minutes)
     # Where the service came back is judged on the hour before it, as it always
     # was: the readers find their own quiet half in what they are handed, and a
     # noisier stretch hours earlier would move the bar a minute is told apart by.
@@ -416,6 +417,7 @@ class _Sight(NamedTuple):
 
 def _the_sight_lost(metrics: list[MetricBucket],
                     began: datetime,
+                    first_acted_from: datetime | None,
                     first_acted_at: datetime | None,
                     closed_at: datetime,
                     reporting_lag_minutes: int) -> _Sight | None:
@@ -431,6 +433,12 @@ def _the_sight_lost(metrics: list[MetricBucket],
     change, and where the action restores the sight it is the first minute the
     rows come back in. And where they come back in it, they came back after the
     action, which is when they are said to have resumed.
+
+    That minute is `first_acted_from`'s - a moment known to come before the
+    write was sent - and not `first_acted_at`'s, which is when the action was
+    said: a write's answer can come back a minute after the service acted, and
+    the service restores its rows from its own minute of the change. Where they
+    resumed is still said by `first_acted_at`, the moment the walk recorded.
 
     An empty read is not this. It is a source that could not answer, and it
     says nothing about whether the service was being collected from - where a
@@ -458,10 +466,10 @@ def _the_sight_lost(metrics: list[MetricBucket],
     if not after:
         return _Sight(stopped_at=began)
 
-    if first_acted_at is None or first_acted_at < began:
+    if first_acted_from is None or first_acted_at is None or first_acted_from < began:
         return None
 
-    acted_in = first_acted_at.replace(second=0, microsecond=0)
+    acted_in = first_acted_from.replace(second=0, microsecond=0)
     if first_minute >= acted_in or after[0] < acted_in:
         return None
 
