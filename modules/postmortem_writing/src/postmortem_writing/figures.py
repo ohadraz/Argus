@@ -210,6 +210,13 @@ _UNITS: Final = {
 # The longest spelling first, so "percentage points" is not read as "points".
 _SPELLINGS_LONGEST_FIRST: Final = sorted(_UNITS, key=len, reverse=True)
 
+# A floor as prose says it, and the same floor after an "at" of the prose's.
+_AT_LEAST: Final = "at least"
+_NO_LESS_THAN: Final = "no less than"
+# Where a clause ends: punctuation that a space or the text's end follows,
+# which a figure's own "1,840.01" never is.
+_A_CLAUSE_ENDS: Final = r"[.,;:!?](?:\s|$)"
+
 # What a sentence says straight after a figure's name or a working, which may
 # be its unit again: a percent sign, with or without a space, a unit `_UNITS`
 # spells, or any other word - a unit's symbol as a level is written in it
@@ -320,8 +327,14 @@ _WORKINGS: Final[dict[tuple[_Kind, str, _Kind],
 _A_LEVEL_SHOWN: Final = re.compile(r"^(?P<number>[-+]?(?:[\d.]+|Inf|NaN))(?P<unit>.*)$")
 _PERCENT_SHOWN: Final = "%"
 
-# A span as `said_as_a_span` says one, a count and its unit at a time.
-_A_COUNT_OF_A_UNIT: Final = re.compile(r"(\d+) (day|hour|minute|second)s?")
+# A span, a count and its unit at a time: as `said_as_a_span` says one ("7
+# minutes 12 seconds"), and as a tile shows one ("7m 12s") - which is what an
+# executive overview's model is shown, and a working it names is worked out
+# from. Read the one way only, the tile's read nothing and came out as no time
+# at all. A letter only where the tile writes it, against its number, so "10
+# ms" is never read as ten minutes.
+_A_COUNT_OF_A_UNIT: Final = re.compile(r"(\d+)(?: (day|hour|minute|second)s?|([dhms]))\b")
+_A_UNIT_S_LETTER: Final = {"d": "day", "h": "hour", "m": "minute", "s": "second"}
 
 # An instant as a wire format writes one, which the alert's sender may.
 _AN_INSTANT: Final = re.compile(r"\d{4}-\d{2}-\d{2}T[\d:.]+Z?")
@@ -938,26 +951,136 @@ def with_figures_written_with_every_day(answer: SubmittedPostmortem,
 
 def _with_figures_written_in(answer: SubmittedPostmortem, figures: dict[str, Figure],
                              dated: Callable[[str], str]) -> SubmittedPostmortem:
-    def written_in(prose: str) -> str:
-        # A sentence that opens with a figure opens with a capital once it is
-        # written in: "less than a second after the alert was raised" is
-        # written lower case.
-        opens_with_one = prose.startswith("{")
-        prose = _A_WORKING_AND_A_UNIT.sub(
-            lambda working: (_with_its_unit_once(dated(result), working["after"])
-                             if (result := _worked_out(working, figures))
-                             else working.group(0)),
-            prose
-        )
-        prose = _A_NAME_AND_A_UNIT.sub(
-            lambda name: (_with_its_unit_once(figures[name.group(1)].written, name["after"])
-                          if name.group(1) in figures else name.group(0)),
-            prose
-        )
+    return answer.with_each_sentence(lambda prose: written_in(prose, figures, dated=dated))
 
-        return f"{prose[:1].upper()}{prose[1:]}" if opens_with_one else prose
 
-    return answer.with_each_sentence(written_in)
+def written_in(prose: str,
+               figures: Mapping[str, Figure],
+               *,
+               dated: Callable[[str], str] = lambda result: result) -> str:
+    """`prose` with every figure it names, and every working of two, written in -
+    for a postmortem's sentence and an executive overview alike.
+
+    Each in turn, left to right, as `written` goes in where the prose stands:
+    a working's result passed through `dated`; a unit said again after it left
+    out (`_with_its_unit_once`); and its qualifiers, "at least" in front and
+    "so far" behind, given way to where the prose says them already
+    (`_said_once`). A name or working the figures cannot answer is left as
+    written, for the checks to send back.
+
+    One pass, because a figure's qualifier in front can rewrite the prose
+    already passed ("at at least" becomes "at"), which only a pass keeping
+    its own output can do. So each figure meets its clause with the figures
+    before it written in and those after it not yet: two "so far" figures in
+    one clause have it dropped from the second, where the first already said
+    it.
+
+    A sentence that opens with a figure opens with a capital once it is
+    written in: "less than a second after the alert was raised" is written
+    lower case.
+    """
+    opens_with_one = prose.startswith("{")
+    said = sorted([*((naming, _worked_out(naming, figures))
+                     for naming in _A_WORKING_AND_A_UNIT.finditer(prose)),
+                   *((naming, figures[naming.group(1)].written
+                      if naming.group(1) in figures else None)
+                     for naming in _A_NAME_AND_A_UNIT.finditer(prose))],
+                  key=lambda each: each[0].start())
+    kept = ""
+    passed = 0
+    for naming, written in said:
+        before = kept + prose[passed:naming.start()]
+        passed = naming.end()
+        if written is None:
+            kept = before + naming.group(0)
+            continue
+
+        is_a_working = naming.re is _A_WORKING_AND_A_UNIT
+        whole = dated(written) if is_a_working else written
+        # The word after it stays where it is not the figure's own unit, and
+        # is the prose's from there on.
+        after = (naming["after"] or "") if _with_its_unit_once(whole, naming["after"]) != whole \
+            else ""
+        before, figure = _said_once(before, whole, after + prose[passed:])
+        kept = before + figure + after
+
+    kept += prose[passed:]
+
+    return f"{kept[:1].upper()}{kept[1:]}" if opens_with_one else kept
+
+
+def _said_once(before: str, written: str, after: str) -> tuple[str, str]:
+    """The prose up to the figure, and `written` as it goes in after it: the
+    figure less its qualifier in front - "at least" - where the prose says it
+    just before, and less its qualifier behind - "so far" - where the
+    figure's own clause says it anywhere. Each whole or not at all, and never
+    the figure itself.
+
+    Shown a floor's tile, a model writes "at least {duration}", and the duration
+    as prose says it carries its own "at least": written in whole, it read "at
+    least at least 7 days". The prose's own words are the ones kept, so a
+    sentence it opens with "At least" keeps its capital. Whole, because a word
+    of the qualifier alone is the prose's own: "the lost takings at
+    {customer_loss}" lost its "at" to the figure's, and read "takings at least".
+    Kept, the prose's "at" would read "at at least", so a floor after it is
+    said "no less than" - the same floor in other words. And where the prose
+    wrote the "at at least" itself, its "at least" is read as the figure's: the
+    one place the prose's words give way, because keeping them is the doubled
+    word.
+
+    "So far" is looked for across the clause rather than beside the name: "the
+    lost takings so far at {customer_loss}" says it two words before, and a
+    clause says a thing once whichever end it says it at. Only the clause - a
+    "so far" a sentence away is about something else. Behind is what follows
+    the figure's unit, the unit measured by its longest spelling: "2.5
+    percentage points" has nothing behind it.
+    """
+    words = written.split(" ")
+    figured = [place for place, word in enumerate(words) if any(map(str.isdigit, word))]
+    if not figured:
+        return before, written
+
+    # Before the first number; and after the last one and the unit it is in.
+    in_front = figured[0]
+    behind = len(words) - figured[-1] - 1 - _the_unit_s_words(words[figured[-1] + 1:])
+    qualifier = " ".join(words[:in_front])
+    if (qualifier.lower() == _AT_LEAST
+            and re.search(rf"(?:^|\W)at {_AT_LEAST} $", before, re.IGNORECASE)):
+        before = before[:-len(f"{_AT_LEAST} ")]
+    lead = in_front if in_front and re.search(
+        rf"(?:^|\W){re.escape(qualifier)} $", before, re.IGNORECASE) else 0
+    if (not lead and qualifier.lower() == _AT_LEAST
+            and re.search(r"(?:^|\W)at $", before, re.IGNORECASE)):
+        words = [*_NO_LESS_THAN.split(" "), *words[in_front:]]
+    rest = words[lead:]
+    tail = behind if behind > 0 and re.search(
+        rf"(?:^|\W){re.escape(' '.join(rest[-behind:]))}(?:\W|$)",
+        _the_clause_around(before, after), re.IGNORECASE) else 0
+
+    return before, " ".join(rest[:len(rest) - tail])
+
+
+def _the_unit_s_words(following: Sequence[str]) -> int:
+    """How many of the words after a figure's last number are its unit: a
+    unit's longest spelling they open with, or the one word otherwise - a
+    currency's code, say - or none where nothing follows."""
+    said = " ".join(following).lower()
+    for spelling in _SPELLINGS_LONGEST_FIRST:
+        if said == spelling or said.startswith(f"{spelling} "):
+            return len(spelling.split(" "))
+
+    return min(len(following), 1)
+
+
+def _the_clause_around(before: str, after: str) -> str:
+    """The prose's words on either side of a figure, as far as the clause it is
+    in reaches each way.
+
+    A clause ends at punctuation followed by a space or by nothing, so the
+    comma and the point inside "1,840.01 USD", already written in, end nothing.
+    """
+    return (re.split(_A_CLAUSE_ENDS, before)[-1] + " "
+            + re.split(_A_CLAUSE_ENDS, after)[0])
 
 
 def units_against_their_figures(prose: str,
@@ -1176,8 +1299,8 @@ def _percent_shown(share: Figure) -> Decimal:
 
 def _span_shown(span: Figure) -> timedelta:
     """A span as the model was shown it, read back out of its words."""
-    return sum((timedelta(**{f"{unit}s": int(count)})
-                for count, unit in _A_COUNT_OF_A_UNIT.findall(span.given)),
+    return sum((timedelta(**{f"{unit or _A_UNIT_S_LETTER[letter]}s": int(count)})
+                for count, unit, letter in _A_COUNT_OF_A_UNIT.findall(span.given)),
                timedelta())
 
 

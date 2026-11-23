@@ -88,6 +88,7 @@ from postmortem_writing.figures import (
     with_every_day_said,
     with_figures_written,
     with_figures_written_with_every_day,
+    written_in,
 )
 
 from postmortem_writing_test.framework.builders import (
@@ -148,6 +149,28 @@ SOME_LINE_DATING_A_TIME = CitedEvidence(
     label="T8",
     text=f"Asked for production change events, the 1 day before "
          f"{said_as_a_day(SOME_MOMENT_ON_ANOTHER_DAY)} {SOME_MOMENT_ON_ANOTHER_DAY:%H:%M}")
+
+# What prose puts around a figure that is a floor: before a stretch still going,
+# and after a loss still adding up.
+AT_LEAST = "at least"
+SO_FAR = "so far"
+# The same floor, said after an "at" of the prose's own.
+NO_LESS_THAN = "no less than"
+
+# A stretch still going, and a loss still adding up - one in a unit `_UNITS`
+# spells and one in a currency's code, which it spells none of.
+SOME_SPAN = "10 minutes"
+SOME_LOSS = "1,840.01 USD"
+SOME_OTHER_LOSS = "31.50 USD"
+A_SPAN_STILL_GOING = Figure(given=f"{AT_LEAST} {SOME_SPAN}", written=f"{AT_LEAST} {SOME_SPAN}")
+A_LOSS_STILL_ADDING_UP = Figure(given=SOME_LOSS, written=f"{SOME_LOSS} {SO_FAR}")
+ANOTHER_LOSS_STILL_ADDING_UP = Figure(given=SOME_OTHER_LOSS, written=f"{SOME_OTHER_LOSS} {SO_FAR}")
+SOME_OTHER_LOSS_NAME = "refunds"
+
+# Two spans as a tile shows them, and the one between them as prose says it.
+SOME_LONGER_SPAN_ON_A_TILE = "30m 0s"
+SOME_SHORTER_SPAN_ON_A_TILE = "7m 12s"
+THE_SPAN_BETWEEN_THEM = "22 minutes 48 seconds"
 
 
 @pytest.mark.unit
@@ -500,6 +523,148 @@ def test_a_word_after_a_figure_written_with_no_unit_is_the_writers_own() -> None
         ) \
         .then(
             the_answer_was(SubmittedPostmortem(root_cause="It ran for 37 minutes."))
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("at_least_as_written", [AT_LEAST, AT_LEAST.capitalize()],
+                         ids=["within-a-sentence", "opening-one"])
+def test_a_floor_the_sentence_already_qualifies_is_written_in_qualified_once(
+        at_least_as_written: str) -> None:
+    # Written in whole, "at least {duration}" read "at least at least 10
+    # minutes". The sentence's own words are the ones kept, capital and all.
+    a_sentence_qualifying_it = f"{at_least_as_written} {{{DURATION_FIGURE}}} went by."
+
+    Scenario() \
+        .given(
+            figures := {DURATION_FIGURE: A_SPAN_STILL_GOING}
+        ) \
+        .when(
+            lambda: written_in(a_sentence_qualifying_it, figures)
+        ) \
+        .then(
+            the_answer_was(f"{at_least_as_written} {SOME_SPAN} went by.")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("said", [
+    f"It stood at {{{DURATION_FIGURE}}}.",
+    f"It stood at {AT_LEAST} {{{DURATION_FIGURE}}}."
+], ids=["at", "at-at-least"])
+def test_a_floor_after_an_at_of_the_sentence_s_own_is_said_no_less_than(said: str) -> None:
+    # The sentence's "at" kept before the floor's own "at least" reads "at at
+    # least" - whether the floor or the sentence said the "at least".
+    Scenario() \
+        .given(
+            figures := {DURATION_FIGURE: A_SPAN_STILL_GOING}
+        ) \
+        .when(
+            lambda: written_in(said, figures)
+        ) \
+        .then(
+            the_answer_was(f"It stood at {NO_LESS_THAN} {SOME_SPAN}.")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("figure", "as_it_ends"), [
+    (A_LOSS_STILL_ADDING_UP, SOME_LOSS),
+    (Figure(given=SOME_SPAN, written=f"{SOME_SPAN} {SO_FAR}"), SOME_SPAN)
+], ids=["in-a-unit-the-units-do-not-spell", "in-a-unit-they-spell"])
+def test_a_figure_its_clause_already_says_so_far_of_is_not_said_so_far_again(
+        figure: Figure, as_it_ends: str) -> None:
+    # Two words before the name rather than just after it, and the clause said
+    # it twice. Whatever follows the figure's unit is its qualifier, and a
+    # currency's code is a unit as much as minutes are.
+    Scenario() \
+        .given(
+            figures := {CUSTOMER_LOSS_FIGURE: figure}
+        ) \
+        .when(
+            lambda: written_in(f"It came {SO_FAR} to {{{CUSTOMER_LOSS_FIGURE}}}.", figures)
+        ) \
+        .then(
+            the_answer_was(f"It came {SO_FAR} to {as_it_ends}.")
+        )
+
+
+@pytest.mark.unit
+def test_a_so_far_in_another_clause_leaves_the_figure_its_own() -> None:
+    # Only the figure's own clause speaks for it: a "so far" a clause earlier
+    # is about something else.
+    Scenario() \
+        .given(
+            figures := {CUSTOMER_LOSS_FIGURE: A_LOSS_STILL_ADDING_UP}
+        ) \
+        .when(
+            lambda: written_in(f"Nothing failed again {SO_FAR}; it came to "
+                               f"{{{CUSTOMER_LOSS_FIGURE}}}.", figures)
+        ) \
+        .then(
+            the_answer_was(f"Nothing failed again {SO_FAR}; it came to "
+                           f"{A_LOSS_STILL_ADDING_UP.written}.")
+        )
+
+
+@pytest.mark.unit
+def test_two_figures_so_far_in_one_clause_say_it_once_from_the_first() -> None:
+    # One pass, left to right: the first meets a clause that has not said it
+    # yet, and the second one that has.
+    Scenario() \
+        .given(
+            figures := {CUSTOMER_LOSS_FIGURE: A_LOSS_STILL_ADDING_UP,
+                        SOME_OTHER_LOSS_NAME: ANOTHER_LOSS_STILL_ADDING_UP}
+        ) \
+        .when(
+            lambda: written_in(f"It came to {{{CUSTOMER_LOSS_FIGURE}}} and the refunds to "
+                               f"{{{SOME_OTHER_LOSS_NAME}}}.", figures)
+        ) \
+        .then(
+            the_answer_was(f"It came to {A_LOSS_STILL_ADDING_UP.written} and the refunds to "
+                           f"{SOME_OTHER_LOSS}.")
+        )
+
+
+@pytest.mark.unit
+def test_a_unit_of_two_words_is_never_read_as_a_qualifier() -> None:
+    # "Points" said in the clause is not the "points" of "percentage points":
+    # the unit is measured by its longest spelling, so nothing follows it.
+    some_rise = "2.5 percentage points"
+
+    Scenario() \
+        .given(
+            figures := {ERRORS_RISE_FIGURE: Figure(given=some_rise, written=some_rise)}
+        ) \
+        .when(
+            lambda: written_in(f"The rise in points was {{{ERRORS_RISE_FIGURE}}}.", figures)
+        ) \
+        .then(
+            the_answer_was(f"The rise in points was {some_rise}.")
+        )
+
+
+@pytest.mark.unit
+def test_an_overview_s_working_is_worked_from_its_tiles_and_its_units_said_once() -> None:
+    # An executive overview's model is shown each figure as its tile shows it,
+    # "7m 12s", and a working is worked out from what the model was shown.
+    # Read only as prose says a span, the tile's read as no time at all.
+    dont_care_said = "dont care"
+    figures = {HELD_FIGURE: Figure(given=SOME_LONGER_SPAN_ON_A_TILE, written=dont_care_said),
+               DURATION_FIGURE: Figure(given=SOME_SHORTER_SPAN_ON_A_TILE, written=dont_care_said),
+               SOME_OTHER_LOSS_NAME: Figure(given=SOME_OTHER_LOSS, written=SOME_OTHER_LOSS)}
+
+    Scenario() \
+        .given(
+            an_overview := (f"It held for {{{HELD_FIGURE} - {DURATION_FIGURE}}} more, at a "
+                            f"cost of {{{SOME_OTHER_LOSS_NAME}}} USD.")
+        ) \
+        .when(
+            lambda: written_in(an_overview, figures)
+        ) \
+        .then(
+            the_answer_was(f"It held for {THE_SPAN_BETWEEN_THEM} more, at a cost of "
+                           f"{SOME_OTHER_LOSS}.")
         )
 
 
