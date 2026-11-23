@@ -40,6 +40,7 @@ from core.models import (
     DetectionLesson,
     FailureMode,
     FirstTold,
+    ImpactExtent,
     LogsInTheGap,
     OpenedPullRequest,
     SeriesQuery,
@@ -113,6 +114,7 @@ from postmortem_writing.detection_lesson import (
 )
 from postmortem_writing.estimate import ErrorRates, LatencyLevels, RuleSeriesLevels, Unmeasured
 from postmortem_writing.evidence import ActionRecord, IncidentEvidence
+from postmortem_writing.extent import the_extent
 from postmortem_writing.figures import (
     A_MINUTE,
     ACTED_FIGURE,
@@ -1450,7 +1452,8 @@ def _how_long_it_was_broken(measured: Measurements,
     it was broken from the alert for at least the seconds Argus held it, a
     model was told of a fault the window had just ruled out.
     """
-    if evidence.disproven:
+    extent = the_extent(measured, evidence.disproven)
+    if extent is ImpactExtent.DISPROVEN:
         return [
             "Not broken: the alarm was disproven - no minute of the window Argus read "
             "departed from the service's baseline, so there is no onset, duration or "
@@ -1464,7 +1467,10 @@ def _how_long_it_was_broken(measured: Measurements,
         else "the onset"
     )
 
-    if measured.metrics_stopped_at is not None:
+    # The instant read beside the extent only so the type knows it is set: a
+    # stretch the metrics did not cover always has one.
+    if (extent in (ImpactExtent.METRICS_MISSING, ImpactExtent.METRICS_RESUMED)
+            and (stopped := measured.metrics_stopped_at) is not None):
         # Not a stretch of trouble but a stretch the metrics did not cover. Said
         # as that, because "had not recovered" would describe a broken service,
         # and the window before the onset would read as though it were the
@@ -1482,8 +1488,7 @@ def _how_long_it_was_broken(measured: Measurements,
             f"{_until_they_resumed(measured, evidence, figures)}. That "
             f"is {_shown(DURATION_FIGURE, figures)} the metrics did not cover, not a "
             f"stretch the service is known to have spent in trouble.",
-            _the_logs_reaching_into(evidence, measured.metrics_stopped_at,
-                                    measured.metrics_resumed_at, figures),
+            _the_logs_reaching_into(evidence, stopped, measured.metrics_resumed_at, figures),
             # Where a line reaches in, the document says it from the answer named
             # here, which is asked for only then. Where none does, nothing is
             # known of it: told nothing either, a model is free to say the
@@ -1496,12 +1501,12 @@ def _how_long_it_was_broken(measured: Measurements,
             f"nothing of it anywhere else. Where the chain's first step says nobody "
             f"using the service saw anything wrong, cite those log lines for it "
             f"without saying what they show."
-            if labels_reaching_into(evidence.log_lines, measured.metrics_stopped_at,
+            if labels_reaching_into(evidence.log_lines, stopped,
                                     measured.metrics_resumed_at) else
             "Nothing is known of how the service did over that stretch: say nothing of it."
         ]
 
-    if measured.back_to_normal_at is None:
+    if extent is ImpactExtent.AT_LEAST:
         return [
             f"Broken from {_shown(BEGAN_FIGURE, figures)} ({dated_from}). The service "
             f"was not back to normal by {_shown(ARGUS_STOPPED_FIGURE, figures)}, so it was "

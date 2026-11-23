@@ -64,6 +64,7 @@ from narration import (
 
 from postmortem_writing.estimate import LatencyLevels, Unmeasured
 from postmortem_writing.evidence import CandidateRecord, DeploymentChangesRecord, IncidentEvidence
+from postmortem_writing.extent import the_extent
 from postmortem_writing.labels import (
     ACTION_PREFIX,
     ALERT_PREFIX,
@@ -253,22 +254,12 @@ def impact_of(measured: Measurements,
     Whether any minute of the metrics came back at all, for the review: a
     window that came back empty is one Argus can collect no more of.
     """
-    if disproven:
+    extent = the_extent(measured, disproven)
+    if extent is ImpactExtent.DISPROVEN:
         return Impact(duration=timedelta(0),
-                      extent=ImpactExtent.DISPROVEN,
+                      extent=extent,
                       peak_error_rate=None,
                       before_the_alert=_the_rule_series_before_the_alert(measured))
-
-    if measured.metrics_stopped_at is not None and measured.metrics_resumed_at is not None:
-        extent = ImpactExtent.METRICS_RESUMED
-    elif measured.metrics_stopped_at is not None:
-        extent = ImpactExtent.METRICS_MISSING
-    elif measured.reported_by is not None:
-        extent = ImpactExtent.REPORTED
-    elif measured.back_to_normal_at is None:
-        extent = ImpactExtent.AT_LEAST
-    else:
-        extent = ImpactExtent.MEASURED
 
     rates = measured.error_rates
     series = measured.rule_series

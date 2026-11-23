@@ -19,11 +19,12 @@ from collections import Counter
 from collections.abc import Callable
 from typing import Final
 
-from core.models import ResolutionStep
+from core.models import ImpactExtent, ResolutionStep
 from narration import whether_it_can_be_put_back
 
 from postmortem_writing.estimate import LatencyLevels
 from postmortem_writing.evidence import ActionRecord, IncidentEvidence
+from postmortem_writing.extent import the_extent
 from postmortem_writing.figures import (
     ACTED_FIGURE,
     ALERT_RAISED_FIGURE,
@@ -165,40 +166,40 @@ def _when_and_for_how_long(measured: Measurements,
     """
     onset = measured.onset_at is not None
     said = [] if onset else [f"No onset was measured; the alert came at {written(BEGAN_FIGURE)}."]
-
-    if measured.metrics_stopped_at is not None and measured.metrics_resumed_at is not None:
-        showed = "" if measured.back_to_normal_at is not None else ", not showing it back to normal"
-        return [*said,
-                f"No metrics were collected from {written(METRICS_STOPPED_AT_FIGURE)} until "
-                f"they resumed at {written(METRICS_RESUMED_AT_FIGURE)}, "
-                f"{written(DURATION_FIGURE)} later{showed}.",
-                _what_the_logs_show(read, written_if_any)]
-
-    if measured.metrics_stopped_at is not None:
-        return [*said,
-                f"No metrics were collected from {written(METRICS_STOPPED_AT_FIGURE)} on, and "
-                f"they had not resumed by {written(ARGUS_STOPPED_FIGURE)}, "
-                f"{written(DURATION_FIGURE)} later.",
-                _what_the_logs_show(read, written_if_any)]
-
     later = "later" if onset else "after the alert"
-
-    if measured.reported_by is not None:
-        return [*said,
-                *([f"The service broke at {written(BEGAN_FIGURE)}."] if onset else []),
-                f"{measured.reported_by} reported the incident resolved at "
-                f"{written(BACK_TO_NORMAL_FIGURE)}, {written(DURATION_FIGURE)} {later}."]
-
     broke = f"The service broke at {written(BEGAN_FIGURE)} and was" if onset else "The service was"
 
-    if measured.back_to_normal_at is None:
-        return [*said,
-                f"{broke} not back to normal by {written(ARGUS_STOPPED_FIGURE)}, "
-                f"at least {written(DURATION_FIGURE)} {later}."]
-
-    return [*said,
-            f"{broke} back to normal at {written(BACK_TO_NORMAL_FIGURE)}, "
-            f"{written(DURATION_FIGURE)} {later}."]
+    # Never disproven here: a disproven alarm's summary says no stretch at all.
+    match the_extent(measured, disproven=False):
+        case ImpactExtent.METRICS_RESUMED:
+            showed = ("" if measured.back_to_normal_at is not None
+                      else ", not showing it back to normal")
+            return [*said,
+                    f"No metrics were collected from {written(METRICS_STOPPED_AT_FIGURE)} until "
+                    f"they resumed at {written(METRICS_RESUMED_AT_FIGURE)}, "
+                    f"{written(DURATION_FIGURE)} later{showed}.",
+                    _what_the_logs_show(read, written_if_any)]
+        case ImpactExtent.METRICS_MISSING:
+            return [*said,
+                    f"No metrics were collected from {written(METRICS_STOPPED_AT_FIGURE)} on, and "
+                    f"they had not resumed by {written(ARGUS_STOPPED_FIGURE)}, "
+                    f"{written(DURATION_FIGURE)} later.",
+                    _what_the_logs_show(read, written_if_any)]
+        case ImpactExtent.REPORTED:
+            return [*said,
+                    *([f"The service broke at {written(BEGAN_FIGURE)}."] if onset else []),
+                    f"{measured.reported_by} reported the incident resolved at "
+                    f"{written(BACK_TO_NORMAL_FIGURE)}, {written(DURATION_FIGURE)} {later}."]
+        case ImpactExtent.AT_LEAST:
+            return [*said,
+                    f"{broke} not back to normal by {written(ARGUS_STOPPED_FIGURE)}, "
+                    f"at least {written(DURATION_FIGURE)} {later}."]
+        # DISPROVEN beside it only to close the match: asked with
+        # `disproven=False`, the rule never answers it.
+        case ImpactExtent.MEASURED | ImpactExtent.DISPROVEN:
+            return [*said,
+                    f"{broke} back to normal at {written(BACK_TO_NORMAL_FIGURE)}, "
+                    f"{written(DURATION_FIGURE)} {later}."]
 
 
 def _what_the_logs_show(read: bool,
