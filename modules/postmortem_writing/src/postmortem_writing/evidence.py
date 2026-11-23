@@ -22,6 +22,7 @@ from core.models import (
     CodeUse,
     DeploymentComparison,
     FileAsItRan,
+    FileRead,
     FirstTold,
     OpenedPullRequest,
     Refusal,
@@ -144,6 +145,11 @@ class DeploymentChangesRecord(BaseModel):
     lists_every_file: bool = False
     comparison: DeploymentComparison = DeploymentComparison.COMPARED
     service: str | None = None
+    # Every file the comparison named, both sides, in order, as the value the
+    # lines were rendered from: what the write-up asks which files the deploy
+    # changed and what changed inside them. Empty where the event it came from
+    # carried none, which lists none (`DeploymentChangesRead`).
+    files: list[FileRead] = []
 
 
 class RefusalRecord(BaseModel):

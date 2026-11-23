@@ -99,7 +99,7 @@ def read_what_a_deployment_changed(
 
     narrator.say(DeploymentChangesRead, revision=revision, said=list(changes.said),
                  lists_every_file=changes.lists_every_file, comparison=changes.comparison,
-                 service=service)
+                 service=service, sides=list(changes.sides))
 
     # The lines alone: whether they list every file, and whether they are a
     # diff at all, is the write-up's to use, and what the model is shown of a

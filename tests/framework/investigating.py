@@ -117,7 +117,7 @@ def no_deployment_was_read(dont_care_service: str,
     diff decides anything, and a channel volunteering a diff would put a change
     in front of the model that the scenario never made.
     """
-    return DeploymentChanges(said=[], lists_every_file=False)
+    return DeploymentChanges()
 
 
 def no_rollout_was_read(dont_care_service: str) -> RolloutAccount:

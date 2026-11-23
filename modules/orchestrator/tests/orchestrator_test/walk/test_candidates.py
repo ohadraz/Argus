@@ -37,10 +37,12 @@ from core.models import (
     Circumstances,
     DeploymentChanges,
     EstablishedOnset,
+    FileRead,
     FlagChange,
     HowTheMinuteIsKnown,
     Hypothesis,
     RecordedPlacement,
+    Side,
     WhatWouldBeTried,
 )
 from orchestrator.walk.candidates import (
@@ -632,8 +634,11 @@ def test_the_circumstances_carry_the_diffs_read_and_when_the_incident_began() ->
     # What the deploy that carried a blamed file is found by: the diffs the
     # investigation read, and the minute a change has to come by to have begun
     # the incident.
+    some_path = "src/io_shop/purchase_ledger.py"
+    some_status = "modified"
     what_was_read = {SOME_REVISION: DeploymentChanges(
-        said=["modified src/io_shop/purchase_ledger.py"], lists_every_file=True)}
+        sides=[Side(files=[FileRead(path=some_path, status=some_status)])],
+        lists_every_file=True)}
 
     Scenario() \
         .given(

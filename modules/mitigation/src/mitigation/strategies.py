@@ -30,7 +30,6 @@ from typing import Protocol
 
 from core import parse_iso
 from core.anomaly import the_end_of_the_onset
-from core.events import names_as_changed, the_changed_file_it_names
 from core.models import (
     DISCARD_CACHE_ENTRIES,
     PIN_AUTOSCALER,
@@ -44,6 +43,7 @@ from core.models import (
     Circumstances,
     DiscardCacheEntries,
     FailureMode,
+    FileRead,
     FlagChange,
     FlagUndo,
     Hypothesis,
@@ -54,6 +54,7 @@ from core.models import (
     RevertFeatureFlag,
     RollBackDeployment,
     ScaleOut,
+    the_changed_file_it_names,
 )
 
 from mitigation.accelerators import the_accelerator_to_pin_to
@@ -737,10 +738,10 @@ def _the_file_named(subject: str | None, circumstances: Circumstances) -> str | 
     if subject is None:
         return None
 
-    said = [line for changes in circumstances.deployment_changes.values()
-            for line in changes.said]
+    paths = [read.path for changes in circumstances.deployment_changes.values()
+             for read in changes.files]
 
-    return the_changed_file_it_names(subject, said)
+    return the_changed_file_it_names(subject, paths)
 
 
 def _the_deploys_that_carried_the_file(subject: str | None,
@@ -758,16 +759,16 @@ def _the_deploys_that_carried_the_file(subject: str | None,
 
     return {deployment.reference for deployment in circumstances.deployments
             if (end is None or parse_iso(deployment.occurred_at) <= end)
-            and any(names_as_changed(line, path)
-                    for line in _the_diff_of(deployment.reference, circumstances))}
+            and any(read.path == path
+                    for read in _the_files_of(deployment.reference, circumstances))}
 
 
-def _the_diff_of(revision: str, circumstances: Circumstances) -> Sequence[str]:
-    """What the deploy of `revision` changed, as the read tier said it - no
-    lines where nobody read it."""
+def _the_files_of(revision: str, circumstances: Circumstances) -> Sequence[FileRead]:
+    """The files the deploy of `revision` changed, as the read tier read them -
+    none where nobody read it."""
     changes = circumstances.deployment_changes.get(revision)
 
-    return changes.said if changes is not None else ()
+    return changes.files if changes is not None else ()
 
 
 def _the_change_to_undo(subject: str | None,

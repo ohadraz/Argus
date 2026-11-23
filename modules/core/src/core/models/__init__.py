@@ -64,7 +64,18 @@ from core.models.change_event import (
 )
 from core.models.circumstances import Circumstances
 from core.models.code_search import CodeSearch
-from core.models.deployment_changes import DeploymentChanges, DeploymentComparison
+from core.models.deployment_changes import (
+    HUNK_HEADER,
+    PATCH_LINE_INDENT,
+    WHAT_ENDS_A_FILE,
+    DeploymentChanges,
+    DeploymentComparison,
+    FileRead,
+    NoDiff,
+    Side,
+    a_changed_file_line,
+    the_changed_file_it_names,
+)
 from core.models.disproof import Disproof
 from core.models.evidence import Evidence
 from core.models.failure_mode import FailureMode
@@ -256,6 +267,14 @@ __all__ = [
     "Circumstances",
     "DeploymentChanges",
     "DeploymentComparison",
+    "FileRead",
+    "HUNK_HEADER",
+    "NoDiff",
+    "PATCH_LINE_INDENT",
+    "Side",
+    "WHAT_ENDS_A_FILE",
+    "a_changed_file_line",
+    "the_changed_file_it_names",
     "CodeOutsideThePatch",
     "CodeSearch",
     "CodeUse",

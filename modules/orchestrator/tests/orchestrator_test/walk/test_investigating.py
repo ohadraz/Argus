@@ -58,6 +58,7 @@ from core.models import (
     DeploymentChanges,
     Disproof,
     EstablishedOnset,
+    FileRead,
     FlagChange,
     FlagHistory,
     HowTheMinuteIsKnown,
@@ -69,6 +70,7 @@ from core.models import (
     RecordedPlacement,
     RetrievalChannel,
     ServiceDependency,
+    Side,
     Standing,
     ThreadMessage,
     Verdict,
@@ -1534,10 +1536,15 @@ def test_the_round_keeps_what_each_deployment_changed_beside_what_earlier_rounds
     # reading the diff again still has it to find the deploy by.
     some_revision = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
     another_revision = "4c810f22894e612ced87f5ee3f3062dfeb785050"
-    earlier = DeploymentChanges(said=["modified deploy/values-production.yaml"],
-                                lists_every_file=True)
-    later = DeploymentChanges(said=["modified src/io_shop/purchase_ledger.py"],
-                              lists_every_file=True)
+    some_path = "deploy/values-production.yaml"
+    another_path = "src/io_shop/purchase_ledger.py"
+    some_status = "modified"
+    earlier = DeploymentChanges(
+        sides=[Side(files=[FileRead(path=some_path, status=some_status)])],
+        lists_every_file=True)
+    later = DeploymentChanges(
+        sides=[Side(files=[FileRead(path=another_path, status=some_status)])],
+        lists_every_file=True)
     an_incident_an_earlier_round_read = _an_investigating_incident().model_copy(
         update={"deployment_changes": {some_revision: earlier}}
     )

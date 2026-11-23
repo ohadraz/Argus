@@ -32,8 +32,16 @@ from enum import StrEnum
 from typing import Final
 
 from core import parse_iso, to_iso
-from core.events import HUNK_HEADER, PATCH_LINE_INDENT
-from core.models import CitedEvidence, DetectionLesson, DetectionPart, FirstTold, Quantile, Unit
+from core.models import (
+    HUNK_HEADER,
+    PATCH_LINE_INDENT,
+    CitedEvidence,
+    DetectionLesson,
+    DetectionPart,
+    FirstTold,
+    Quantile,
+    Unit,
+)
 from narration import (
     A_DAY_SAID,
     level_given_in,

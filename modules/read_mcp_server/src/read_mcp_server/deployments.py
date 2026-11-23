@@ -34,8 +34,14 @@ from __future__ import annotations
 from typing import Final
 
 from code_host import ChangedFile, CodeHostReads, Relation, SourceDifference
-from core.events import PATCH_LINE_INDENT, a_changed_file_line
-from core.models import ChangeEvent, DeploymentChanges, DeploymentComparison
+from core.models import (
+    ChangeEvent,
+    DeploymentChanges,
+    DeploymentComparison,
+    FileRead,
+    NoDiff,
+    Side,
+)
 from deployment_platform import DeploymentPlatformReads
 
 from read_mcp_server.deploy_history import the_revisions_deployed
@@ -83,7 +89,7 @@ def what_a_deployment_changed(service: str,
     landed = _where_in_the_history(revision, deployed)
 
     if landed is None:
-        return DeploymentChanges(said=[
+        return DeploymentChanges(opening=[
             f"No deployment of {service} has revision [{revision}]. The "
             f"deployment history holds "
             f"{[deploy.reference for deploy in deployed] or 'no deployment at all'}"
@@ -94,7 +100,7 @@ def what_a_deployment_changed(service: str,
         ], lists_every_file=False, comparison=DeploymentComparison.NOT_DEPLOYED)
 
     if landed == 0:
-        return DeploymentChanges(said=[
+        return DeploymentChanges(opening=[
             f"Revision [{revision}] is the earliest deployment of {service} the "
             f"history holds, so there is no earlier deployment to compare it "
             f"against. What it changed cannot be read; what it shipped can, by "
@@ -138,28 +144,28 @@ def _said(service: str, difference: SourceDifference) -> DeploymentChanges:
     it, and what it took away before what it brought (`_the_sides`). The budgets
     count both sides, in that order.
     """
-    said = [
+    opening = [
         f"Deployment of revision {difference.head} to {service}, compared against "
         f"{difference.base} - the revision deployed before it."
     ]
 
     if not difference.files and not difference.taken_away:
-        said.append(
+        opening.append(
             "It changed no file at all: the two revisions are identical, so "
             "nothing this deployment carried can account for the symptoms."
         )
 
-        return DeploymentChanges(said=said,
+        return DeploymentChanges(opening=opening,
                                  lists_every_file=not difference.more_files_than_listed)
 
     files_left = MOST_FILES_NAMED
     lines_left = MOST_PATCH_LINES_ALL_TOLD
     unnamed = 0
     unshown = 0
+    sides = []
 
     for sentence, files in _the_sides(difference):
-        if sentence is not None:
-            said.append(sentence)
+        named = []
 
         for changed in files:
             if not files_left:
@@ -167,33 +173,36 @@ def _said(service: str, difference: SourceDifference) -> DeploymentChanges:
                 continue
 
             files_left -= 1
-            said.append(a_changed_file_line(changed.status, changed.path))
 
             if changed.copied_from is not None:
-                said.append(
-                    f"{PATCH_LINE_INDENT}(no diff: it was a copy of {changed.copied_from}, and "
-                    f"the comparison shows only how the copy differed from it)"
-                )
+                named.append(FileRead(path=changed.path, status=changed.status,
+                                      no_diff=NoDiff.COPY, copied_from=changed.copied_from))
                 continue
 
             if changed.patch is None:
-                said.append(
-                    f"{PATCH_LINE_INDENT}(no diff: the comparison carries none for this file - "
-                    "it is not text, or its change was too large to list)"
-                )
+                named.append(FileRead(path=changed.path, status=changed.status,
+                                      no_diff=NoDiff.NONE_CARRIED))
                 continue
 
             patch = changed.patch.splitlines()
 
+            # Named alone where its diff does not fit: which files a deployment
+            # touched is what this channel is for, and the notice below says how
+            # many went unshown.
             if len(patch) > lines_left:
                 unshown += 1
+                named.append(FileRead(path=changed.path, status=changed.status))
                 continue
 
-            said.extend(f"{PATCH_LINE_INDENT}{line}" for line in patch)
+            named.append(FileRead(path=changed.path, status=changed.status, patch=patch))
             lines_left -= len(patch)
 
+        sides.append(Side(sentence=sentence, files=named))
+
     return DeploymentChanges(
-        said=said + _whatever_was_left_out(difference, unnamed, unshown),
+        opening=opening,
+        sides=sides,
+        notices=_whatever_was_left_out(difference, unnamed, unshown),
         lists_every_file=not difference.more_files_than_listed and not unnamed
     )
 

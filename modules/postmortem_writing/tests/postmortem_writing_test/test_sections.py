@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 import pytest
 from argus_testkit import Scenario, the_answer_was
 from core import parse_iso, to_iso
-from core.events import PATCH_LINE_INDENT, CandidateSelected, a_changed_file_line
+from core.events import CandidateSelected
 from core.models import (
     ActionItem,
     ActionItemStatus,
@@ -25,8 +25,10 @@ from core.models import (
     ChangeKind,
     ChannelReading,
     CitedEvidence,
+    DeploymentChanges,
     Detection,
     ErrorRateLevels,
+    FileRead,
     FirstTold,
     ForCandidate,
     HypothesisConsidered,
@@ -43,6 +45,7 @@ from core.models import (
     RuleSeriesBeforeTheAlert,
     RuleSeriesHarm,
     ServiceDependency,
+    Side,
     TimelineEntry,
     TimelineMarker,
     Trigger,
@@ -66,6 +69,7 @@ from postmortem_writing.estimate import (
     RuleSeriesSpan,
     Unmeasured,
 )
+from postmortem_writing.labels import PRODUCTION_CHANGE_PREFIX, label_of
 from postmortem_writing.log_groups import labels_reaching_into
 from postmortem_writing.sections import (
     a_put_back_left_the_harm,
@@ -106,6 +110,9 @@ SOME_THIRD_REVISION = "9a41c07be3d2f8165c0e7a92d4b8f3e6a1c5d720"
 SOME_FILE = "deploy/values-production.yaml"
 SOME_OTHER_FILE = "src/io_shop/pricing_service.py"
 SOME_DEPENDENCY = "io-pricing"
+SOME_SERVICE = "io-shop"
+# The one word the comparison gives a file it changed.
+SOME_STATUS = "modified"
 # The kind of line a move to another candidate is, as the events name it.
 CANDIDATE_SELECTED: str = CandidateSelected.model_fields["kind"].default
 
@@ -1257,6 +1264,45 @@ def test_a_suspect_naming_a_file_is_carried_by_the_deploy_that_changed_it() -> N
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("sentence", [
+    None,
+    f"It went back: {SOME_REVISION} is in the history of {SOME_EARLIER_REVISION}, so it "
+    f"brought nothing {SOME_EARLIER_REVISION} did not have, and took away what "
+    f"{SOME_EARLIER_REVISION} had changed since {SOME_REVISION}:"
+], ids=["brought", "taken-away"])
+def test_a_suspect_naming_a_file_named_alone_is_carried_by_the_deploy_that_named_it(
+        sentence: str | None) -> None:
+    # Where its patch did not fit what one answer carries, the read tier names
+    # the file and shows nothing inside it. The name is what says the deploy
+    # touched it, on whichever side of the comparison it was named.
+    the_deploy = "2026-09-02T11:58:00Z"
+    some_actor = "kuki"
+    # The deploy is the only change read, so it is the first.
+    its_place = 1
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                candidates=[a_candidate("dont care", subject=SOME_FILE)],
+                changes=[_a_deploy_of(SOME_REVISION, at=the_deploy, actor=some_actor)],
+                deployment_changes=[_a_record_of(
+                    SOME_REVISION, [FileRead(path=SOME_FILE, status=SOME_STATUS)], sentence)])
+        ) \
+        .when(
+            lambda: trigger_of(evidence)
+        ) \
+        .then(
+            the_answer_was(Trigger(subject=SOME_FILE,
+                                   from_state=None,
+                                   to_state=None,
+                                   changed_at=parse_iso(the_deploy),
+                                   actor=some_actor,
+                                   suspected=True,
+                                   carried_by=label_of(PRODUCTION_CHANGE_PREFIX, its_place)))
+        )
+
+
+@pytest.mark.unit
 def test_a_file_named_only_inside_a_deploys_patch_was_not_changed_by_it() -> None:
     # A comment pointing at another file names it without changing it: only
     # the line the diff names a changed file on says the deploy changed it.
@@ -1700,10 +1746,8 @@ def test_a_file_a_deploy_was_not_read_in_full_for_names_that_deploy() -> None:
                          _a_deploy_of(SOME_THIRD_REVISION, at="2026-09-02T11:58:00Z")],
                 deployment_changes=[
                     _everything_the_deploy_of(SOME_EARLIER_REVISION, SOME_OTHER_FILE),
-                    DeploymentChangesRecord(
-                        revision=SOME_REVISION,
-                        said=[a_changed_file_line("modified", SOME_OTHER_FILE)],
-                        lists_every_file=False)],
+                    _a_record_of(SOME_REVISION,
+                                 [FileRead(path=SOME_OTHER_FILE, status=SOME_STATUS)])],
                 deploys_reading=ChannelReading.READ,
                 flags_reading=ChannelReading.READ)
         ) \
@@ -3488,22 +3532,30 @@ _A_CHANGE = ["@@ -1,1 +1,1 @@", "-replicas: 2", "+replicas: 3"]
 def _everything_the_deploy_of(revision: str, changed_file: str) -> DeploymentChangesRecord:
     """What the deploy of `revision` changed, read in full: a listing of every
     file it changed, which is `changed_file` alone."""
-    return DeploymentChangesRecord(revision=revision, said=[
-        f"Deployment of revision {revision} to io-shop, compared against "
-        f"{SOME_EARLIER_REVISION} - the revision deployed before it.",
-        a_changed_file_line("modified", changed_file)
-    ], lists_every_file=True)
+    return _a_record_of(revision, [FileRead(path=changed_file, status=SOME_STATUS)],
+                        lists_every_file=True)
 
 
 def _what_the_deploy_of(revision: str, changed: list[str]) -> DeploymentChangesRecord:
-    """What the deploy of `revision` changed, as the read tier says it: one file,
-    its patch lines as `changed` gives them."""
-    return DeploymentChangesRecord(revision=revision, said=[
-        f"Deployment of revision {revision} to io-shop, compared against "
-        f"{SOME_EARLIER_REVISION} - the revision deployed before it.",
-        a_changed_file_line("modified", SOME_FILE),
-        *(f"{PATCH_LINE_INDENT}{line}" for line in changed)
-    ])
+    """What the deploy of `revision` changed, as the read tier reads it: one
+    file, its patch lines as `changed` gives them."""
+    return _a_record_of(revision, [FileRead(path=SOME_FILE, status=SOME_STATUS, patch=changed)])
+
+
+def _a_record_of(revision: str, files: list[FileRead], sentence: str | None = None,
+                 lists_every_file: bool = False) -> DeploymentChangesRecord:
+    """What the deploy of `revision` changed, as the write-up holds it: `files`
+    on the one side of the comparison `sentence` says - none for a deploy ahead
+    of the one before it - and the lines said from them."""
+    changes = DeploymentChanges(
+        opening=[f"Deployment of revision {revision} to {SOME_SERVICE}, compared against "
+                 f"{SOME_EARLIER_REVISION} - the revision deployed before it."],
+        sides=[Side(sentence=sentence, files=files)],
+        lists_every_file=lists_every_file)
+
+    return DeploymentChangesRecord(revision=revision, said=changes.said,
+                                   lists_every_file=changes.lists_every_file,
+                                   files=changes.files)
 
 
 @pytest.mark.unit

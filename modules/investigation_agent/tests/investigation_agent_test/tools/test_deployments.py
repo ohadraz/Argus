@@ -33,7 +33,7 @@ import pytest
 from argus_testkit import Assertion, Scenario, all_of, the_answer_was
 from core import new_id
 from core.events import DeploymentChangesRead, IncidentEvent, Narrator
-from core.models import DeploymentChanges, DeploymentComparison, ToolCall
+from core.models import DeploymentChanges, DeploymentComparison, FileRead, Side, ToolCall
 from investigation_agent.retrieval import DeploymentDiffFetcher
 from investigation_agent.tools.deployments import (
     DEPLOYMENT_DIFF_TOOL,
@@ -51,13 +51,14 @@ THE_REVISION_DEPLOYED_BEFORE = "544cef36a8eaf45c5b030c3d5c21473d8176cef3"
 
 THE_CONFIGURATION_FILE = "deploy/values-production.yaml"
 
-WHAT_THE_READ_TIER_SAID = [
-    f"Deployment of revision {THE_REVISION_DEPLOYED} to {SOME_SERVICE}, compared "
-    f"against {THE_REVISION_DEPLOYED_BEFORE} - the revision deployed before it.",
-    f"modified {THE_CONFIGURATION_FILE}",
-    "  -  port: 6379",
-    "  +  port: 6380"
-]
+WHAT_THE_READ_TIER_READ = DeploymentChanges(
+    opening=[f"Deployment of revision {THE_REVISION_DEPLOYED} to {SOME_SERVICE}, compared "
+             f"against {THE_REVISION_DEPLOYED_BEFORE} - the revision deployed before it."],
+    sides=[Side(files=[FileRead(path=THE_CONFIGURATION_FILE, status="modified",
+                                patch=["-  port: 6379", "+  port: 6380"])])],
+    lists_every_file=True
+)
+WHAT_THE_READ_TIER_SAID = WHAT_THE_READ_TIER_READ.said
 
 # Reaches nobody, for every case not about what is published.
 DONT_CARE_NARRATOR = Narrator(new_id())
@@ -68,7 +69,7 @@ def test_the_answer_carries_what_the_deployment_changed() -> None:
     # Every line of it, unedited. What separates a bad deployment from a broken
     # configuration is inside the diff, and a channel that summarised it would be
     # deciding the distinction on the model's behalf.
-    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_SAID)
+    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_READ)
 
     Scenario() \
         .given(the_read_tier) \
@@ -92,7 +93,7 @@ def test_the_deployment_asked_about_is_the_one_the_model_named() -> None:
     # deployments as the history holds - so this is the one channel where the
     # subject is the model's to choose and getting it from elsewhere would answer
     # about a deployment nobody asked about.
-    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_SAID)
+    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_READ)
 
     Scenario() \
         .given(the_read_tier) \
@@ -111,7 +112,7 @@ def test_the_deployment_asked_about_is_the_one_the_model_named() -> None:
 def test_the_model_is_shown_the_lines_and_nothing_else() -> None:
     # Whether they list every file is the write-up's to use, never a line the
     # model reads: what it is shown of a deploy is what it always was.
-    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_SAID)
+    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_READ)
 
     Scenario() \
         .given(the_read_tier) \
@@ -129,7 +130,7 @@ def test_what_the_deployment_changed_is_handed_back_under_the_revision_named() -
     # The walk decides from it: a candidate blaming a file is answered by the
     # deploy whose diff names that file. So it goes back as a value - what is
     # published is an account, and an account is read by nothing that decides.
-    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_SAID)
+    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_READ)
 
     Scenario() \
         .given(the_read_tier) \
@@ -141,7 +142,7 @@ def test_what_the_deployment_changed_is_handed_back_under_the_revision_named() -
         ) \
         .then(the_answer_was(DeploymentRead(
             revision=THE_REVISION_DEPLOYED,
-            changes=DeploymentChanges(said=WHAT_THE_READ_TIER_SAID, lists_every_file=True)
+            changes=WHAT_THE_READ_TIER_READ
         )))
 
 
@@ -167,7 +168,7 @@ def test_a_call_naming_no_revision_is_refused_with_the_reason() -> None:
     # A strict schema requires it, so this is not the ordinary case - but a
     # refusal the model can act on costs one turn, where reading the history for
     # a revision of `None` costs a request and answers about nothing.
-    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_SAID)
+    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_READ)
 
     Scenario() \
         .given(the_read_tier) \
@@ -217,7 +218,7 @@ def test_a_deployment_the_read_tier_had_nothing_to_say_about_is_still_answered()
     # An answer of no lines at all, which the read tier does not produce and
     # which must not reach a model as empty text: empty reads exactly like a tool
     # that failed to say anything, and the model's next move for the two differs.
-    the_read_tier = a_deployment_that_changed([])
+    the_read_tier = a_deployment_that_changed(DeploymentChanges())
 
     Scenario() \
         .given(the_read_tier) \
@@ -236,7 +237,7 @@ def test_the_channel_records_no_reading() -> None:
     # are no minutes here. One recorded for this would put a windowed retrieval in
     # the record for a question that has no window, and `channels_unread` would
     # begin reporting a channel that cannot be unread in the sense the others are.
-    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_SAID)
+    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_READ)
 
     Scenario() \
         .given(the_read_tier) \
@@ -259,7 +260,7 @@ def test_what_the_deployment_changed_is_published_as_it_was_read(
     # the lines list every file, which the model is not shown and the write-up
     # needs - where they do, a file they leave out is as it was before.
     published: list[IncidentEvent] = []
-    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_SAID,
+    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_READ,
                                               lists_every_file=lists_every_file)
 
     Scenario() \
@@ -271,7 +272,7 @@ def test_what_the_deployment_changed_is_published_as_it_was_read(
             )
         ) \
         .then(_what_was_read_was_published(
-            published, THE_REVISION_DEPLOYED, WHAT_THE_READ_TIER_SAID, lists_every_file
+            published, THE_REVISION_DEPLOYED, WHAT_THE_READ_TIER_READ, lists_every_file
         ))
 
 
@@ -283,7 +284,7 @@ def test_what_the_deployment_changed_is_published_with_whether_it_was_compared(
     # is still what the model was told, and every other reader says it in its
     # own words - of the service whose history was read.
     published: list[IncidentEvent] = []
-    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_SAID, comparison=comparison)
+    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_READ, comparison=comparison)
 
     Scenario() \
         .given(the_read_tier) \
@@ -301,7 +302,7 @@ def test_a_call_naming_no_revision_publishes_nothing_read() -> None:
     # What is published is what was read about a deployment, and a refusal is
     # nothing read about any.
     published: list[IncidentEvent] = []
-    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_SAID)
+    the_read_tier = a_deployment_that_changed(WHAT_THE_READ_TIER_READ)
 
     Scenario() \
         .given(the_read_tier) \
@@ -341,7 +342,7 @@ def test_a_deployment_the_read_tier_had_nothing_to_say_about_publishes_nothing_r
     # not a diff - the model is told it is unread rather than empty, and the
     # account is told the same by being told nothing.
     published: list[IncidentEvent] = []
-    the_read_tier = a_deployment_that_changed([])
+    the_read_tier = a_deployment_that_changed(DeploymentChanges())
 
     Scenario() \
         .given(the_read_tier) \
@@ -362,13 +363,14 @@ def a_call_about(revision: str) -> ToolCall:
     )
 
 
-def a_deployment_that_changed(lines: list[str], lists_every_file: bool = True,
+def a_deployment_that_changed(changes: DeploymentChanges, lists_every_file: bool = True,
                               comparison: DeploymentComparison = DeploymentComparison.COMPARED
                               ) -> Any:
     the_read_tier = create_autospec(DeploymentDiffFetcher, instance=True)
-    the_read_tier.return_value = DeploymentChanges(said=lines,
-                                                   lists_every_file=lists_every_file,
-                                                   comparison=comparison)
+    the_read_tier.return_value = changes.model_copy(update={
+        "lists_every_file": lists_every_file,
+        "comparison": comparison
+    })
 
     return the_read_tier
 
@@ -448,18 +450,18 @@ def _nothing_was_recorded_as_read() -> Assertion[Any]:
 
 def _what_was_read_was_published(published: list[IncidentEvent],
                                  revision: str,
-                                 said: list[str],
+                                 changes: DeploymentChanges,
                                  lists_every_file: bool) -> Assertion[Any]:
     def assertion(dont_care_answer: Any) -> bool:
-        read = [(event.revision, event.said, event.lists_every_file) for event in published
-                if isinstance(event, DeploymentChangesRead)]
+        read = [(event.revision, event.said, event.sides, event.lists_every_file)
+                for event in published if isinstance(event, DeploymentChangesRead)]
 
-        if read != [(revision, said, lists_every_file)]:
+        if read != [(revision, changes.said, changes.sides, lists_every_file)]:
             raise AssertionError(
                 f"Expected one read of what [{revision}] changed, published with "
-                f"every line the read tier said and that they "
-                f"{'do' if lists_every_file else 'do not'} list every file, and what "
-                f"was published is {read}."
+                f"every line the read tier said, the sides they were said from, and "
+                f"that they {'do' if lists_every_file else 'do not'} list every file, "
+                f"and what was published is {read}."
             )
 
         return True

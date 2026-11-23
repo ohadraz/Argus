@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Sequence
 from datetime import datetime
-from typing import Annotated, Any, ClassVar, Final, Literal, Protocol
+from typing import Annotated, Any, ClassVar, Literal, Protocol
 
 from pydantic import BaseModel, Field, TypeAdapter, model_validator
 
@@ -31,7 +31,7 @@ from core.models.action import (
 from core.models.actor import Actor
 from core.models.alert import Alert
 from core.models.change_event import ChangeEvent
-from core.models.deployment_changes import DeploymentComparison
+from core.models.deployment_changes import DeploymentComparison, FileRead, Side
 from core.models.evidence import Evidence
 from core.models.failure_mode import FailureMode
 from core.models.fix import CodeUse, FileAsItRan, FixOutcome
@@ -247,6 +247,29 @@ class DeploymentChangesRead(_Event):
     lists_every_file: bool = False
     comparison: DeploymentComparison = DeploymentComparison.COMPARED
     service: str | None = None
+    # The comparison as the value the lines were rendered from: what a reader
+    # asks which files a deploy changed and what changed inside them. `None` on
+    # an event written before it was carried, which names no file to a reader
+    # and so claims to list none (`_claims_no_file_without_its_sides`). The lines
+    # stay stored beside it: they are what the model read.
+    sides: list[Side] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _claims_no_file_without_its_sides(cls, data: Any) -> Any:
+        """An event stored before its sides were carried says every file is
+        named only where a reader can find the files: with no sides, a file it
+        names in its lines would read as one no deploy changed."""
+        if isinstance(data, dict) and data.get("sides") is None:
+            return {**data, "lists_every_file": False}
+
+        return data
+
+    @property
+    def files(self) -> list[FileRead]:
+        """Every file the comparison named, both sides, in order - none where
+        the event carries no sides."""
+        return [read for side in self.sides or [] for read in side.files]
 
     @model_validator(mode="after")
     def _names_its_service_where_nothing_was_compared(self) -> DeploymentChangesRead:
@@ -297,55 +320,6 @@ class ServiceRegisterRead(_Event):
     # Who owns what, which may rule a service out.
     MAY_RULE_OUT: ClassVar[bool] = True
     dependencies: list[ServiceDependency]
-
-
-# How `DeploymentChangesRead.said` sets out a diff: every line under the one
-# naming its file set in by two spaces - its patch lines, or the notice that it
-# has none - and a hunk opened by git's `@@` line. Declared once, because the
-# read tier writes the layout and the write-up reads it back.
-PATCH_LINE_INDENT: Final = "  "
-HUNK_HEADER: Final = "@@"
-
-
-def a_changed_file_line(status: str, path: str) -> str:
-    """The line of `DeploymentChangesRead.said` naming one file the diff
-    changed: the status the comparison gave it - one word, as `modified` - and
-    then its path."""
-    return f"{status} {path}"
-
-
-def names_as_changed(line: str, path: str) -> bool:
-    """Whether `line` is the one naming `path` among the files the diff
-    changed, as `a_changed_file_line` writes it: the whole path after the one
-    word of its status. A line set in under a file - the file's own text, which
-    can name any other - opens with no word at all, and a longer path ending
-    in this one, or a sentence that does, is not the path after a status."""
-    status, space, named = line.partition(" ")
-
-    return bool(status) and bool(space) and named == path
-
-
-# What sets a file off from the key in it, where a setting is named with the
-# file it lives in: `deploy/values-production.yaml:cache.port`, or the same
-# with a space.
-WHAT_ENDS_A_FILE: Final = ": "
-
-
-def the_changed_file_it_names(subject: str, said: Sequence[str]) -> str | None:
-    """The file `subject` names among those a diff changed, as the lines of
-    `said` name them (`names_as_changed`) - or `None` where it names none.
-
-    The longest start of the subject that a line names, ending where the
-    subject does or at a colon or a space: a setting is named with the file it
-    lives in, and a path can hold a space of its own. Declared once, because
-    the walk and the write-up both find the deploy that carried a file by it,
-    and a subject read two ways would credit two different deploys."""
-    ends = [at for at, character in enumerate(subject) if character in WHAT_ENDS_A_FILE]
-    for end in sorted([*ends, len(subject)], reverse=True):
-        if any(names_as_changed(line, subject[:end]) for line in said):
-            return subject[:end]
-
-    return None
 
 
 class ChannelsUnread(_Event):

@@ -80,11 +80,13 @@ from core.models import (
     ChangeKind,
     ChannelReading,
     CodeUse,
+    DeploymentChanges,
     DeploymentComparison,
     DeploymentRollbackUndo,
     ExecutiveSynopsisDocument,
     FailureMode,
     FileAsItRan,
+    FileRead,
     FirstTold,
     FixOutcome,
     FlagChange,
@@ -103,6 +105,7 @@ from core.models import (
     ReportChannel,
     RetrievalChannel,
     ServiceDependency,
+    Side,
     Standing,
     ThreadMessage,
     ToolCall,
@@ -938,39 +941,41 @@ def test_the_evidence_carries_what_each_deployment_read_changed(a_clean_database
     # deploy that carried one: every line, under the revision it was read for,
     # and whether the lines list every file it changed. Read twice, one
     # deployment is one row - a row per read would number the deployments by
-    # how often the model happened to ask.
-    the_diff = ["Deployment of revision 7c3ca00 to io-shop, compared against 1a2b3c4 - "
-                "the revision deployed before it.",
-                "modified deploy/values-production.yaml",
-                "  -  model: v1",
-                "  +  model: v2"]
-    another_diff = ["Deployment of revision 1a2b3c4 to io-shop, compared against 9f8e7d6 - "
-                    "the revision deployed before it.",
-                    "modified src/target_app/app.py"]
+    # how often the model happened to ask. The files come as the value the
+    # lines were said from, which is what the write-up asks.
+    some_revision = "7c3ca00"
+    the_revision_before_it = "1a2b3c4"
+    the_revision_before_that = "9f8e7d6"
+    some_path = "deploy/values-production.yaml"
+    another_path = "src/target_app/app.py"
+    some_status = "modified"
+    some_patch = ["-  model: v1", "+  model: v2"]
+    the_diff = _a_diff_of(some_revision, against=the_revision_before_it,
+                          changed=FileRead(path=some_path, status=some_status, patch=some_patch),
+                          lists_every_file=True)
+    another_diff = _a_diff_of(the_revision_before_it, against=the_revision_before_that,
+                              changed=FileRead(path=another_path, status=some_status),
+                              lists_every_file=False)
 
     with connect_from_env() as conn:
         Scenario() \
             .given(
                 incident_id := _an_incident_that_ended(conn),
-                calling(lambda: events.record(conn, DeploymentChangesRead(
-                    incident_id=incident_id, revision="7c3ca00", said=the_diff,
-                    lists_every_file=True))),
-                calling(lambda: events.record(conn, DeploymentChangesRead(
-                    incident_id=incident_id, revision="1a2b3c4", said=another_diff,
-                    lists_every_file=False))),
-                calling(lambda: events.record(conn, DeploymentChangesRead(
-                    incident_id=incident_id, revision="7c3ca00", said=the_diff,
-                    lists_every_file=True)))
+                calling(lambda: events.record(conn, _a_read_of(incident_id, some_revision,
+                                                               the_diff))),
+                calling(lambda: events.record(conn, _a_read_of(incident_id,
+                                                               the_revision_before_it,
+                                                               another_diff))),
+                calling(lambda: events.record(conn, _a_read_of(incident_id, some_revision,
+                                                               the_diff)))
             ) \
             .when(
                 lambda: gather_evidence(conn, incident_id)
             ) \
             .then(
                 _carries_the_deployment_changes([
-                    DeploymentChangesRecord(revision="7c3ca00", said=the_diff,
-                                            lists_every_file=True),
-                    DeploymentChangesRecord(revision="1a2b3c4", said=another_diff,
-                                            lists_every_file=False)
+                    _the_record_of(some_revision, the_diff),
+                    _the_record_of(the_revision_before_it, another_diff)
                 ])
             )
 
@@ -4164,6 +4169,34 @@ def _a_message_understood_as(conn: psycopg.Connection,
     conversation.understood(conn, written.message, meaning)
 
     return written.model_copy(update={"meaning": meaning})
+
+
+def _a_diff_of(revision: str, *, against: str, changed: FileRead,
+               lists_every_file: bool) -> DeploymentChanges:
+    """What the deploy of `revision` changed against the one deployed before it,
+    `against`: one file, as the read tier reads it."""
+    return DeploymentChanges(
+        opening=[f"Deployment of revision {revision} to io-shop, compared against {against} - "
+                 f"the revision deployed before it."],
+        sides=[Side(files=[changed])],
+        lists_every_file=lists_every_file)
+
+
+def _the_record_of(revision: str, changes: DeploymentChanges) -> DeploymentChangesRecord:
+    """What the evidence holds of a read of what `revision` changed: its lines,
+    its claim, and its files."""
+    return DeploymentChangesRecord(revision=revision, said=changes.said,
+                                   lists_every_file=changes.lists_every_file,
+                                   files=changes.files)
+
+
+def _a_read_of(incident_id: str, revision: str,
+               changes: DeploymentChanges) -> DeploymentChangesRead:
+    """What the Investigator publishes on reading what `revision` changed: the
+    lines the model read, and the sides they were said from."""
+    return DeploymentChangesRead(incident_id=incident_id, revision=revision,
+                                 said=changes.said, sides=changes.sides,
+                                 lists_every_file=changes.lists_every_file)
 
 
 def _an_incident_that_ended(conn: psycopg.Connection,

@@ -18,15 +18,9 @@ from typing import Final
 
 from core import parse_iso
 from core.anomaly import the_end_of_the_onset
-from core.events import (
-    HUNK_HEADER,
-    PATCH_LINE_INDENT,
-    WHAT_ENDS_A_FILE,
-    names_as_changed,
-    the_changed_file_it_names,
-)
 from core.models import (
     NOT_JUDGED,
+    WHAT_ENDS_A_FILE,
     ActionItem,
     ActionItemStatus,
     ActionItemType,
@@ -38,6 +32,7 @@ from core.models import (
     CitedEvidence,
     Detection,
     ErrorRateLevels,
+    FileRead,
     HypothesisConsidered,
     Impact,
     ImpactExtent,
@@ -56,6 +51,7 @@ from core.models import (
     Verdict,
     WhatBecame,
     WhyNoTrigger,
+    the_changed_file_it_names,
 )
 from narration import (
     A_PERSON,
@@ -473,7 +469,7 @@ def _the_deploy_that_carried(blamed: CandidateRecord,
 
     A candidate blaming a file and naming no states blames no setting in it:
     what carried it is the deploy whose diff names that file among those it
-    changed (`_the_part_about`).
+    changed, on either side of its comparison (`_it_carries`).
 
     A setting named with the file it lives in is the key, and is looked for in
     that file's part of each diff alone: the same key in another file is
@@ -500,7 +496,7 @@ def _the_deploys_that_carried(blamed: CandidateRecord,
 
     path, key = _the_file_and_key(subject, evidence.deployment_changes)
     moved = {looked_into.revision for looked_into in evidence.deployment_changes
-             if _it_carries(looked_into.said, path, key, from_state, to_state)}
+             if _it_carries(looked_into.files, path, key, from_state, to_state)}
 
     return [(position, change) for position, change in enumerate(evidence.changes, start=1)
             if change.kind is ChangeKind.DEPLOY and change.reference in moved]
@@ -531,8 +527,8 @@ def _the_file_and_key(subject: str,
     deploy read changed, so nothing read carried it. Read whole instead, its
     words would be found in another file's keys.
     """
-    named = the_changed_file_it_names(subject, [line for looked_into in read
-                                                for line in looked_into.said])
+    named = the_changed_file_it_names(subject, [changed.path for looked_into in read
+                                                for changed in looked_into.files])
     if named is not None:
         return named, subject[len(named):].lstrip(WHAT_ENDS_A_FILE)
 
@@ -550,38 +546,34 @@ _A_FILE_S_KEY: Final = ":"
 _A_PATH_S_SEPARATOR: Final = "/"
 
 
-def _it_carries(said: list[str], path: str | None, key: str,
+def _it_carries(files: list[FileRead], path: str | None, key: str,
                 from_state: str | None, to_state: str | None) -> bool:
-    """Whether a deploy's diff, as the read tier said it, carries the setting
+    """Whether a deploy's diff, as the read tier read it, carries the setting
     `key` - in the file `path` where one is named - from `from_state` to
-    `to_state`, or changes it at all where no states are named."""
+    `to_state`, or changes it at all where no states are named.
+
+    A file named alone carries what it blames wherever the diff names it, on
+    either side, its patch shown or not: the name is what says the deploy
+    touched it."""
     if path is None:
         return (from_state is not None and to_state is not None
-                and _it_moves(said, key, from_state, to_state))
+                and _it_moves(_the_hunks_of(files), key, from_state, to_state))
 
-    part = _the_part_about(said, path)
+    named = [changed for changed in files if changed.path == path]
+    hunks = _the_hunks_of(named)
     if from_state is None or to_state is None:
-        return _it_changes_the_setting(part, key) if key else bool(part)
-    return (_it_moves(part, key, from_state, to_state) if key
-            else _one_key_moves(part, from_state, to_state))
+        return _it_changes_the_setting(hunks, key) if key else bool(named)
+    return (_it_moves(hunks, key, from_state, to_state) if key
+            else _one_key_moves(hunks, from_state, to_state))
 
 
-def _the_part_about(said: list[str], path: str) -> list[str]:
-    """A deploy's diff as the read tier said it, cut to the part about `path`:
-    the line naming it as changed, and the patch lines set in under it."""
-    part: list[str] = []
-    inside = False
-    for line in said:
-        if not line.startswith(PATCH_LINE_INDENT):
-            inside = names_as_changed(line, path)
-        if inside:
-            part.append(line)
-
-    return part
+def _the_hunks_of(files: list[FileRead]) -> list[list[str]]:
+    """Every hunk of every one of `files`, in order."""
+    return [hunk for changed in files for hunk in changed.hunks]
 
 
-def _it_changes_the_setting(said: list[str], subject: str) -> bool:
-    """Whether a deploy's diff, as the read tier said it, removes or adds a
+def _it_changes_the_setting(hunks: list[list[str]], subject: str) -> bool:
+    """Whether a deploy's diff, as the read tier read it, removes or adds a
     line that is the setting `subject` itself - naming its last part or the
     whole of it, by `_it_is_the_setting` - whatever states it went between."""
     *parents, last = subject.split(".")
@@ -589,12 +581,12 @@ def _it_changes_the_setting(said: list[str], subject: str) -> bool:
     return any(line.startswith(("-", "+"))
                and (_names(_code_of(line), last) or _names(_code_of(line), subject))
                and _it_is_the_setting(hunk, at, subject, parents)
-               for hunk in _the_hunks(said)
+               for hunk in hunks
                for at, line in enumerate(hunk))
 
 
-def _it_moves(said: list[str], subject: str, from_state: str, to_state: str) -> bool:
-    """Whether a deploy's diff, as the read tier said it, moves the setting
+def _it_moves(hunks: list[list[str]], subject: str, from_state: str, to_state: str) -> bool:
+    """Whether a deploy's diff, as the read tier read it, moves the setting
     `subject` from `from_state` to `to_state`.
 
     Within one hunk: a removed line naming the setting - its last part or the
@@ -614,7 +606,7 @@ def _it_moves(said: list[str], subject: str, from_state: str, to_state: str) -> 
                 and _it_sets(hunk, "+", subject, to_state))
                or (not _it_names_the_setting(hunk, subject)
                    and _a_key_like_it_moves(hunk, subject, from_state, to_state))
-               for hunk in _the_hunks(said))
+               for hunk in hunks)
 
 
 def _it_names_the_setting(hunk: list[str], subject: str) -> bool:
@@ -637,11 +629,11 @@ def _a_key_like_it_moves(hunk: list[str], subject: str, from_state: str, to_stat
                for key, parent in _the_keys_moved(hunk, from_state, to_state))
 
 
-def _one_key_moves(said: list[str], from_state: str, to_state: str) -> bool:
+def _one_key_moves(hunks: list[list[str]], from_state: str, to_state: str) -> bool:
     """Whether exactly one key, across a diff's hunks, goes from `from_state`
     to `to_state` (`_the_keys_moved`) - two, and the diff cannot say which a
     file named alone meant."""
-    return len({moved for hunk in _the_hunks(said)
+    return len({moved for hunk in hunks
                 for moved in _the_keys_moved(hunk, from_state, to_state)}) == 1
 
 
@@ -700,34 +692,6 @@ def _it_sets(hunk: list[str], marker: str, subject: str, state: str) -> bool:
                and _names(_code_of(line), state)
                and _it_is_the_setting(hunk, at, subject, parents)
                for at, line in enumerate(hunk))
-
-
-def _the_hunks(said: list[str]) -> list[list[str]]:
-    """A deploy's diff as the read tier said it, cut into its hunks: each a run
-    of patch lines with their marker, within one file, the `@@` line that opens
-    one not among them - its text is git's nearest preceding section line, not
-    the one the hunk is in.
-
-    The read tier sets in by two spaces every line under the one naming its
-    file - a patch line, or the notice that the file has none, which becomes a
-    hunk of one line whose `(` no setting is read as moving by. Any other line
-    is a header or a notice about the whole answer, and closes the hunk.
-    """
-    hunks: list[list[str]] = []
-    current: list[str] | None = None
-    for line in said:
-        if not line.startswith(PATCH_LINE_INDENT):
-            current = None
-            continue
-
-        patch = line.removeprefix(PATCH_LINE_INDENT)
-        if current is None or patch.startswith(HUNK_HEADER):
-            current = []
-            hunks.append(current)
-        if not patch.startswith(HUNK_HEADER):
-            current.append(patch)
-
-    return hunks
 
 
 def _it_is_the_setting(hunk: list[str], at: int, subject: str, parents: list[str]) -> bool:

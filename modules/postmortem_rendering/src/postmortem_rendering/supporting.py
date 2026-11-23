@@ -11,9 +11,9 @@ import re
 from typing import Final
 
 from core import parse_iso
-from core.events import PATCH_LINE_INDENT
 from core.models import (
     NOTHING_RECORDED_AFTER_IT_WAS_OPENED,
+    PATCH_LINE_INDENT,
     ChangeEvent,
     ChangeKind,
     ChannelReading,

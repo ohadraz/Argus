@@ -41,7 +41,6 @@ from argus_testkit import (
     the_same_error_reached_the_caller,
 )
 from core import parse_iso, to_iso
-from core.events import PATCH_LINE_INDENT, a_changed_file_line
 from core.llm import (
     AnswerTruncated,
     LLMClient,
@@ -56,9 +55,12 @@ from core.models import (
     ChangeEvent,
     ChangeKind,
     CodeUse,
+    DeploymentChanges,
     FileAsItRan,
+    FileRead,
     OpenedPullRequest,
     RevisionSource,
+    Side,
     ToolDefinition,
     ToolResults,
     Transcript,
@@ -1072,6 +1074,11 @@ def test_a_root_cause_naming_the_deploy_that_carried_it_is_asked_for_again() -> 
     # and the deploy whose diff changed that file is what the document states
     # set it off. Its revision in the root cause is the trigger said again.
     the_trigger = "53f02e9a1b2c3d4e5f60718293a4b5c6d7e8f901"
+    the_file_blamed = "deploy/values-production.yaml"
+    some_status = "modified"
+    its_diff = DeploymentChanges(sides=[Side(files=[FileRead(
+        path=the_file_blamed, status=some_status,
+        patch=["-  portName: metrics", "+  portName: http-metrics"])])])
     asks: Kept[Transcript] = Kept()
 
     Scenario() \
@@ -1085,15 +1092,13 @@ def test_a_root_cause_naming_the_deploy_that_carried_it_is_asked_for_again() -> 
             lambda: answer_worth_writing(
                 a_model_naming_the_carrier,
                 an_evidence_bundle(
-                    candidates=[a_candidate("dont care",
-                                            subject="deploy/values-production.yaml")],
+                    candidates=[a_candidate("dont care", subject=the_file_blamed)],
                     changes=[ChangeEvent(kind=ChangeKind.DEPLOY,
                                          occurred_at="2026-09-02T11:58:00Z",
                                          reference=the_trigger, summary="dont care")],
-                    deployment_changes=[DeploymentChangesRecord(revision=the_trigger, said=[
-                        a_changed_file_line("modified", "deploy/values-production.yaml"),
-                        f"{PATCH_LINE_INDENT}-  portName: metrics",
-                        f"{PATCH_LINE_INDENT}+  portName: http-metrics"])]),
+                    deployment_changes=[DeploymentChangesRecord(revision=the_trigger,
+                                                                said=its_diff.said,
+                                                                files=its_diff.files)]),
                 a_measured_incident())
         ) \
         .then(

@@ -58,6 +58,7 @@ from core.models import (
     EstablishedOnset,
     Evidence,
     FailureMode,
+    FileRead,
     HowTheMinuteIsKnown,
     Meaning,
     MetricBucket,
@@ -67,6 +68,7 @@ from core.models import (
     RecordedPlacement,
     RetrievalChannel,
     RuleReading,
+    Side,
     Standing,
     ThreadMessage,
     ToolDefinition,
@@ -2360,8 +2362,11 @@ def test_what_each_deployment_changed_is_handed_back_with_the_findings() -> None
     # candidate blaming a file is answered by the deploy whose diff names it.
     # Carried out as the placement is, rather than read again from the account.
     some_revision = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
-    some_changes = DeploymentChanges(said=["modified src/io_shop/purchase_ledger.py"],
-                                     lists_every_file=True)
+    some_path = "src/io_shop/purchase_ledger.py"
+    some_status = "modified"
+    some_changes = DeploymentChanges(
+        sides=[Side(files=[FileRead(path=some_path, status=some_status)])],
+        lists_every_file=True)
     investigation = an_investigation(a_model_that_says(
         a_turn_calling(DEPLOYMENT_DIFF_TOOL, {REVISION_ARG: some_revision}),
         a_turn_answering(an_explanation())

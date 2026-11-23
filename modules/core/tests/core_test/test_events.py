@@ -28,7 +28,6 @@ from argus_testkit import (
 )
 from core import RunLost
 from core.events import (
-    PATCH_LINE_INDENT,
     ActionRefused,
     AgentInvoked,
     CandidateSelected,
@@ -52,11 +51,8 @@ from core.events import (
     StatusChanged,
     VerdictReached,
     WithdrawalOffered,
-    a_changed_file_line,
-    names_as_changed,
     parse_event,
     publish,
-    the_changed_file_it_names,
     the_escalations,
 )
 from core.ids import new_id
@@ -69,7 +65,9 @@ from core.models import (
     ROLL_BACK_DEPLOYMENT,
     SCALE_OUT,
     ActionIdentity,
+    DeploymentChanges,
     DeploymentComparison,
+    FileRead,
     IncidentStatus,
     Meaning,
     PodPlacement,
@@ -78,6 +76,7 @@ from core.models import (
     Reference,
     Report,
     ReportChannel,
+    Side,
     Standing,
     WhatWasTried,
     the_actions_through,
@@ -97,6 +96,13 @@ SOME_WINDOW_END = "2026-08-30T10:12:00Z"
 # A spelling no `ActionType` has. Named rather than written inline so the case
 # reads as being about the vocabulary rather than about one typo.
 SOME_KIND_NOBODY_DECLARED = "drain-node"
+SOME_REVISION = "7c3ca00"
+# What one deploy changed, claiming to list every file: one file, its patch.
+SOME_DIFF = DeploymentChanges(
+    sides=[Side(files=[FileRead(path="deploy/values-production.yaml", status="modified",
+                                patch=["+  model: v2"])])],
+    lists_every_file=True
+)
 # The kinds that say, without their line, that it supports no rule-out - what
 # the service did, when the incident began, what Argus made of it, and a
 # request, whose line decides by what it asked for - mirroring the events' own
@@ -228,85 +234,30 @@ def test_an_answer_with_no_comparison_behind_it_that_names_no_service_is_refused
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("path", ["deploy/values-production.yaml", "docs/release notes.md"],
-                         ids=["a-path", "a-path-with-a-space"])
-def test_a_file_named_as_changed_is_read_back_as_the_file_it_names(path: str) -> None:
-    # The read tier writes the line and the write-up reads it back, so the two
-    # share one spelling of it - and the path is read back whole, a space in it
-    # included.
+def test_what_a_deployment_changed_reads_back_with_its_sides() -> None:
+    # The sides are what the walk and the write-up ask which files a deploy
+    # changed, so they come back from the account as they went in - beside the
+    # lines the model read, not instead of them.
     Scenario() \
         .given(
-            line := a_changed_file_line("modified", path)
+            published := _a_read_of(SOME_DIFF)
         ) \
-        .when(
-            lambda: names_as_changed(line, path)
-        ) \
-        .then(
-            the_answer_was(True)
-        )
+        .when(lambda: parse_event(published.model_dump(mode="json"))) \
+        .then(all_of(_it_is(published),
+                     _it_names_the_files([changed.path for changed in SOME_DIFF.files])))
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("line", [
-    f"{PATCH_LINE_INDENT}+# selected by deploy/scrape.yaml",
-    "Deployment of revision 7c3ca00 to io-shop, compared against deploy/scrape.yaml",
-    "modified other/deploy/scrape.yaml"],
-    ids=["a-patch-line-ending-with-it", "a-header-ending-with-it", "a-longer-path-ending-with-it"])
-def test_a_line_that_only_mentions_a_file_does_not_name_it_as_changed(line: str) -> None:
-    # Only the line naming a changed file - its status, then its path - says the
-    # deploy changed it. A patch line set in under a file is that file's own
-    # text, and can name any other; a header can name anything at all.
+def test_an_event_stored_before_its_sides_were_carried_claims_to_list_no_file() -> None:
+    # Its lines name files no reader can find in it, so claiming to list every
+    # file would let a reader say of each that no deploy changed it. Stored as
+    # such a row was: the claim made, and no sides beside it.
     Scenario() \
         .given(
-            line
+            stored := _a_read_of(SOME_DIFF).model_dump(mode="json", exclude={"sides"})
         ) \
-        .when(
-            lambda: names_as_changed(line, "deploy/scrape.yaml")
-        ) \
-        .then(
-            the_answer_was(False)
-        )
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize("subject", ["deploy/values-production.yaml",
-                                     "deploy/values-production.yaml:cache.port",
-                                     "deploy/values-production.yaml cache.port"],
-                         ids=["the-file", "a-key-after-a-colon", "a-key-after-a-space"])
-def test_a_subject_names_the_changed_file_it_starts_with(subject: str) -> None:
-    # A candidate blames a file, or a setting with the file it lives in. Either
-    # names the file a diff changed, and the walk and the write-up both find
-    # what carried it by that file - so the two read a subject one way.
-    Scenario() \
-        .given(
-            said := [a_changed_file_line("modified", "deploy/values-production.yaml")]
-        ) \
-        .when(
-            lambda: the_changed_file_it_names(subject, said)
-        ) \
-        .then(
-            the_answer_was("deploy/values-production.yaml")
-        )
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize("subject", ["deploy/values-staging.yaml", "values-production.yaml",
-                                     "monthly-spend-feature"],
-                         ids=["another-file", "the-end-of-its-path", "a-flag"])
-def test_a_subject_naming_no_changed_file_names_none(subject: str) -> None:
-    # Only a file the diff names among those it changed, by the whole of its
-    # path: another file, the tail of this one's path or a flag is no file the
-    # deploy changed.
-    Scenario() \
-        .given(
-            said := [a_changed_file_line("modified", "deploy/values-production.yaml")]
-        ) \
-        .when(
-            lambda: the_changed_file_it_names(subject, said)
-        ) \
-        .then(
-            the_answer_was(None)
-        )
+        .when(lambda: parse_event(stored)) \
+        .then(all_of(_it_lists_every_file(False), _it_names_the_files([])))
 
 
 @pytest.mark.unit
@@ -1017,6 +968,42 @@ def _it_is(published: IncidentEvent) -> Assertion[object]:
     def assertion(read_back: object) -> bool:
         if read_back != published:
             raise AssertionError(f"Expected [{published}], got [{read_back}].")
+
+        return True
+
+    return assertion
+
+
+def _a_read_of(changes: DeploymentChanges) -> DeploymentChangesRead:
+    """What the Investigator publishes on reading what `SOME_REVISION` changed:
+    the lines the model read, the sides they were said from, and the claim."""
+    return DeploymentChangesRead(incident_id=new_id(), revision=SOME_REVISION,
+                                 said=changes.said, sides=changes.sides,
+                                 lists_every_file=changes.lists_every_file)
+
+
+def _it_names_the_files(paths: list[str]) -> Assertion[object]:
+    def assertion(read_back: object) -> bool:
+        if not isinstance(read_back, DeploymentChangesRead):
+            raise AssertionError(f"Expected what a deployment changed, got [{read_back}].")
+
+        named = [changed.path for changed in read_back.files]
+        if named != paths:
+            raise AssertionError(f"Expected it to name the files {paths}, it names {named}.")
+
+        return True
+
+    return assertion
+
+
+def _it_lists_every_file(claimed: bool) -> Assertion[object]:
+    def assertion(read_back: object) -> bool:
+        if not isinstance(read_back, DeploymentChangesRead):
+            raise AssertionError(f"Expected what a deployment changed, got [{read_back}].")
+
+        if read_back.lists_every_file is not claimed:
+            raise AssertionError(f"Expected it to claim to list every file: {claimed}, "
+                                 f"it claims {read_back.lists_every_file}.")
 
         return True
 

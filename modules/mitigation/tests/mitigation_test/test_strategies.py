@@ -13,7 +13,6 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from argus_testkit import Assertion, Scenario
-from core.events import a_changed_file_line
 from core.models import (
     PIN_TO_ACCELERATOR,
     REVERT_FEATURE_FLAG,
@@ -25,6 +24,7 @@ from core.models import (
     DeploymentChanges,
     DiscardCacheEntries,
     FailureMode,
+    FileRead,
     FlagChange,
     Hypothesis,
     PinToAccelerator,
@@ -35,6 +35,7 @@ from core.models import (
     RevertFeatureFlag,
     RollBackDeployment,
     ScaleOut,
+    Side,
 )
 from mitigation import (
     Action,
@@ -83,6 +84,8 @@ THE_FLEETS_CARD = "Tesla-V100-SXM2-16GB"
 # have changed it, and the minute the incident is dated from - with a moment
 # inside that minute, which counts as before it, and one after it.
 SOME_FILE = "src/io_shop/purchase_ledger.py"
+# The one word the comparison gives a file it changed.
+SOME_STATUS = "modified"
 SOME_REVISION = "26f1d7e2c82ce2abff8f9b6424dc226f4f37fed2"
 ANOTHER_REVISION = "4c810f22894e612ced87f5ee3f3062dfeb785050"
 THE_ONSET = datetime(2026, 8, 20, 11, 5, tzinfo=UTC)
@@ -1220,11 +1223,11 @@ def _a_deploy_of(revision: str, at: str) -> ChangeEvent:
 
 
 def _a_diff_changing(path: str) -> DeploymentChanges:
-    """What a deploy changed, as the read tier says it: its header, then the
-    line naming the one file it changed."""
+    """What a deploy changed, as the read tier reads it: its header, then the
+    one file it changed."""
     return DeploymentChanges(
-        said=["Deployment of revision dont-care to io-shop, compared against dont-care",
-              a_changed_file_line("modified", path)],
+        opening=["Deployment of revision dont-care to io-shop, compared against dont-care"],
+        sides=[Side(files=[FileRead(path=path, status=SOME_STATUS)])],
         lists_every_file=True
     )
 

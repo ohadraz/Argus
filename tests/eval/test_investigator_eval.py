@@ -2372,10 +2372,11 @@ def _what_a_deployment_changed_for(incident: Incident
     deployment it staged.
 
     Never as listing every file: the fixture's lines are what the case needs
-    the model to see, not a comparison of two revisions.
+    the model to see, not a comparison of two revisions - so they are the
+    answer's opening, said as they are written, and name no file to the walk.
     """
     def fetch(dont_care_service: str, revision: str) -> DeploymentChanges:
-        return DeploymentChanges(said=incident.what_each_deployment_changed.get(revision) or [
+        return DeploymentChanges(opening=incident.what_each_deployment_changed.get(revision) or [
             f"This evaluation records nothing about what the deployment of "
             f"[{revision}] changed, so take it as unread rather than as empty."
         ], lists_every_file=False)

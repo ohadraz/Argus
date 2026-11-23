@@ -1156,7 +1156,8 @@ def _what_each_deployment_changed(conn: psycopg.Connection,
                 said=event.said,
                 lists_every_file=event.lists_every_file,
                 comparison=event.comparison,
-                service=event.service
+                service=event.service,
+                files=event.files
             )
 
     return list(read.values())
