@@ -21,7 +21,7 @@ import logging
 import threading
 from collections.abc import Callable, Generator
 from contextlib import AbstractContextManager, contextmanager
-from typing import Any, Final
+from typing import Any, Final, NamedTuple
 
 import pytest
 from argus_testkit import (
@@ -299,6 +299,34 @@ def test_a_change_refused_for_a_lost_run_is_said_inside_the_call_it_refused(
             one_record_was_logged(caplog, "mcp_transport.transport", logging.WARNING,
                                   "tool call failed", values={"tool": "make_a_change"})
         )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("refusal", ["no-run", "no-action", "lost-run", "change-in-flight",
+                                     "run-unaskable"])
+def test_a_change_the_fence_refuses_is_not_logged_as_a_crash(
+    refusal: str,
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Every refusal here is one the tier foresaw. The SDK logs anything else
+    # that leaves a call at ERROR, traceback and all, as a tool that crashed -
+    # in the tier's logs, during exactly the incidents a refusal happens in.
+    made: list[str] = []
+    caplog.set_level(logging.INFO)
+
+    Scenario() \
+        .given(
+            case := _refused_by_the_fence_for(refusal),
+            server := _a_tier_making(made, case.hold)
+        ) \
+        .when(
+            lambda: _asked(server, case.tool, case.meta)
+        ) \
+        .then(all_of(
+            _refused(as_a_lost_run=case.as_a_lost_run),
+            _the_change_was_made(made, times=0),
+            _nothing_was_logged_at_or_above(logging.ERROR, caplog)
+        ))
 
 
 @pytest.mark.unit
@@ -611,6 +639,33 @@ def _a_hold_that_cannot_be_let_go() -> HoldForAChange:
     return hold
 
 
+class _FenceRefusal(NamedTuple):
+    """A change the fence refuses: the hold it is asked under, the change, the
+    `_meta` it is asked with, and whether it is refused as a lost run."""
+
+    hold: HoldForAChange
+    tool: str
+    meta: dict[str, Any] | None
+    as_a_lost_run: bool
+
+
+def _refused_by_the_fence_for(refusal: str) -> _FenceRefusal:
+    """Each way the fence refuses a change, by the name a case gives it."""
+    refusals = {
+        "no-run": _FenceRefusal(_a_hold_answering(True), "make_a_change", None, False),
+        "no-action": _FenceRefusal(_a_hold_answering(True), "make_a_marked_change",
+                                   _sent(SOME_FENCE), False),
+        "lost-run": _FenceRefusal(_a_hold_answering(False), "make_a_change",
+                                  _sent(SOME_FENCE), True),
+        "change-in-flight": _FenceRefusal(_a_hold_with_a_change_in_flight(), "make_a_change",
+                                          _sent(SOME_FENCE), False),
+        "run-unaskable": _FenceRefusal(_a_hold_that_cannot_be_had(), "make_a_change",
+                                       _sent(SOME_FENCE), False)
+    }
+
+    return refusals[refusal]
+
+
 def _sent(held: Fence, acting_for: str | None = None) -> dict[str, Any]:
     """The `_meta` a walk's call carries: the claim it is made under, and the
     action it is taken for where it names one."""
@@ -755,6 +810,23 @@ def _nothing_was_logged_saying(message: str,
             raise AssertionError(
                 f"Expected nothing logged saying [{message}], and it was said "
                 f"{len(said)} time(s)."
+            )
+
+        return True
+
+    return assertion
+
+
+def _nothing_was_logged_at_or_above(level: int,
+                                    caplog: pytest.LogCaptureFixture) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        said = [(record.name, record.levelname, record.getMessage())
+                for record in caplog.records if record.levelno >= level]
+
+        if said:
+            raise AssertionError(
+                f"Expected nothing logged at [{logging.getLevelName(level)}] or above, and "
+                f"it was said {said}."
             )
 
         return True

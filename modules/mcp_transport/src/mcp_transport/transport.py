@@ -38,8 +38,8 @@ SEP-414 both say to; `TracedMCPServer` is the server that reads it back and
 answers inside the caller's trace. `_meta` rather than an HTTP header because
 the session is held: its headers were fixed when it opened, and `_meta`
 travels with each call. The SDK traces each request too, on the client's loop:
-the caller's context is attached there, so the SDK's span is this one's child
-and the trace runs unbroken to the server.
+each call runs there in a copy of its caller's context, so the SDK's span is
+this one's child and the trace runs unbroken to the server.
 """
 
 from __future__ import annotations
@@ -89,7 +89,6 @@ from mcp.types import (
     Tool,
 )
 from opentelemetry import context, metrics, propagate, trace
-from opentelemetry.context import Context as TraceContext
 from opentelemetry.metrics import Meter
 from opentelemetry.trace import Span, SpanKind, Status, StatusCode, Tracer
 from pydantic import TypeAdapter
@@ -921,10 +920,22 @@ class McpClient:
                    arguments: dict[str, object],
                    meta: dict[str, Any],
                    asking: Asking) -> Future[object]:
-        """One tool call, handed to the loop that holds the session - with the
-        calling thread's context, the call's span current in it."""
+        """One tool call, handed to the loop that holds the session - and run
+        there in a copy of the calling thread's context, the call's span
+        current in it.
+
+        Handed from the calling thread, which is what carries the context
+        across: `run_coroutine_threadsafe` schedules the call with
+        `call_soon_threadsafe`, which runs it in a copy of the context current
+        where it was scheduled. The loop's thread has its own, with no span in
+        it, and the SDK opens a span for every request it sends from whatever
+        context is current - and writes that span's context into the call's
+        `_meta` over the one carried there. Run inside the caller's, the SDK's
+        span is the call's child, and the server answers inside the walk's
+        trace.
+        """
         return asyncio.run_coroutine_threadsafe(
-            self._call(name, arguments, meta, asking, context.get_current()),
+            self._call(name, arguments, meta, asking),
             self._running_loop()
         )
 
@@ -1048,16 +1059,8 @@ class McpClient:
                     name: str,
                     arguments: dict[str, object],
                     meta: dict[str, Any],
-                    asking: Asking,
-                    callers: TraceContext) -> object:
+                    asking: Asking) -> object:
         """One tool call, however it ends - including the client closing under it.
-
-        Run inside `callers`, the calling thread's context: this loop's thread
-        has its own, with no span in it, and the SDK opens a span for every
-        request it sends from whatever context is current - and writes that
-        span's context into the call's `_meta` over the one carried there. Run
-        inside the caller's, the SDK's span is the call's child, and the server
-        answers inside the walk's trace.
 
         A cancellation here is the client being closed and nothing else: no
         caller can cancel one of these, since what a caller holds is a future on
@@ -1065,8 +1068,6 @@ class McpClient:
         that the server became unreachable, and a `CancelledError` surfacing in
         a walk would look like the walk being cancelled instead.
         """
-        continued = context.attach(callers)
-
         try:
             return await self._asked_again_if_the_connection_failed(
                 name, arguments, meta, asking
@@ -1078,8 +1079,6 @@ class McpClient:
             raise McpUnreachable(
                 f"the client for [{self._url}] closed while [{name}] was in flight"
             ) from None
-        finally:
-            context.detach(continued)
 
     async def _asked_again_if_the_connection_failed(
         self, name: str, arguments: dict[str, object], meta: dict[str, Any], asking: Asking

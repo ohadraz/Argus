@@ -46,6 +46,7 @@ from core.telemetry import (
     GEN_AI_TOOL_NAME,
     MCP_CLIENT_OPERATION_DURATION,
     MCP_METHOD_NAME,
+    MCP_TOOLS_CALL_METHOD,
 )
 from mcp.client import Client
 from mcp.server.mcpserver import Context
@@ -86,6 +87,11 @@ from pydantic import TypeAdapter
 from starlette.applications import Starlette
 
 from mcp_transport_test.framework.observing import Observed, attributes_of, observing
+from mcp_transport_test.framework.traced_caller import (
+    AskedTraced,
+    TracedSpan,
+    asked_from_a_traced_process,
+)
 from mcp_transport_test.framework.transport_double import RunningDouble, a_running_double
 
 # Long enough that the call has certainly reached the server, which takes
@@ -1611,6 +1617,26 @@ def test_the_server_answers_inside_the_callers_trace(
         )
 
 
+@pytest.mark.component
+def test_the_sdks_span_sits_under_the_call_and_the_server_answers_in_the_callers_trace(
+    running_double: RunningDouble
+) -> None:
+    # Where a process has an SDK of its own - a worker's does - the MCP SDK
+    # traces the request it sends too, and writes its own span's context into
+    # the call's `_meta` over the call's. Its span is the call's child only
+    # where the client sends from the caller's context; sent from its loop's
+    # own, it is the root of a trace of its own, and so is everything the
+    # server does - its spans and every line it logs.
+    Scenario() \
+        .when(
+            lambda: asked_from_a_traced_process(running_double.url, "the_trace_i_am_in")
+        ) \
+        .then(all_of(
+            _the_sdks_span_is_the_calls_child("the_trace_i_am_in"),
+            _the_server_answered_under_the_sdks_span("the_trace_i_am_in")
+        ))
+
+
 @pytest.mark.unit
 def test_a_call_arriving_with_a_trace_is_served_inside_it() -> None:
     some_trace_id = "4bf92f3577b34da6a3ce929d0e0e4736"
@@ -1672,7 +1698,9 @@ def test_a_server_answers_one_call_at_a_time() -> None:
     # As every Argus server always has: no tool here was written to share its
     # state with another running beside it, and the SDK runs each one on a
     # worker thread of its own. A second call, sent while the first is still
-    # being answered, begins once the first has ended.
+    # being answered, begins once the first has ended. The tool held open runs
+    # on the server's loop, so with no turn to wait for, the second call's
+    # begins before the first's is woken - every time, not by a race.
     answered: list[str] = []
 
     Scenario() \
@@ -1770,7 +1798,7 @@ class _CountingArrivals(TracedMCPServer):
 
     def __init__(self) -> None:
         super().__init__("some-server", host=DONT_CARE_HOST, port=DONT_CARE_PORT)
-        self.a_second_arrived = threading.Event()
+        self.a_second_arrived = asyncio.Event()
         self._arrived = 0
 
     async def call_tool(self,
@@ -1788,13 +1816,21 @@ class _CountingArrivals(TracedMCPServer):
 
 def _a_server_held_open_until_a_second_call(answered: list[str]) -> TracedMCPServer:
     """A server with one tool that, once begun, stays open until a second call
-    has arrived - and says when it began and ended into `answered`."""
+    has arrived - and says when it began and ended into `answered`.
+
+    Awaited on the server's loop rather than run on a worker thread: the
+    second call's arrival wakes the first only once the second has gone as far
+    as it can without waiting, which with no turn is into its own tool."""
     server = _CountingArrivals()
 
     @server.tool(name=A_TOOL_HELD_OPEN)
-    def held_open() -> list[str]:
+    async def held_open() -> list[str]:
         answered.append("began")
-        server.a_second_arrived.wait(LONG_PAST_ANY_ARRIVAL_SECONDS)
+
+        with suppress(TimeoutError):
+            await asyncio.wait_for(server.a_second_arrived.wait(),
+                                   LONG_PAST_ANY_ARRIVAL_SECONDS)
+
         answered.append("ended")
 
         return ["answered"]
@@ -3092,6 +3128,59 @@ def _the_server_answered_under_the_client_span(observed: Observed) -> Assertion[
             raise AssertionError(
                 f"Expected the server to answer under the client's span {expected}, "
                 f"and it said {answer}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_call_and_the_sdks_span(asked: AskedTraced, tool: str) -> tuple[TracedSpan, TracedSpan]:
+    """The client span the call made, and the one the SDK made for the request
+    it sent: the two client spans named for calling `tool`, the call's named
+    for it alone. The SDK's is told by what it says it sends, not by how it
+    puts that."""
+    called = f"{MCP_TOOLS_CALL_METHOD} {tool}"
+    calling = [span for span in asked.spans
+               if span.kind == SpanKind.CLIENT.name and span.name.endswith(called)]
+    the_calls = [span for span in calling if span.name == called]
+    the_sdks = [span for span in calling if span.name != called]
+
+    if (len(the_calls), len(the_sdks)) != (1, 1):
+        raise AssertionError(
+            f"Expected two client spans for calling [{tool}], the call's and the SDK's, "
+            f"and there were {[span.name for span in calling]} among "
+            f"{[span.name for span in asked.spans]}."
+        )
+
+    return the_calls[0], the_sdks[0]
+
+
+def _the_sdks_span_is_the_calls_child(tool: str) -> Assertion[AskedTraced]:
+    def assertion(asked: AskedTraced) -> bool:
+        call, sdks = _the_call_and_the_sdks_span(asked, tool)
+
+        if (sdks.trace_id, sdks.parent_span_id) != (call.trace_id, call.span_id):
+            raise AssertionError(
+                f"Expected the SDK's span in trace [{call.trace_id}] under the call's "
+                f"[{call.span_id}], and it was in [{sdks.trace_id}] under "
+                f"[{sdks.parent_span_id or 'nothing'}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_server_answered_under_the_sdks_span(tool: str) -> Assertion[AskedTraced]:
+    def assertion(asked: AskedTraced) -> bool:
+        call, sdks = _the_call_and_the_sdks_span(asked, tool)
+        expected = {"trace_id": call.trace_id, "parent_span_id": sdks.span_id}
+
+        if asked.answer != expected:
+            raise AssertionError(
+                f"Expected the server to answer in the call's trace under the SDK's span "
+                f"{expected}, and it said {asked.answer}."
             )
 
         return True

@@ -19,6 +19,10 @@ dev = [
     # The server as its process starts it: its root, which builds every adapter
     # it serves through.
     "argus-apps[write_mcp]",
+    # The SDK's own types package, which the suite's stand-in flag provider
+    # reads the version it opens a session at from (`mcp_types.version`). It
+    # arrives with `mcp`, and is declared because the suite imports it by name.
+    "mcp-types>=2.3.0",
 ]
 
 [tool.uv.sources]

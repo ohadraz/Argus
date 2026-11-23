@@ -19,6 +19,12 @@ takes to commit - by a change another server process is making for it - is
 refused too, before it runs - but without saying it left nothing, since the
 change asking may be that same one asked again, and the first may have landed.
 
+Every refusal here is one the tier foresaw, and is raised as the SDK's
+`ToolError`, which says so: the SDK answers it in its own words and logs it as
+a tool that failed, where anything else leaving a call is logged as a crash.
+The call's span says it failed with `ToolError`, which of the refusals it was
+being in the words.
+
 Within one server no change meets another's hold. The server answers one call
 at a time (`TracedMCPServer`), so a change asked again of it waits for the first
 to end and let its run go, and is then made for a run that is free - which is
@@ -39,6 +45,7 @@ from typing import Any, Final
 from core import DatabaseSettings, Fence
 from incident_record.repository import runs
 from mcp.server.mcpserver import Context
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import CallToolResult, InputRequiredResult
 from mcp_transport import (
     FENCE_META_KEY,
@@ -146,14 +153,14 @@ class FencedMCPServer(TracedMCPServer):
         # refusal that said less would be written up as nobody knowing whether
         # anything was changed.
         if held is None:
-            raise RuntimeError(a_refusal_saying_what_it_left(
+            raise ToolError(a_refusal_saying_what_it_left(
                 f"[{name}] changes the world, and the call named no run to change it for"
             ))
 
         # Before the hold is asked for, as the fence is: a write nobody could
         # tell from a person's is not made, and the run is not kept still for it.
         if name in self._marked and the_action_in(meta) is None:
-            raise RuntimeError(a_refusal_saying_what_it_left(
+            raise ToolError(a_refusal_saying_what_it_left(
                 f"[{name}] marks what it writes with the action it is made for, and "
                 f"the call named none"
             ))
@@ -167,18 +174,18 @@ class FencedMCPServer(TracedMCPServer):
             # around it: what asks is this change asked again while the first
             # is still being made, and that one may well have changed the world.
             # The walk records what it left as unknown, and a person is told.
-            raise RuntimeError(
+            raise ToolError(
                 f"[{name}] was not made for run [{held.run_id}]: {in_flight}"
             ) from in_flight
         except Exception as unasked:
-            raise RuntimeError(a_refusal_saying_what_it_left(
+            raise ToolError(a_refusal_saying_what_it_left(
                 f"whether run [{held.run_id}] is still held for [{name}] could not be "
                 f"asked: {unasked}"
             )) from unasked
 
         with _let_go_after(held_for_now, name):
             if not still_held:
-                raise RuntimeError(a_lost_run(
+                raise ToolError(a_lost_run(
                     f"[{name}] was asked for by claim [{held.epoch}] of run "
                     f"[{held.run_id}], which the run has moved past"
                 ))

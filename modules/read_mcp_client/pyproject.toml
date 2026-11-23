@@ -24,6 +24,10 @@ dev = [
     # The server's database, which the suite brings up with the schema: the
     # server refuses to start without one.
     "argus-postgres[migrations]",
+    # The SDK's own types package, which the suite's knock reads the version it
+    # opens a session at from (`mcp_types.version`). It arrives with `mcp`, and
+    # is declared because the suite imports it by name.
+    "mcp-types>=2.3.0",
 ]
 
 [tool.uv.sources]
