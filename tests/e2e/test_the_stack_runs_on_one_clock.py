@@ -2,9 +2,9 @@
 
 `e2e_replay` runs the stack faster than real time, so that the minutes a case
 waits for cost a fraction of themselves. That is only safe if every party agrees
-what time it is: Argus's processes work it out from the epoch and speed they were
-handed, and the parties that cannot run Argus's code - its Postgres, the flag
-provider, the provider's Postgres and the Target Service - are put there by
+what time it is: Argus's processes and the Target Service work it out from the
+epoch and speed they were handed, and the parties whose code is not ours - its
+Postgres, the flag provider and the provider's Postgres - are put there by
 libfaketime. A party left on the wall's clock would be minutes adrift within a
 minute of the stack coming up, and the symptom would be a verdict gone wrong
 somewhere else entirely.
@@ -58,8 +58,8 @@ THE_SPEED: Final = the_clock_named_by(os.environ).speed
 A_DATABASE_MAY_DIFFER_BY: Final = timedelta(seconds=1 + 0.3 * THE_SPEED)
 
 # The same for a party read through its HTTP `Date` header, which is truncated to
-# the second and refreshed about once a real second by Node and uvicorn alike - so
-# it trails the clock by up to `speed` simulated seconds without being wrong.
+# the second, and which Node refreshes about once a real second - so it trails the
+# clock by up to `speed` simulated seconds without being wrong.
 A_DATE_HEADER_MAY_DIFFER_BY: Final = A_DATABASE_MAY_DIFFER_BY + timedelta(
     seconds=1 + THE_SPEED
 )

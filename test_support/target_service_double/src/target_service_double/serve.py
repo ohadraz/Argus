@@ -16,7 +16,6 @@ import importlib
 import os
 import random
 import time
-from datetime import UTC, datetime
 from typing import Any
 
 import uvicorn
@@ -47,6 +46,7 @@ def main() -> None:
     state: Any = importlib.import_module("target_app.state")
     scenarios: Any = importlib.import_module("target_app.scenarios")
     integrity: Any = importlib.import_module("target_app.integrity")
+    clock: Any = importlib.import_module("target_app.clock")
 
     lacking = what_the_shop_lacks(generator, state, scenarios, integrity)
     if lacking:
@@ -59,13 +59,15 @@ def main() -> None:
     asking_the_checks_as_recorded(state, lambda: draws.shift)
 
     seeding = Seeding(draws,
-                      # The stack's clock: the image preloads the stack's fake
-                      # time, so the wall clock here is the stack's.
-                      now=lambda: datetime.now(UTC),
+                      # The stack's clock, as the shop works it out.
+                      now=clock.now,
                       sleep=time.sleep,
                       pin_the_shops_clock=pinning_the_clock_of(state))
 
-    uvicorn.run(standing_in_for(the_app.app, the_app.state, seeding), host=HOST, port=PORT)
+    # Without uvicorn's own `Date` header, which it reads off the wall: the shop
+    # dates its responses by the stack's clock.
+    uvicorn.run(standing_in_for(the_app.app, the_app.state, seeding), host=HOST, port=PORT,
+                date_header=False)
 
 
 if __name__ == "__main__":

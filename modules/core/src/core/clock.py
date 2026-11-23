@@ -6,8 +6,9 @@ each works out the same instant from its own real clock:
 none can be ahead of an answer it has not had yet. Told neither number, a
 process runs on the real clock, read exactly as it always was.
 
-What cannot run this code - Postgres, the flag provider, the Target Service -
-follows the same formula through libfaketime, fed by the stack's clock writer.
+The Target Service works the same formula out in its own code
+(`target_app.clock`). What runs code that is not ours - Postgres and the flag
+provider - follows it through libfaketime, fed by the stack's clock writer.
 """
 
 from __future__ import annotations
