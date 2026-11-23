@@ -164,7 +164,8 @@ def _a_fresh_shop() -> Any:
     world = state.ScenarioState(
         _AFlag("flag"), _AFlag("fallback"), _AFlag("typical-purchase"),
         forget_the_flag_history=lambda *arguments, **keywords: None,
-        backdate_the_flag_history=lambda *arguments, **keywords: None
+        backdate_the_flag_history=lambda *arguments, **keywords: None,
+        where_the_flag_history_is=lambda: 0
     )
     the_app.state = world
 
