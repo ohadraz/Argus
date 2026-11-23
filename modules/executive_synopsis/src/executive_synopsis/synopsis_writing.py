@@ -18,14 +18,17 @@ from typing import Protocol
 
 from core.llm import LLMClient
 from core.models import ExecutiveSynopsisDocument, PostmortemDocument, TitleCost
+from postmortem_writing import (
+    SHARED_PAGE_ASSUMPTION_LABEL,
+    EngagementAnswer,
+    Sources,
+    agreeing_breakdown,
+    cost_by_title,
+    the_pull_request_named,
+)
 
-from postmortem_writing.assumptions import SHARED_PAGE_ASSUMPTION_LABEL
-from postmortem_writing.breakdown import agreeing_breakdown
-from postmortem_writing.cost_by_title import cost_by_title
-from postmortem_writing.pull_requests import the_pull_request_named
-from postmortem_writing.sources import EngagementAnswer, Sources
-from postmortem_writing.synopsis_conversation import Overview, the_overview
-from postmortem_writing.synopsis_prompting import Paging, paging_of
+from executive_synopsis.synopsis_conversation import Overview, the_overview
+from executive_synopsis.synopsis_prompting import Paging, paging_of
 
 
 class Overviewing(Protocol):

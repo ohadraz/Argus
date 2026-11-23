@@ -18,9 +18,9 @@ import re
 from collections.abc import Mapping
 from typing import Final
 
-from postmortem_writing.figure_rules import figure_faults
-from postmortem_writing.figures import Figure, names_in
-from postmortem_writing.synopsis_prompting import required_figures
+from postmortem_writing import Figure, figure_faults, names_in
+
+from executive_synopsis.synopsis_prompting import required_figures
 
 # The first person plural, as a word of its own: "US" dollars and "Argus" are
 # not it.

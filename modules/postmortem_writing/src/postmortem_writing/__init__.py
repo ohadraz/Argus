@@ -6,6 +6,10 @@ record in `sections`, disclosures listed in `assumptions`, and the review in
 `reviewing`. The model is asked once, in `conversation`, and for nothing but
 words - under the standing brief in `briefing`, which travels in the policy its
 client is built with.
+
+The executive synopsis is written from the stored document elsewhere
+(`executive_synopsis`), with the figure engine, the judge and the cost by title
+exported here for it.
 """
 
 from __future__ import annotations
@@ -23,8 +27,10 @@ from postmortem_writing.assumptions import (
     REVENUE_UNAVAILABLE_ASSUMPTION,
     SHARED_PAGE_ASSUMPTION_LABEL,
 )
+from postmortem_writing.breakdown import agreeing_breakdown
 from postmortem_writing.briefing import STANDING_BRIEF, postmortem_policy
 from postmortem_writing.conversation import WRITE_UP_TOOLS
+from postmortem_writing.cost_by_title import cost_by_title
 from postmortem_writing.evidence import (
     ActionRecord,
     CandidateRecord,
@@ -33,7 +39,17 @@ from postmortem_writing.evidence import (
     RefusalRecord,
     ResolutionRecord,
 )
-from postmortem_writing.grounding import judge_policy
+from postmortem_writing.figure_rules import figure_faults
+from postmortem_writing.figures import Figure, names_in, written_in
+from postmortem_writing.grounding import (
+    Flag,
+    Flagging,
+    Grounding,
+    GroundingFor,
+    faults_of,
+    judge_policy,
+)
+from postmortem_writing.pull_requests import the_pull_request_named
 from postmortem_writing.response_cost_basis import (
     PAY_BAND_ASSUMPTION_LABEL,
     PAY_BANDS_UNAVAILABLE_ASSUMPTION,
@@ -49,15 +65,15 @@ from postmortem_writing.reviewing import (
 )
 from postmortem_writing.sources import (
     EngagedResponder,
+    Engagement,
     EngagementAnswer,
     NotPaged,
     PayBand,
+    PayBands,
     RateTable,
     Sources,
 )
 from postmortem_writing.summary import said_off_the_page
-from postmortem_writing.synopsis_prompting import synopsis_policy
-from postmortem_writing.synopsis_writing import write_executive_synopsis
 from postmortem_writing.writing import write_postmortem
 
 __all__ = [
@@ -87,18 +103,30 @@ __all__ = [
     "CandidateRecord",
     "DeploymentChangesRecord",
     "EngagedResponder",
+    "Engagement",
     "EngagementAnswer",
+    "Figure",
+    "Flag",
+    "Flagging",
+    "Grounding",
+    "GroundingFor",
     "IncidentEvidence",
     "NotPaged",
     "PayBand",
+    "PayBands",
     "RateTable",
     "RefusalRecord",
     "ResolutionRecord",
     "Sources",
+    "agreeing_breakdown",
+    "cost_by_title",
+    "faults_of",
+    "figure_faults",
     "judge_policy",
+    "names_in",
     "postmortem_policy",
     "said_off_the_page",
-    "synopsis_policy",
-    "write_executive_synopsis",
-    "write_postmortem"
+    "the_pull_request_named",
+    "write_postmortem",
+    "written_in"
 ]

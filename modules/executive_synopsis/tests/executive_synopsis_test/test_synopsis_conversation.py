@@ -27,12 +27,12 @@ from core.llm import (
     TurnPaused,
 )
 from core.models import ToolDefinition, ToolResults, Transcript, Turn
-from postmortem_writing.grounding import Flag, Grounding, GroundingFor
-from postmortem_writing.synopsis_conversation import OVERVIEW_SCOPE, Overview, the_overview
-from postmortem_writing.synopsis_prompting import OVERVIEW_FIELD, Paging
+from executive_synopsis.synopsis_conversation import OVERVIEW_SCOPE, Overview, the_overview
+from executive_synopsis.synopsis_prompting import OVERVIEW_FIELD, Paging
+from postmortem_writing import Flag, Grounding, GroundingFor
 
-from postmortem_writing_test.framework.assertions import built_with
-from postmortem_writing_test.framework.builders import (
+from executive_synopsis_test.framework.assertions import built_with
+from executive_synopsis_test.framework.builders import (
     AGrounding,
     a_grounding_flagging,
     a_model_answering_in_turn,
@@ -82,7 +82,7 @@ SOME_UNGROUNDED_CLAIM = "The flag was switched by hand."
 AN_OVERVIEW_CLAIMING_IT = f"{A_GOOD_OVERVIEW} {SOME_UNGROUNDED_CLAIM}"
 AN_OVERVIEW_CLAIMING_IT_WRITTEN = f"{A_GOOD_OVERVIEW_WRITTEN} {SOME_UNGROUNDED_CLAIM}"
 SOME_REASON_IT_IS_NOT = "the postmortem says nothing of who switched it"
-THE_OVERVIEW_S_LOGGER = "postmortem_writing.synopsis_conversation"
+THE_OVERVIEW_S_LOGGER = "executive_synopsis.synopsis_conversation"
 
 
 @pytest.mark.unit

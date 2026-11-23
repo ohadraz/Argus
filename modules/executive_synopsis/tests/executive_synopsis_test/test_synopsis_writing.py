@@ -22,12 +22,12 @@ from core.models import (
     PostmortemDocument,
     TitleCost,
 )
+from executive_synopsis.synopsis_conversation import Overview
+from executive_synopsis.synopsis_prompting import Paging
+from executive_synopsis.synopsis_writing import Overviewing, write_executive_synopsis
 from postmortem_writing import SHARED_PAGE_ASSUMPTION_LABEL, EngagedResponder, NotPaged, PayBand
-from postmortem_writing.synopsis_conversation import Overview
-from postmortem_writing.synopsis_prompting import Paging
-from postmortem_writing.synopsis_writing import Overviewing, write_executive_synopsis
 
-from postmortem_writing_test.framework.builders import (
+from executive_synopsis_test.framework.builders import (
     a_band_source_pricing,
     a_model_answering_in_turn,
     an_engagement_source_reporting_each,

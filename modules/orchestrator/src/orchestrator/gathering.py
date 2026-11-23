@@ -83,6 +83,7 @@ from core.models import (
 )
 from core.replay import Recorder, Replay
 from core.replay import nobody as records_nothing
+from executive_synopsis import write_executive_synopsis
 from incident_record import when_it_was_taken
 from incident_record.repository import (
     conversation,
@@ -123,7 +124,6 @@ from postmortem_writing import (
     RefusalRecord,
     ResolutionRecord,
     Sources,
-    write_executive_synopsis,
     write_postmortem,
 )
 

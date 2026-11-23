@@ -65,6 +65,7 @@ from core.events import (
     VerdictReached,
 )
 from core.models import ROLL_BACK_DEPLOYMENT, FixOutcome, IncidentStatus, Verdict
+from executive_synopsis import OVERVIEW_TOOL_NAME
 from incident_memory.filing import get_undelivered
 from incident_record.repository import runs, synopses
 from incident_record.repository.runs import RunState
@@ -78,7 +79,6 @@ from postmortem_writing.grounding import (
     ROWS_FIELD,
     WHY_FIELD,
 )
-from postmortem_writing.synopsis_prompting import OVERVIEW_TOOL_NAME
 from pydantic import BaseModel
 from qdrant_client import QdrantClient
 from vector_store_qdrant.settings import QdrantSettings

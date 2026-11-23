@@ -19,6 +19,7 @@ dependencies = [
     "argus-mitigation",
     "argus-codefix_agent",
     "argus-postmortem_writing",
+    "argus-executive_synopsis",
     # The executive synopsis's figures and resolution, worded as the
     # postmortem's page words them.
     "argus-postmortem_rendering",
@@ -68,6 +69,7 @@ argus-investigation_agent = { workspace = true }
 argus-mitigation = { workspace = true }
 argus-codefix_agent = { workspace = true }
 argus-postmortem_writing = { workspace = true }
+argus-executive_synopsis = { workspace = true }
 argus-postmortem_rendering = { workspace = true }
 
 [build-system]

@@ -21,6 +21,7 @@ members = [
     "argus-deployment-platform",
     "argus-embedding-fastembed",
     "argus-exchange-rate-source",
+    "argus-executive-synopsis",
     "argus-flag-provider",
     "argus-github-double",
     "argus-http-applying",
@@ -242,6 +243,7 @@ worker = [
     { name = "argus-codefix-agent" },
     { name = "argus-embedding-fastembed" },
     { name = "argus-exchange-rate-source" },
+    { name = "argus-executive-synopsis" },
     { name = "argus-incident-memory" },
     { name = "argus-incident-record" },
     { name = "argus-investigation-agent" },
@@ -290,6 +292,7 @@ requires-dist = [
     { name = "argus-embedding-fastembed", marker = "extra == 'read-mcp'", editable = "modules/embedding_fastembed" },
     { name = "argus-embedding-fastembed", marker = "extra == 'worker'", editable = "modules/embedding_fastembed" },
     { name = "argus-exchange-rate-source", marker = "extra == 'worker'", editable = "modules/exchange_rate_source" },
+    { name = "argus-executive-synopsis", marker = "extra == 'worker'", editable = "modules/executive_synopsis" },
     { name = "argus-flag-provider", marker = "extra == 'read-mcp'", editable = "modules/flag_provider" },
     { name = "argus-flag-provider", marker = "extra == 'write-mcp'", editable = "modules/flag_provider" },
     { name = "argus-incident-memory", marker = "extra == 'deliverer'", editable = "modules/incident_memory" },
@@ -561,6 +564,31 @@ dev = [
 requires-dist = [
     { name = "argus-core", editable = "modules/core" },
     { name = "httpx2", specifier = ">=2.12" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
+
+[[package]]
+name = "argus-executive-synopsis"
+version = "0.1.0"
+source = { editable = "modules/executive_synopsis" }
+dependencies = [
+    { name = "argus-core" },
+    { name = "argus-postmortem-writing" },
+    { name = "pydantic" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "argus-argus-testkit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "argus-core", editable = "modules/core" },
+    { name = "argus-postmortem-writing", editable = "modules/postmortem_writing" },
+    { name = "pydantic", specifier = ">=2.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -904,6 +932,7 @@ source = { editable = "modules/orchestrator" }
 dependencies = [
     { name = "argus-codefix-agent" },
     { name = "argus-core" },
+    { name = "argus-executive-synopsis" },
     { name = "argus-incident-memory" },
     { name = "argus-incident-record" },
     { name = "argus-investigation-agent" },
@@ -936,6 +965,7 @@ dev = [
 requires-dist = [
     { name = "argus-codefix-agent", editable = "modules/codefix_agent" },
     { name = "argus-core", editable = "modules/core" },
+    { name = "argus-executive-synopsis", editable = "modules/executive_synopsis" },
     { name = "argus-incident-memory", editable = "modules/incident_memory" },
     { name = "argus-incident-record", editable = "modules/incident_record" },
     { name = "argus-investigation-agent", editable = "modules/investigation_agent" },

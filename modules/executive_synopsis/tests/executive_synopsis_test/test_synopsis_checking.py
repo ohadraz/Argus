@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 from argus_testkit import Assertion, Scenario
-from postmortem_writing.synopsis_checking import overview_faults
+from executive_synopsis.synopsis_checking import overview_faults
 
 # The figures' names as the synopsis knows them: the overview has to name the
 # duration, the loss and the response's cost wherever the record holds them.

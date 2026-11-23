@@ -31,6 +31,7 @@ from core.llm import ModelProvider, build_llm_client, conversations_through
 from core.vector_store import VectorSearch
 from embedding_fastembed import an_embedder
 from exchange_rate_source.frankfurter import FrankfurterSettings, rates_published_for
+from executive_synopsis import synopsis_policy
 from incident_memory.records import RememberedIncident
 from incident_record import (
     calls_into,
@@ -67,7 +68,7 @@ from orchestrator.walk.ports import RecallSimilar, Resuming
 from pay_band_source.bamboohr_adapter import pay_bands
 from pay_band_source.bamboohr_settings import BambooHrSettings
 from postgres import Connections
-from postmortem_writing import Sources, judge_policy, postmortem_policy, synopsis_policy
+from postmortem_writing import Sources, judge_policy, postmortem_policy
 from read_mcp_client import ReadTier
 from revenue_source.stripe_adapter import charges_between
 from revenue_source.stripe_settings import StripeSettings

@@ -27,12 +27,18 @@ from core.llm import (
     the_call,
 )
 from core.models import Ask, Transcript, Turn
+from postmortem_writing import (
+    Figure,
+    Flagging,
+    Grounding,
+    GroundingFor,
+    faults_of,
+    written_in,
+)
 from pydantic import BaseModel
 
-from postmortem_writing.figures import Figure, written_in
-from postmortem_writing.grounding import Flagging, Grounding, GroundingFor, faults_of
-from postmortem_writing.synopsis_checking import overview_faults
-from postmortem_writing.synopsis_prompting import (
+from executive_synopsis.synopsis_checking import overview_faults
+from executive_synopsis.synopsis_prompting import (
     OVERVIEW_FIELD,
     OVERVIEW_TOOL_NAME,
     SUBMIT_EXECUTIVE_OVERVIEW,

@@ -120,6 +120,7 @@ from core.models import (
     why_it_was_refused,
 )
 from core.replay import CallType, Replay
+from executive_synopsis import OVERVIEW_FIELD
 from incident_record import calls_into
 from incident_record.repository import (
     conversation,
@@ -137,7 +138,6 @@ from orchestrator.walk.investigating import ASKING_THE_FLAG_PROVIDER
 from postgres import connect_from_env
 from postmortem_writing import CandidateRecord, DeploymentChangesRecord, IncidentEvidence, Sources
 from postmortem_writing.grounding import FLAGS_FIELD
-from postmortem_writing.synopsis_prompting import OVERVIEW_FIELD
 
 # The chat platform's name, as its adapter gives it - what a reader is
 # told a report came from, and what its references are filed under.

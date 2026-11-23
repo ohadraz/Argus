@@ -145,6 +145,7 @@ root_packages = [
     "deployment_platform",
     "embedding_fastembed",
     "exchange_rate_source",
+    "executive_synopsis",
     "flag_provider",
     "http_applying",
     "incident_memory",
@@ -354,6 +355,7 @@ type = "forbidden"
 source_modules = [
     "apps.worker",
     "codefix_agent",
+    "executive_synopsis",
     "investigation_agent",
     "mitigation",
     "orchestrator",
@@ -365,6 +367,16 @@ forbidden_modules = [
     "incident_memory.keeping",
     "vector_store_qdrant.indexing",
 ]
+
+[[tool.importlinter.contracts]]
+name = "the write-up never knows its synopsis"
+type = "forbidden"
+# The synopsis is written from the stored postmortem, through the writer's
+# figure engine and its judge, so `executive_synopsis` imports the writer. The
+# other way round would be a cycle between the two, and a write-up that changed
+# with the summary written of it.
+source_modules = ["postmortem_writing"]
+forbidden_modules = ["executive_synopsis"]
 
 [[tool.importlinter.contracts]]
 name = "postmortem_rendering says what a postmortem says from values it is handed"
