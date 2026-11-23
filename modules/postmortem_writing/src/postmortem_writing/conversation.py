@@ -55,6 +55,13 @@ from postmortem_writing.checking import (
     names_the_flag,
     rates_named_in,
 )
+from postmortem_writing.citations import (
+    the_candidates_labelled,
+    the_changes_labelled,
+    the_evidence_labelled,
+    the_files_as_they_ran_labelled,
+    the_uses_outside_labelled,
+)
 from postmortem_writing.evidence import IncidentEvidence
 from postmortem_writing.figures import (
     Figure,
@@ -81,13 +88,8 @@ from postmortem_writing.prompting import (
     opening_ask_again,
     rejecting,
     submit_postmortem_for,
-    the_candidates_labelled,
     the_change_that_set_it_off,
-    the_changes_labelled,
-    the_evidence_labelled,
-    the_files_as_they_ran_labelled,
     the_headings_of,
-    the_uses_outside_labelled,
 )
 from postmortem_writing.pull_requests import with_the_pull_request_named
 from postmortem_writing.revisions import revisions_of, with_revisions_corrected
