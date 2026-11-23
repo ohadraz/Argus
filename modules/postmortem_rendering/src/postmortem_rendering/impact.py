@@ -66,11 +66,21 @@ class ImpactSection(BaseModel):
 
     `finding_label` is the label a citation of what the alert said goes by,
     where the finding is said here: this is then the one place the alert's
-    words are, and a citation of them leads here."""
+    words are, and a citation of them leads here.
+
+    `duration_card`, `peak_card` and `loss_card` are three of `cards` by what
+    they show, for a reader that asks for a figure rather than a tile - where
+    a card's place would change with every card before it. The peak's `None`
+    where no rise was measured and one card says so instead, and for a
+    disproven alarm, which shows neither a peak nor a loss; the loss's `None`
+    for a disproven alarm alone."""
 
     model_config = ConfigDict(frozen=True)
 
     cards: tuple[Card, ...]
+    duration_card: Card
+    peak_card: Card | None
+    loss_card: Card | None
     finding: str | None
     metrics_missing: str | None
     finding_label: str | None = None
@@ -107,15 +117,22 @@ def the_impact(postmortem: PostmortemDocument, alert: Alert) -> ImpactSection:
     # judged on: a failure rate, a count and a loss of an incident that never
     # happened read as figures nobody measured.
     disproven = impact is not None and impact.extent is ImpactExtent.DISPROVEN
+    duration = _the_duration(impact, start, ended)
+    no_rise = _no_rise_measured(impact, start)
+    peak, failed = _the_peak_and_count(impact)
+    loss = _the_loss(postmortem, a_lower_bound)
 
     return ImpactSection(
-        cards=((_the_duration(impact, start, ended), *_the_rules_series_before_the_alert(impact))
+        cards=((duration, *_the_rules_series_before_the_alert(impact))
                if disproven else
-               (_the_duration(impact, start, ended),
-                *_the_errors(impact, start),
+               (duration,
+                *((no_rise,) if no_rise is not None else (peak, failed)),
                 *_the_latency(impact, start),
                 *_the_rules_series(impact, start),
-                _the_loss(postmortem, a_lower_bound))),
+                loss)),
+        duration_card=duration,
+        peak_card=None if disproven or no_rise is not None else peak,
+        loss_card=None if disproven else loss,
         finding=f"What the alert found: {found}" if found else None,
         metrics_missing=(_the_metrics_missing(start,
                                               resumed=impact.extent is ImpactExtent.METRICS_RESUMED,
@@ -196,10 +213,10 @@ def _the_duration(impact: Impact | None, start: str, ended: bool) -> Card:
             return Card(value="none", label="the alarm was disproven")
 
 
-def _the_errors(impact: Impact | None, start: str) -> tuple[Card, ...]:
-    """The failed requests at their worst and in all where they rose - or, where
-    no rise was measured, one card saying whether they did not rise or nobody
-    can tell, as the brief says it.
+def _no_rise_measured(impact: Impact | None, start: str) -> Card | None:
+    """Where no rise in failed requests was measured, one card saying whether
+    they did not rise or nobody can tell, as the brief says it - in place of
+    the peak and the count; `None` where they rose.
 
     Failed requests that did not rise are no harm, and a count of them under
     Impact reads as one: the requests that failed at the rate they always do.
@@ -212,12 +229,16 @@ def _the_errors(impact: Impact | None, start: str) -> tuple[Card, ...]:
     """
     levels = impact.error_rates if impact else None
 
-    if levels is not None and levels.rose is not True:
-        return (Card(value=(f"{said_as_a_share(levels.before)} to "
-                            f"{said_as_a_share(levels.while_broken)}"),
-                     label=f"error rate, {_before_and_while_broken(start)}",
-                     note="no rise" if levels.rose is False else NOT_TOLD_APART),)
+    if levels is None or levels.rose is True:
+        return None
 
+    return Card(value=f"{said_as_a_share(levels.before)} to {said_as_a_share(levels.while_broken)}",
+                label=f"error rate, {_before_and_while_broken(start)}",
+                note="no rise" if levels.rose is False else NOT_TOLD_APART)
+
+
+def _the_peak_and_count(impact: Impact | None) -> tuple[Card, Card]:
+    """The failed requests at their worst and in all."""
     peak = impact.peak_error_rate if impact else None
     failed = impact.requests_failed if impact else None
 

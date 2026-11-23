@@ -14,7 +14,7 @@ from __future__ import annotations
 from decimal import ROUND_FLOOR, ROUND_HALF_UP, Decimal
 from typing import Final
 
-from core.models import Alert, ExecutiveSynopsis, Postmortem
+from core.models import Alert, ExecutiveSynopsis, Postmortem, SynopsisFigure
 from narration import said_as_money
 from pydantic import BaseModel, ConfigDict
 
@@ -129,7 +129,7 @@ def _the_window(synopsis: ExecutiveSynopsis, postmortem: Postmortem, alert: Aler
     duration's tile says it: from and to alone leave a reader to subtract. A
     disproven alarm had no stretch, so its window says none."""
     window = a_head(postmortem, alert, None).date
-    lasted = the_synopsis_figures(postmortem, alert, synopsis).get("duration")
+    lasted = the_synopsis_figures(postmortem, alert, synopsis).get(SynopsisFigure.DURATION)
     if lasted is None:
         return window
 

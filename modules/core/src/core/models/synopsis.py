@@ -14,11 +14,29 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
+from enum import StrEnum
 
 from pydantic import BaseModel
 
 from core.ids import UuidStr
 from core.models.postmortem import TitleMinutes
+
+
+class SynopsisFigure(StrEnum):
+    """The figures an overview may name, by the name it names each by: how long
+    it lasted, how badly requests failed, what customers lost, and who
+    responded, for how long and at what cost.
+
+    A contract between the renderer that writes each figure as the page does
+    and the synopsis that asks for them by name - the name is what the model is
+    shown and writes, so it is spelled once."""
+
+    DURATION = "duration"
+    PEAK_ERROR_RATE = "peak_error_rate"
+    CUSTOMER_LOSS = "customer_loss"
+    RESPONDERS = "responders"
+    ENGINEER_MINUTES = "engineer_minutes"
+    RESPONDER_COST = "responder_cost"
 
 
 class TitleCost(TitleMinutes):

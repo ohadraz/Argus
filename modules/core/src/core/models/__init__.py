@@ -172,6 +172,7 @@ from core.models.synopsis import (
     ExecutiveSynopsis,
     ExecutiveSynopsisDocument,
     PricedResponse,
+    SynopsisFigure,
     TitleCost,
 )
 from core.models.taken_action import (
@@ -392,6 +393,7 @@ __all__ = [
     "Claimed",
     "AlreadyClaimed",
     "SubjectOpen",
+    "SynopsisFigure",
     "ClaimAnswer",
     "ThreadMessage",
     "TitleCost",

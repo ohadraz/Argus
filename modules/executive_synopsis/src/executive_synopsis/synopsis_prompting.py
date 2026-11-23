@@ -18,7 +18,7 @@ from collections.abc import Mapping, Sequence
 from enum import StrEnum
 from typing import Final
 
-from core.models import Ask, ModelPolicy, Reasoning, ToolDefinition, Transcript
+from core.models import Ask, ModelPolicy, Reasoning, SynopsisFigure, ToolDefinition, Transcript
 
 OVERVIEW_TOOL_NAME: Final = "submit_executive_overview"
 OVERVIEW_FIELD: Final = "overview"
@@ -26,20 +26,21 @@ OVERVIEW_FIELD: Final = "overview"
 # The figures an overview has to name wherever the record holds them: how long
 # it lasted, what it cost the business, and what it cost the people who
 # responded - in the order a reader asks.
-_REQUIRED: Final = ("duration", "customer_loss", "responder_cost")
+_REQUIRED: Final = (SynopsisFigure.DURATION, SynopsisFigure.CUSTOMER_LOSS,
+                    SynopsisFigure.RESPONDER_COST)
 
 # Figures shown by name and never by amount.
-_PAY: Final = frozenset({"responder_cost"})
+_PAY: Final = frozenset({SynopsisFigure.RESPONDER_COST})
 
 # What each figure is, as the ask says it before the figure and its name.
-_SAID_AS: Final = {
-    "duration": "How long it lasted",
-    "peak_error_rate": "Requests failing at the worst minute",
+_SAID_AS: Final[dict[str, str]] = {
+    SynopsisFigure.DURATION: "How long it lasted",
+    SynopsisFigure.PEAK_ERROR_RATE: "Requests failing at the worst minute",
     # Whose estimate: "(estimated)" alone, 4 overviews in 10 said "We estimate".
-    "customer_loss": "What it cost the shop in takings (estimated by Argus)",
-    "responders": "People who responded",
-    "engineer_minutes": "Their time, added together",
-    "responder_cost": "What their time cost"
+    SynopsisFigure.CUSTOMER_LOSS: "What it cost the shop in takings (estimated by Argus)",
+    SynopsisFigure.RESPONDERS: "People who responded",
+    SynopsisFigure.ENGINEER_MINUTES: "Their time, added together",
+    SynopsisFigure.RESPONDER_COST: "What their time cost"
 }
 
 NO_SIZE_IN_WORDS: Final = (

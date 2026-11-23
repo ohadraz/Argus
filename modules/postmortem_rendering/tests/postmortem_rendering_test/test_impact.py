@@ -43,6 +43,7 @@ DONT_CARE_DURATION = timedelta(minutes=6)
 DONT_CARE_PEAK = 0.35
 DONT_CARE_FAILED = 3480
 DONT_CARE_LINE = 0.1
+DONT_CARE_LEVEL = 0.3
 
 # An incident no onset was measured for, as Detection records it: every
 # stretch it reports runs from the alert.
@@ -657,6 +658,73 @@ def test_an_error_rate_that_rose_is_shown_at_its_peak_and_in_requests_failed() -
 
 
 @pytest.mark.unit
+def test_the_section_names_its_duration_its_peak_and_its_loss_by_what_they_are() -> None:
+    # A reader asking for a figure - the synopsis - is handed it by what it is:
+    # by its place among the cards, any card added before one moves it.
+    some_stretch = timedelta(minutes=29)
+    some_peak = 0.339
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                impact=Impact(duration=some_stretch, extent=ImpactExtent.MEASURED,
+                              peak_error_rate=some_peak, requests_failed=DONT_CARE_FAILED,
+                              error_rates=ErrorRateLevels(before=DONT_CARE_LEVEL,
+                                                          while_broken=DONT_CARE_LEVEL,
+                                                          rose=True)),
+                customer_loss_estimate=None)
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert())
+        ) \
+        .then(
+            _whose_named_cards_are(
+                duration_card=Card(value="29m 0s", label="onset until back to normal"),
+                peak_card=Card(value="33.9%", label="peak error rate"),
+                loss_card=Card(value="not estimated", label="customer loss (estimated)")))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("rose", [False, None], ids=["no-rise", "not-told-apart"])
+def test_the_section_names_no_peak_where_no_rise_was_measured(rose: bool | None) -> None:
+    # One card says there was no rise, or none anybody can tell: a peak named
+    # beside it is a figure the page does not show.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                impact=Impact(duration=DONT_CARE_DURATION, extent=ImpactExtent.MEASURED,
+                              peak_error_rate=DONT_CARE_PEAK, requests_failed=DONT_CARE_FAILED,
+                              error_rates=ErrorRateLevels(before=DONT_CARE_LEVEL,
+                                                          while_broken=DONT_CARE_LEVEL,
+                                                          rose=rose)))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert()).peak_card
+        ) \
+        .then(
+            the_answer_was(None))
+
+
+@pytest.mark.unit
+def test_the_section_names_neither_a_peak_nor_a_loss_for_a_disproven_alarm() -> None:
+    # There was no incident to cost or to see fail, and its cards show neither.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                impact=Impact(duration=timedelta(0), extent=ImpactExtent.DISPROVEN,
+                              peak_error_rate=None))
+        ) \
+        .when(
+            lambda: the_impact(some_postmortem, an_alert())
+        ) \
+        .then(
+            _whose_named_cards_are(
+                duration_card=Card(value="none", label="the alarm was disproven"),
+                peak_card=None,
+                loss_card=None))
+
+
+@pytest.mark.unit
 def test_an_error_rate_that_did_not_rise_is_one_card_saying_so() -> None:
     # Failed requests that did not rise are no harm, and a count of them under
     # Impact reads as one - 72 requests failing at the rate they always do.
@@ -930,6 +998,21 @@ def _with_the_card_at(index: int, expected: Card) -> Assertion[ImpactSection]:
 
         if card != expected:
             raise AssertionError(f"Expected card {index} to be [{expected!r}], got [{card!r}].")
+
+        return True
+
+    return assertion
+
+
+def _whose_named_cards_are(duration_card: Card, peak_card: Card | None,
+                           loss_card: Card | None) -> Assertion[ImpactSection]:
+    def assertion(section: ImpactSection) -> bool:
+        named = (section.duration_card, section.peak_card, section.loss_card)
+        expected = (duration_card, peak_card, loss_card)
+
+        if named != expected:
+            raise AssertionError(f"Expected the duration, peak and loss cards to be "
+                                 f"{expected!r}, got {named!r}.")
 
         return True
 

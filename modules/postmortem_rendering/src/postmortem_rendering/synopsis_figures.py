@@ -17,7 +17,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Final
 
-from core.models import Alert, ImpactExtent, PostmortemDocument, PricedResponse
+from core.models import Alert, ImpactExtent, PostmortemDocument, PricedResponse, SynopsisFigure
 from narration import said_as_a_span, said_as_money
 
 from postmortem_rendering.impact import the_impact
@@ -43,17 +43,15 @@ def the_synopsis_figures(postmortem: PostmortemDocument,
 
     impact = postmortem.impact
     if impact is None or impact.extent is not ImpactExtent.DISPROVEN:
-        cards = the_impact(postmortem, alert).cards
+        section = the_impact(postmortem, alert)
         if impact is not None:
-            figures["duration"] = cards[0].value
-            # The peak's card follows the duration's, except where no rise was
-            # measured and one card says so instead - a document written before
-            # the levels were carried shows the peak as it always did.
-            levels = impact.error_rates
-            if impact.peak_error_rate is not None and (levels is None or levels.rose is True):
-                figures["peak_error_rate"] = cards[1].value
-        if postmortem.customer_loss_estimate is not None:
-            figures["customer_loss"] = cards[-1].value
+            figures[SynopsisFigure.DURATION] = section.duration_card.value
+            # The page shows no peak where no rise was measured, and one card
+            # says so instead - nor one nobody read.
+            if impact.peak_error_rate is not None and section.peak_card is not None:
+                figures[SynopsisFigure.PEAK_ERROR_RATE] = section.peak_card.value
+        if postmortem.customer_loss_estimate is not None and section.loss_card is not None:
+            figures[SynopsisFigure.CUSTOMER_LOSS] = section.loss_card.value
 
     # Nobody responding is no response to name: "0" and "none" became "0
     # people responded, and their time came to none", false where a person
@@ -62,13 +60,13 @@ def the_synopsis_figures(postmortem: PostmortemDocument,
     if not postmortem.responders:
         return figures
 
-    figures["responders"] = str(postmortem.responders)
+    figures[SynopsisFigure.RESPONDERS] = str(postmortem.responders)
     if postmortem.engineer_minutes is not None:
         minutes = postmortem.engineer_minutes
-        figures["engineer_minutes"] = f"{minutes} min" if minutes else "none"
+        figures[SynopsisFigure.ENGINEER_MINUTES] = f"{minutes} min" if minutes else "none"
     if cost.responder_cost_estimate is not None:
-        figures["responder_cost"] = said_as_money(cost.responder_cost_estimate,
-                                                  cost.responder_cost_currency)
+        figures[SynopsisFigure.RESPONDER_COST] = said_as_money(cost.responder_cost_estimate,
+                                                               cost.responder_cost_currency)
 
     return figures
 
@@ -89,19 +87,19 @@ def the_synopsis_figures_said(postmortem: PostmortemDocument,
     ended = postmortem.the_impact_ended()
     the_duration_a_floor = impact is not None and impact.extent in _FLOORS and not ended
     the_loss_a_floor = impact is not None and not ended
-    if "duration" in said and impact is not None:
+    if SynopsisFigure.DURATION in said and impact is not None:
         span = said_as_a_span(impact.duration)
-        said["duration"] = f"at least {span}" if the_duration_a_floor else span
+        said[SynopsisFigure.DURATION] = f"at least {span}" if the_duration_a_floor else span
 
     # No loss is the amount in prose: the tile's "none so far" in an amount's
     # slot read "the cost to the shop's takings at none so far".
-    if "customer_loss" in said and postmortem.customer_loss_estimate == 0:
+    if SynopsisFigure.CUSTOMER_LOSS in said and postmortem.customer_loss_estimate == 0:
         amount = said_as_money(Decimal(0), postmortem.estimate_currency)
-        said["customer_loss"] = f"{amount} so far" if the_loss_a_floor else amount
+        said[SynopsisFigure.CUSTOMER_LOSS] = f"{amount} so far" if the_loss_a_floor else amount
 
     minutes = postmortem.engineer_minutes
-    if minutes and "engineer_minutes" in said:
-        said["engineer_minutes"] = (f"{minutes} minute{'s' if minutes != 1 else ''} "
-                                    f"({_WHAT_THE_MINUTES_COUNT})")
+    if minutes and SynopsisFigure.ENGINEER_MINUTES in said:
+        said[SynopsisFigure.ENGINEER_MINUTES] = (f"{minutes} minute{'s' if minutes != 1 else ''} "
+                                                 f"({_WHAT_THE_MINUTES_COUNT})")
 
     return said
