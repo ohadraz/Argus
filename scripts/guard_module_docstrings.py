@@ -15,10 +15,9 @@ modules in this repo are a type or two whose own docstrings say everything,
 and demanding a header on each would buy filler.
 """
 import ast
+import subprocess
 import sys
 from pathlib import Path
-
-SKIPPED_DIRECTORIES = ("__pycache__", ".venv", ".nox", ".git")
 
 
 def stray_string_lines(source_file: Path) -> list[int]:
@@ -42,13 +41,27 @@ def stray_string_lines(source_file: Path) -> list[int]:
     ]
 
 
+def the_repositorys_python_files(repo_root: Path) -> list[Path]:
+    """Every Python file the repository holds or is about to: tracked, or
+    untracked and not ignored - as git sees them, so an ignored folder of
+    someone's local copies (a virtualenv, a reviewer's captures of another
+    repository) is never read as this repository's code. A tracked file
+    deleted from the working tree is left out: there is nothing to read."""
+    listed = subprocess.run(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", "*.py"],
+        cwd=repo_root, capture_output=True, text=True, check=True
+    ).stdout
+
+    return sorted(repo_root / name for name in set(listed.split("\0"))
+                  if name and (repo_root / name).is_file())
+
+
 def main() -> None:
     repo_root = Path(__file__).resolve().parent.parent
 
     violations = [
         f"{source_file.relative_to(repo_root).as_posix()}:{lineno}"
-        for source_file in sorted(repo_root.rglob("*.py"))
-        if not any(part in SKIPPED_DIRECTORIES for part in source_file.parts)
+        for source_file in the_repositorys_python_files(repo_root)
         for lineno in stray_string_lines(source_file)
     ]
 
