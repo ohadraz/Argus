@@ -124,9 +124,13 @@ def _titles_on(level: dict[str, Any]) -> list[str]:
 
 
 def _a_band(level: dict[str, Any]) -> PayBand:
+    """One level's band, its currency spelled as Argus spells one: lower case,
+    as the reporting currency and every rate table are. The provider writes
+    "USD", and compared as written, a band in the reporting currency would read
+    as a foreign one with no rate to convert it at."""
     return PayBand(
         minimum=Decimal(str(level[_MINIMUM])),
         midpoint=Decimal(str(level[_MIDPOINT])),
         maximum=Decimal(str(level[_MAXIMUM])),
-        currency=level[_CURRENCY_CODE]
+        currency=level[_CURRENCY_CODE].lower()
     )

@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Final, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from core.models.code_search import CodeSearch
@@ -385,7 +385,8 @@ class Settings(BaseSettings):
     # rate is quoted against. A shop paid in several currencies has no total
     # until one of them is chosen, and choosing is a business decision rather
     # than an arithmetic one - so it is configured, and the document discloses
-    # what it converted at to get there.
+    # what it converted at to get there. Held lower case, as every currency
+    # Argus compares is spelled (`_a_currency_as_argus_spells_one`).
     reporting_currency: str = Field(default="usd")
 
     # What bounds one investigation once the model, rather than a schedule,
@@ -553,6 +554,16 @@ class Settings(BaseSettings):
     @property
     def write_mcp_url(self) -> str:
         return f"http://{self.write_mcp_host}:{self.write_mcp_port}"
+
+    @field_validator("reporting_currency")
+    @classmethod
+    def _a_currency_as_argus_spells_one(cls, currency: str) -> str:
+        """The reporting currency lower case, as the revenue source's keys,
+        the rate table and the pay bands spell theirs. Read as written, a
+        deployment that configured "USD" would match none of them: on a day
+        the rates could not be read, its own currency's takings would be
+        stated as nothing."""
+        return currency.lower()
 
     @model_validator(mode="after")
     def _windows_must_be_consistent(self) -> Settings:

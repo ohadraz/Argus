@@ -153,6 +153,26 @@ def test_a_candidate_budget_below_one_is_rejected() -> None:
 
 
 @pytest.mark.unit
+def test_a_reporting_currency_is_held_as_argus_spells_a_currency() -> None:
+    # Configured "USD", it would be compared with the revenue source's and the
+    # rate table's "usd" and match neither: on a day the rates could not be
+    # read, the takings in it would be stated as nothing.
+    some_currency = "usd"
+
+    Scenario() \
+        .given(
+            some_currency_configured_upper_case := some_currency.upper()
+        ) \
+        .when(
+            lambda: Settings(reporting_currency=some_currency_configured_upper_case
+                             ).reporting_currency
+        ) \
+        .then(
+            the_answer_was(some_currency)
+        )
+
+
+@pytest.mark.unit
 def test_a_candidate_budget_of_exactly_one_is_accepted() -> None:
     # The single-candidate walk: Argus tries its best explanation and stops.
     # It is the behaviour that existed before the walk did, and configuring it

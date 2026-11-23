@@ -40,7 +40,9 @@ SOME_OTHER_TITLE_ON_THE_SAME_LEVEL = "Senior Kuki"
 SOME_OTHER_TITLE = "Junior Buki"
 SOME_TITLE_NOBODY_ASSIGNED = "Senior Buki"
 
-SOME_CURRENCY = "USD"
+# A currency as Argus spells one, lower case as the rate source keys its table;
+# the provider writes the same code upper case (`_a_level`).
+SOME_CURRENCY = "usd"
 SOME_KEY = "some-hr-key"
 
 DONT_CARE_URL = "http://hr.example"
@@ -98,6 +100,24 @@ def test_every_title_on_a_level_carries_that_level_s_band() -> None:
             _the_band_for(SOME_TITLE, is_=some_band),
             _the_band_for(SOME_OTHER_TITLE_ON_THE_SAME_LEVEL, is_=some_band)
         ))
+
+
+@pytest.mark.unit
+def test_a_band_s_currency_is_spelled_as_argus_spells_one() -> None:
+    # The provider writes "USD"; the reporting currency and every rate table
+    # Argus holds write "usd". Compared as written, a band in the reporting
+    # currency would read as a foreign one, with no rate to convert it at.
+    some_band = _a_pay_band(Decimal(150_000), Decimal(175_000), Decimal(200_000))
+    a_source_answering = _a_source_answering(_a_group(_a_level(some_band, SOME_TITLE)))
+
+    Scenario() \
+        .when(
+            lambda: pay_bands(settings=_settings_with(SOME_KEY),
+                              asking=a_source_answering)
+        ) \
+        .then(
+            _the_band_for(SOME_TITLE, is_=some_band)
+        )
 
 
 @pytest.mark.unit
@@ -186,12 +206,13 @@ def _a_pay_band(minimum: Decimal,
 
 
 def _a_level(band: PayBand, *titles: str) -> dict[str, Any]:
-    """One level in the provider's own shape: a band, and the titles on it."""
+    """One level in the provider's own shape: a band, its currency code upper
+    case as the provider writes it, and the titles on it."""
     return {
         MIN: int(band.minimum),
         MID: int(band.midpoint),
         MAX: int(band.maximum),
-        CURRENCY_CODE: band.currency,
+        CURRENCY_CODE: band.currency.upper(),
         JOB_TITLES: [{JOB_TITLE: title} for title in titles]
     }
 
