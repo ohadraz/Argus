@@ -39,16 +39,15 @@ READ_FILE_TOOL: Final = "read_repository_file"
 PATH_ARGUMENT: Final = "path"
 QUERY_ARGUMENT: Final = "query"
 DESCRIPTION_ARGUMENT: Final = "description"
+# The argument every read-tier tool held here is asked at. The ref is the
+# branch a fix is cut from, so it is filled in here and never offered.
+REF_ARGUMENT: Final = "ref"
 
 logger = logging.getLogger(__name__)
 
-# The argument every read-tier tool held here is asked at. The ref is the
-# branch a fix is cut from, so it is filled in here and never offered.
-_REF_ARGUMENT: Final = "ref"
-
 
 def _held(*names: str) -> Mapping[str, Collection[str]]:
-    return {name: frozenset({_REF_ARGUMENT}) for name in names}
+    return {name: frozenset({REF_ARGUMENT}) for name in names}
 
 
 # The read tier's tools Code-Fix holds, for each way a deployment finds source,

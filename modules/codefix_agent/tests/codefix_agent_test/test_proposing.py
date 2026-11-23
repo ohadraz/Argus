@@ -20,6 +20,7 @@ from typing import Any
 from unittest.mock import Mock, create_autospec
 
 import pytest
+from argus_testkit import Kept
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised, the_error_mentioned
 from argus_testkit.logs import one_record_was_logged
 from argus_testkit.scenario import Scenario, attempting, calling
@@ -35,6 +36,14 @@ from codefix_agent.proposing import (
     fixes_over,
     propose_fix,
 )
+from codefix_agent.receipts import (
+    BRANCH_ARGUMENT,
+    CODE_OUTSIDE_TOOL,
+    CONTAINS_TOOL,
+    FILES_ARGUMENT,
+    INDEX_FRESHNESS_TOOL,
+    REVISION_ARGUMENT,
+)
 from codefix_agent.retrieval import (
     BranchMembership,
     CodeOutsideReader,
@@ -45,7 +54,16 @@ from codefix_agent.retrieval import (
     ReadTierTools,
     SourceSearcher,
 )
-from codefix_agent.tools import READ_FILE_TOOL
+from codefix_agent.tools import (
+    DESCRIPTION_ARGUMENT,
+    LIST_FILES_TOOL,
+    PATH_ARGUMENT,
+    QUERY_ARGUMENT,
+    READ_FILE_TOOL,
+    REF_ARGUMENT,
+    SEARCH_BY_MEANING_TOOL,
+    SEARCH_TOOL,
+)
 from core import new_id
 from core.budget import StillWanted
 from core.llm import (
@@ -84,7 +102,7 @@ from core.models import (
     WhatArgusDid,
     a_chat_message,
 )
-from core.replay import Recorder
+from core.replay import CallType, Recorder, ReplayEntry
 from narration import what_was_done
 from read_mcp_client import ReadTier
 from write_mcp_client import WriteTier
@@ -3453,6 +3471,71 @@ def test_the_conversation_a_real_fix_has_is_recorded_against_its_incident() -> N
         .then(_the_conversation_was_recorded_for(conversations,
                                                  some_incident_id,
                                                  recorder))
+
+
+@pytest.mark.unit
+def test_every_read_the_fix_makes_leaves_a_receipt_whoever_asked_for_it() -> None:
+    # The model's reads and the loop's own alike - the listing and the
+    # branch's history for the opening, the index's freshness, the code
+    # outside a submission and the listing beside it, the listing at the
+    # revision that ran - each is a call to the read tier, filed with what it
+    # was asked, and a run is examined later from what it read.
+    some_query = "monthly_spend"
+    some_description = "divides by the purchases this month"
+    branch = some_settings().deployed_branch
+    receipts: Kept[ReplayEntry] = Kept()
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                recorder=receipts.take,
+                deployed=SOME_REVISION_THAT_RAN,
+                conversations=a_model_that(
+                    asks_to_search_for(some_query),
+                    asks_to_search_by_meaning_for(some_description),
+                    asks_to_read(SOME_PATH),
+                    submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own()
+                ).conversations,
+                **a_repository().ports()
+            )
+        ) \
+        .then(
+            _receipts_were_kept_for(receipts, [
+                (LIST_FILES_TOOL, {REF_ARGUMENT: branch}),
+                (CONTAINS_TOOL, {BRANCH_ARGUMENT: branch,
+                                 REVISION_ARGUMENT: SOME_REVISION_THAT_RAN}),
+                (INDEX_FRESHNESS_TOOL, {REF_ARGUMENT: branch}),
+                (SEARCH_TOOL, {QUERY_ARGUMENT: some_query, REF_ARGUMENT: branch}),
+                (SEARCH_BY_MEANING_TOOL, {DESCRIPTION_ARGUMENT: some_description,
+                                          REF_ARGUMENT: branch}),
+                (READ_FILE_TOOL, {PATH_ARGUMENT: SOME_PATH, REF_ARGUMENT: branch}),
+                (CODE_OUTSIDE_TOOL, {FILES_ARGUMENT: {SOME_PATH: SOME_FIXED_SOURCE,
+                                                      SOME_TEST_PATH: SOME_TEST_SOURCE},
+                                     REF_ARGUMENT: branch}),
+                (LIST_FILES_TOOL, {REF_ARGUMENT: branch}),
+                (LIST_FILES_TOOL, {REF_ARGUMENT: SOME_REVISION_THAT_RAN})
+            ])
+        )
+
+
+def _receipts_were_kept_for(receipts: Kept[ReplayEntry],
+                            expected: list[tuple[str, dict[str, object]]]
+                            ) -> Assertion[ProposedFix]:
+    """That the tool calls kept a receipt for each of these reads - the tool,
+    and the arguments it was asked by - and for no other, in any order."""
+    def assertion(_: ProposedFix) -> bool:
+        kept = sorted((repr(entry.target), repr(entry.request["arguments"]))
+                      for entry in receipts.taken if entry.call_type is CallType.MCP)
+        wanted = sorted((repr(tool), repr(arguments)) for tool, arguments in expected)
+        if kept != wanted:
+            raise AssertionError(f"Expected receipts for {wanted}, got {kept}.")
+
+        return True
+
+    return assertion
 
 
 @pytest.mark.unit

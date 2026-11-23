@@ -63,7 +63,7 @@ from core.models import (
 
 # Aliased because `replay`'s no-op sink is called `nobody`, as `events`' is, and
 # this module has no use for the other one to be confused with.
-from core.replay import Recorder
+from core.replay import Recorder, Replay
 from core.replay import nobody as records_nothing
 from pydantic import ValidationError
 from read_mcp_client import ReadTier
@@ -94,6 +94,15 @@ from codefix_agent.prompting import (
     changes_only_configuration,
     the_paths_whose_content_is_not_source,
 )
+from codefix_agent.receipts import (
+    BRANCH_ARGUMENT,
+    CODE_OUTSIDE_TOOL,
+    CONTAINS_TOOL,
+    FILES_ARGUMENT,
+    INDEX_FRESHNESS_TOOL,
+    REVISION_ARGUMENT,
+    receipted,
+)
 from codefix_agent.retrieval import (
     BranchMembership,
     CodeOutsideReader,
@@ -104,7 +113,19 @@ from codefix_agent.retrieval import (
     ReadTierTools,
     SourceSearcher,
 )
-from codefix_agent.tools import READ_TIER_HELD, the_answer_to, tools_for
+from codefix_agent.tools import (
+    DESCRIPTION_ARGUMENT,
+    LIST_FILES_TOOL,
+    PATH_ARGUMENT,
+    QUERY_ARGUMENT,
+    READ_FILE_TOOL,
+    READ_TIER_HELD,
+    REF_ARGUMENT,
+    SEARCH_BY_MEANING_TOOL,
+    SEARCH_TOOL,
+    the_answer_to,
+    tools_for,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -376,7 +397,21 @@ def propose_fix(hypothesis: Hypothesis | None,
 
     `read_tier_tools` is the repository tools the model is offered, as the read
     tier declares them - asked once, before the conversation starts.
+
+    Every read of the repository leaves a receipt with `recorder`, whoever
+    asked for it (`receipts`): a run is examined later from what it read.
     """
+    replay = Replay(incident_id, recorder)
+    search = receipted(replay, SEARCH_TOOL, search, QUERY_ARGUMENT, REF_ARGUMENT)
+    search_by_meaning = receipted(replay, SEARCH_BY_MEANING_TOOL, search_by_meaning,
+                                  DESCRIPTION_ARGUMENT, REF_ARGUMENT)
+    index_notice = receipted(replay, INDEX_FRESHNESS_TOOL, index_notice, REF_ARGUMENT)
+    list_files = receipted(replay, LIST_FILES_TOOL, list_files, REF_ARGUMENT)
+    contains = receipted(replay, CONTAINS_TOOL, contains, BRANCH_ARGUMENT, REVISION_ARGUMENT)
+    read_file = receipted(replay, READ_FILE_TOOL, read_file, PATH_ARGUMENT, REF_ARGUMENT)
+    code_outside = receipted(replay, CODE_OUTSIDE_TOOL, code_outside, FILES_ARGUMENT,
+                             REF_ARGUMENT)
+
     holds_what_ran = whether_it_holds_what_ran(settings, deployed, contains)
     submitted, uses_outside = _what_the_model_submitted(
         hypothesis,
