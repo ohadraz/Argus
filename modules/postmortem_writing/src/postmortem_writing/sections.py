@@ -44,6 +44,7 @@ from core.models import (
     LatencyHarm,
     LogsInTheGap,
     NoTrigger,
+    NoVerdict,
     OpenedPullRequest,
     ResolutionStep,
     RuleSeriesBeforeTheAlert,
@@ -53,6 +54,7 @@ from core.models import (
     TimelineMarker,
     Trigger,
     Verdict,
+    WhatBecame,
     WhyNoTrigger,
 )
 from narration import (
@@ -83,26 +85,6 @@ from postmortem_writing.stamps import the_last_minute_logged_inside
 # taken; a person's resolution ends the incident, but is no action of record.
 TAKEN_BY = "Argus"
 
-NEVER_TRIED = "never tried"
-# What became of a cause whose action was reached for and ended before its
-# write: never tried as surely as one nobody reached, and said apart from it,
-# since the action's own row is about this cause and "never tried" beside it
-# reads as no attempt at all.
-ACTION_NOT_TAKEN = "action not taken"
-NO_VERDICT_RECORDED = "no verdict recorded"
-# What an action a person's ending stopped came to (`NOT_JUDGED`, the kernel's,
-# since the synopsis names it too), and what became of a cause whose action was
-# performed and never measured - a person's ending during the wait, or a wait
-# whose every look went unanswered: nothing was judged, and the cause was tried
-# all the same.
-TRIED_NOT_JUDGED = "tried, not judged"
-# What became of a cause whose action was performed and carries no verdict:
-# the worker died with the change made, before the wait judged it or before it
-# wrote down what the wait judged - and the row cannot say which.
-TRIED_NO_VERDICT_RECORDED = "tried, no verdict recorded"
-# What became of a cause whose action was claimed and never said more: nobody
-# can tell whether the change was made.
-NOT_KNOWN_WHETHER_TRIED = "not known whether tried"
 # What a refusal to act came to, in the resolution's outcome column - and an
 # action a person's ending stopped before it was done.
 NOT_TAKEN = "not taken"
@@ -808,7 +790,7 @@ def what_it_came_to(verdict: str | None, progress: ActionProgress) -> str:
     Not taken only where the row says the action ended before its write: a
     claim nobody answered may have been made, so its stop is not judged."""
     if verdict is None:
-        return NO_VERDICT_RECORDED
+        return NoVerdict.NO_VERDICT_RECORDED.value
 
     if verdict == Verdict.STOPPED:
         return NOT_TAKEN if progress.its_change_was_made() is False else NOT_JUDGED
@@ -890,9 +872,12 @@ def a_hypothesis_of(cause: OneCause) -> HypothesisConsidered:
     Public because the brief says a cause standing for several the way the row
     does, and says what became of each through the row's own `result_of`.
     """
+    became = cause.became
+
     return HypothesisConsidered(summary=cause.lead.summary,
                                 confidence=cause.lead.confidence,
-                                result=cause.became,
+                                result=became.said,
+                                became=became,
                                 label=cause.label,
                                 also=cause.also,
                                 members=[CandidateConsidered(label=label,
@@ -938,11 +923,11 @@ class OneCause:
         return next((label for label, candidate in self.members if candidate.tested), None)
 
     @property
-    def became(self) -> str:
-        """What became of the cause, in the words its row and the brief both
-        say it in: its verdict, or that it was never tried or its action not
-        taken - and why, where its row recorded it - or tried and never judged,
-        or tried with no verdict on file, or not known whether tried at all.
+    def became(self) -> WhatBecame:
+        """What became of the cause: its verdict, or that it was never tried or
+        its action not taken - and why, where its row recorded it - or tried and
+        never judged, or tried with no verdict on file, or not known whether
+        tried at all.
 
         The why because the gate writes on the row why it held the test back,
         and "never tried" alone left a reader to guess whether the
@@ -958,30 +943,27 @@ class OneCause:
             # owed back after a refutation - and nobody knows whether a
             # verdict was reached.
             if made is True:
-                return (TRIED_NOT_JUDGED if self.decided.verdict_recorded
-                        else TRIED_NO_VERDICT_RECORDED)
+                return WhatBecame(no_verdict=(NoVerdict.TRIED_NOT_JUDGED
+                                              if self.decided.verdict_recorded
+                                              else NoVerdict.TRIED_NO_VERDICT_RECORDED))
 
             # Claimed, and nothing said since - the walk should never leave a
             # claim at that before a write-up is written, and a claim nobody
             # could answer reads the same. Either may have changed the service,
             # so never "never tried" either.
             if progress is not None and made is None:
-                return NOT_KNOWN_WHETHER_TRIED
+                return WhatBecame(no_verdict=NoVerdict.NOT_KNOWN_WHETHER_TRIED)
 
-            untried = ACTION_NOT_TAKEN if made is False else NEVER_TRIED
-            why = self.decided.result
-            return f"{untried}: {why}" if why else untried
+            return WhatBecame(no_verdict=(NoVerdict.ACTION_NOT_TAKEN if made is False
+                                          else NoVerdict.NEVER_TRIED),
+                              why=self.decided.result or None)
 
-        return self.decided.result or NO_VERDICT_RECORDED
+        # A tested row's result is the verdict its test reached - the walk
+        # writes nothing else on one.
+        if not self.decided.result:
+            return WhatBecame(no_verdict=NoVerdict.NO_VERDICT_RECORDED)
 
-
-def was_never_tried(result: str) -> bool:
-    """Whether what became of a cause is that it was never tried - with the
-    reason its row recorded, or without one, and its action not taken among
-    them. A reason read as a verdict would make a cause nobody tested one that
-    was tried and came to nothing."""
-    return any(result == untried or result.startswith(f"{untried}: ")
-               for untried in (NEVER_TRIED, ACTION_NOT_TAKEN))
+        return WhatBecame(verdict=Verdict(self.decided.result))
 
 
 def causes_of(candidates: list[CandidateRecord]) -> list[OneCause]:

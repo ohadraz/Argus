@@ -75,9 +75,9 @@ def _the_line_of(step: ResolutionStep,
     """A row as one line: who acted, what was done, and what it came to as the
     table says it - a verdict never reached said as Argus's, and why."""
     outcome = row.outcome_in_the_table
-    if step.came_to == NOT_JUDGED and outcome.startswith(NOT_JUDGED):
+    if step.came_to == NOT_JUDGED:
         why = f" ({resolution.by} resolved it first)" if resolution is not None else ""
-        outcome = f"{NOT_JUDGED} by {_ARGUS}{why}{outcome[len(NOT_JUDGED):]}"
+        outcome = f"{NOT_JUDGED} by {_ARGUS}{why}{row.after_came_to}"
 
     return f"{row.by}: {_lowered(_the_action_unlabelled(step))} - {outcome}"
 

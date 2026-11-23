@@ -18,8 +18,9 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Final
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from core.models.action import Verdict
 from core.models.change_event import ChangeEvent, ChangeKind
 from core.models.metrics import Quantile, WorseWhen
 from core.models.reading import RetrievalChannel
@@ -289,14 +290,97 @@ class CandidateConsidered(BaseModel):
     failure_mode: str | None
 
 
+class NoVerdict(StrEnum):
+    """What became of a cause that came to no verdict, in the words its row and
+    the brief both say it in."""
+
+    NEVER_TRIED = "never tried"
+    # Its action was reached for and ended before its write: never tried as
+    # surely as one nobody reached, and said apart from it, since the action's
+    # own row is about this cause and "never tried" beside it reads as no
+    # attempt at all.
+    ACTION_NOT_TAKEN = "action not taken"
+    # Its action was performed and never measured - a person's ending during the
+    # wait, or a wait whose every look went unanswered: nothing was judged, and
+    # the cause was tried all the same.
+    TRIED_NOT_JUDGED = "tried, not judged"
+    # Its action was performed and carries no verdict: the worker died with the
+    # change made, before the wait judged it or before it wrote down what the
+    # wait judged - and the row cannot say which.
+    TRIED_NO_VERDICT_RECORDED = "tried, no verdict recorded"
+    # Its action was claimed and never said more: nobody can tell whether the
+    # change was made.
+    NOT_KNOWN_WHETHER_TRIED = "not known whether tried"
+    # Tested, and the row carries no verdict - and an action whose row carries
+    # none, said in the same words.
+    NO_VERDICT_RECORDED = "no verdict recorded"
+
+
+# The kinds that say a cause was never tried, and so may carry why.
+_NEVER_TRIED: Final = frozenset({NoVerdict.NEVER_TRIED, NoVerdict.ACTION_NOT_TAKEN})
+
+
+class WhatBecame(BaseModel):
+    """What became of a cause: the verdict its test reached, or the way it came
+    to none - and, for a cause never tried, why, where its row recorded it.
+
+    `said` is the one spelling of it, which the document's row and the brief
+    the model writes from both carry: two spellings of one fact read as two
+    facts."""
+
+    model_config = ConfigDict(frozen=True)
+
+    verdict: Verdict | None = None
+    no_verdict: NoVerdict | None = None
+    why: str | None = None
+
+    @model_validator(mode="after")
+    def _one_of_the_two_and_why_only_where_never_tried(self) -> WhatBecame:
+        """Exactly one of a verdict and the way none was reached, and a why
+        only beside a cause never tried - the gate's or the tier's words for
+        why its test was held back."""
+        if (self.verdict is None) == (self.no_verdict is None):
+            raise ValueError("what became of a cause is a verdict or no verdict, "
+                             f"never both or neither: verdict {self.verdict!r}, "
+                             f"no verdict {self.no_verdict!r}")
+        if self.why is not None and self.no_verdict not in _NEVER_TRIED:
+            raise ValueError(f"only a cause never tried says why, and this one came to "
+                             f"{self.verdict or self.no_verdict!r} with why {self.why!r}")
+        return self
+
+    @property
+    def said(self) -> str:
+        """In words: the verdict, or the way none was reached - and why, after
+        a colon, where a cause never tried recorded it."""
+        if self.verdict is not None:
+            return self.verdict.value
+
+        assert self.no_verdict is not None
+        return (f"{self.no_verdict.value}: {self.why}" if self.why
+                else self.no_verdict.value)
+
+    @property
+    def was_never_tried(self) -> bool:
+        """Whether the cause was never tried - nobody reached it, or its action
+        ended before its write. A cause whose action may have changed the
+        service, or did, was tried, or may have been."""
+        return self.no_verdict in _NEVER_TRIED
+
+
 class HypothesisConsidered(BaseModel):
     """One candidate the Investigator formed, and what became of it - under
-    the label the document's prose cites it by (`C1`)."""
+    the label the document's prose cites it by (`C1`).
+
+    `result` is what became of it in words, and `became` the same as a value:
+    the words are what the page shows and the brief carries, and the value is
+    what anything deciding by it reads. `None` on a document written before it
+    was carried; where it is set, `result` is its `said`."""
 
     summary: str
     confidence: float | None
     result: str
     label: str
+    became: WhatBecame | None = None
     # The labels of the candidates this row also stands for: ones that blamed
     # the same move of the same subject and came to the same end, shown once
     # rather than read as causes weighed apart. Each keeps its own label, so a
@@ -309,6 +393,15 @@ class HypothesisConsidered(BaseModel):
     # carried.
     members: list[CandidateConsidered] = []
     decided_by: str | None = None
+
+    @model_validator(mode="after")
+    def _says_what_became_of_it_as_it_was(self) -> HypothesisConsidered:
+        """Its words the value's own, where it carries the value: the two drifting
+        apart would have the page say one thing and the review decide by another."""
+        if self.became is not None and self.result != self.became.said:
+            raise ValueError(f"row {self.label} says {self.result!r} of a cause that came "
+                             f"to {self.became.said!r}")
+        return self
 
     def result_of(self, member: CandidateConsidered) -> str:
         """What became of one of the candidates the row stands for: the row's

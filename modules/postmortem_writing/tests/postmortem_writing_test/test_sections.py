@@ -35,6 +35,7 @@ from core.models import (
     LatencyHarm,
     LogsInTheGap,
     NoTrigger,
+    NoVerdict,
     OpenedPullRequest,
     Ownership,
     Refusal,
@@ -47,6 +48,7 @@ from core.models import (
     Trigger,
     Unit,
     Verdict,
+    WhatBecame,
     WhyNoTrigger,
     why_it_was_refused,
 )
@@ -2050,9 +2052,12 @@ def test_every_candidate_is_listed_with_what_became_of_it() -> None:
         .then(
             the_answer_was([
                 HypothesisConsidered(summary="a flag change", confidence=0.8,
-                                     result="confirmed", label="C1"),
+                                     result="confirmed",
+                                     became=WhatBecame(verdict=Verdict.CONFIRMED), label="C1"),
                 HypothesisConsidered(summary="a bad deployment", confidence=0.1,
-                                     result="never tried", label="C2")
+                                     result="never tried",
+                                     became=WhatBecame(no_verdict=NoVerdict.NEVER_TRIED),
+                                     label="C2")
             ])
         )
 
@@ -2222,6 +2227,7 @@ def test_candidates_blaming_the_same_move_are_one_row_under_each_label() -> None
             the_answer_was([
                 HypothesisConsidered(
                     summary="the model was upgraded", confidence=0.8, result="confirmed",
+                    became=WhatBecame(verdict=Verdict.CONFIRMED),
                     label="C1", also=["C2"],
                     members=[CandidateConsidered(label="C1", summary="the model was upgraded",
                                                  confidence=0.8,
@@ -2231,7 +2237,9 @@ def test_candidates_blaming_the_same_move_are_one_row_under_each_label() -> None
                                                  failure_mode="config-induced-failure")],
                     decided_by="C2"),
                 HypothesisConsidered(summary="a bad deploy", confidence=0.1,
-                                     result="never tried", label="C3")
+                                     result="never tried",
+                                     became=WhatBecame(no_verdict=NoVerdict.NEVER_TRIED),
+                                     label="C3")
             ])
         )
 

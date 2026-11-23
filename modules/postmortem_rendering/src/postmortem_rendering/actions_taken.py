@@ -60,10 +60,24 @@ class StepRow(BaseModel):
         """The outcome as the table's row says it: whether the action still
         stands left out where the Kind beside it says it already - "nothing
         to put back" in both cells said it twice."""
-        said = (self.came_to if self.came_to is not None
-                and self.standing in (None, self.kind) else self.outcome)
+        if self.came_to is not None:
+            return f"{self.came_to}{self.after_came_to}"
 
-        return f"{said}{_SYNC_LEFT_OFF if self.sync_left_off else ''}"
+        return f"{self.outcome}{_SYNC_LEFT_OFF if self.sync_left_off else ''}"
+
+    @property
+    def after_came_to(self) -> str:
+        """What the table's row says after what the action came to: whether it
+        still stands, where the Kind beside it does not say so already, and
+        that it left the sync off. Empty where `came_to` is not carried, the
+        outcome then said whole."""
+        if self.came_to is None:
+            return ""
+
+        stands = (f", {self.standing}"
+                  if self.standing is not None and self.standing != self.kind else "")
+
+        return f"{stands}{_SYNC_LEFT_OFF if self.sync_left_off else ''}"
 
 
 class ActionsTakenSection(BaseModel):

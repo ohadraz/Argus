@@ -459,7 +459,8 @@ def _a_cause_as_a_line(cause: OneCause) -> str:
     """
     if not cause.also:
         lead = cause.lead
-        return _in_its_own_words(lead.summary, lead.failure_mode, lead.confidence, cause.became)
+        return _in_its_own_words(lead.summary, lead.failure_mode, lead.confidence,
+                                 cause.became.said)
 
     considered = a_hypothesis_of(cause)
     read_apart = (len({member.failure_mode for member in considered.members})

@@ -20,14 +20,18 @@ from core.models import (
     DetectionLesson,
     DetectionMeasuredFrom,
     HypothesisConsidered,
+    NoVerdict,
     RuleSeriesHarm,
     TimelineEntry,
     Unit,
+    Verdict,
+    WhatBecame,
     within_what_was_accounted_for,
 )
 from pydantic import ValidationError
 
 DONT_CARE_MOMENT = datetime(2026, 10, 19, 0, 12, tzinfo=UTC)
+SOME_WHY = "the gate held its test back"
 
 
 @pytest.mark.unit
@@ -107,6 +111,111 @@ def test_a_merged_candidate_tested_itself_or_where_none_was_has_the_result_bare(
         ) \
         .then(
             the_answer_was(result)
+        )
+
+
+# Each the words the brief carried before what became of a cause was a value,
+# spelled out here rather than read off the members: the model's input is pinned
+# by these bytes, and a test reading them from the code under test would pass
+# whatever the code came to say.
+@pytest.mark.parametrize(("became", "words"), [
+    (WhatBecame(verdict=Verdict.CONFIRMED), "confirmed"),
+    (WhatBecame(verdict=Verdict.REFUTED), "refuted"),
+    (WhatBecame(no_verdict=NoVerdict.NEVER_TRIED), "never tried"),
+    (WhatBecame(no_verdict=NoVerdict.NEVER_TRIED, why=SOME_WHY), f"never tried: {SOME_WHY}"),
+    (WhatBecame(no_verdict=NoVerdict.ACTION_NOT_TAKEN), "action not taken"),
+    (WhatBecame(no_verdict=NoVerdict.ACTION_NOT_TAKEN, why=SOME_WHY),
+     f"action not taken: {SOME_WHY}"),
+    (WhatBecame(no_verdict=NoVerdict.TRIED_NOT_JUDGED), "tried, not judged"),
+    (WhatBecame(no_verdict=NoVerdict.TRIED_NO_VERDICT_RECORDED), "tried, no verdict recorded"),
+    (WhatBecame(no_verdict=NoVerdict.NOT_KNOWN_WHETHER_TRIED), "not known whether tried"),
+    (WhatBecame(no_verdict=NoVerdict.NO_VERDICT_RECORDED), "no verdict recorded")
+], ids=["confirmed", "refuted", "never-tried", "never-tried-and-why", "action-not-taken",
+        "action-not-taken-and-why", "tried-not-judged", "tried-no-verdict-recorded",
+        "not-known-whether-tried", "no-verdict-recorded"])
+@pytest.mark.unit
+def test_what_became_of_a_cause_is_said_in_the_words_the_brief_always_carried(
+        became: WhatBecame, words: str) -> None:
+    Scenario() \
+        .when(
+            lambda: became.said
+        ) \
+        .then(
+            the_answer_was(words)
+        )
+
+
+@pytest.mark.parametrize(("became", "never_tried"), [
+    (WhatBecame(no_verdict=NoVerdict.NEVER_TRIED), True),
+    (WhatBecame(no_verdict=NoVerdict.ACTION_NOT_TAKEN, why=SOME_WHY), True),
+    (WhatBecame(no_verdict=NoVerdict.TRIED_NOT_JUDGED), False),
+    (WhatBecame(no_verdict=NoVerdict.TRIED_NO_VERDICT_RECORDED), False),
+    (WhatBecame(no_verdict=NoVerdict.NOT_KNOWN_WHETHER_TRIED), False),
+    (WhatBecame(no_verdict=NoVerdict.NO_VERDICT_RECORDED), False),
+    (WhatBecame(verdict=Verdict.REFUTED), False)
+], ids=["never-tried", "action-not-taken", "tried-not-judged", "tried-no-verdict-recorded",
+        "not-known-whether-tried", "no-verdict-recorded", "refuted"])
+@pytest.mark.unit
+def test_a_cause_was_never_tried_only_where_nobody_reached_it_or_its_action_was_not_taken(
+        became: WhatBecame, never_tried: bool) -> None:
+    # A cause whose action may have changed the service, or did, was tried, or
+    # may have been - and a review counting it as never tried would say none was.
+    Scenario() \
+        .when(
+            lambda: became.was_never_tried
+        ) \
+        .then(
+            the_answer_was(never_tried)
+        )
+
+
+@pytest.mark.parametrize("fields", [
+    {},
+    {"verdict": Verdict.CONFIRMED, "no_verdict": NoVerdict.NEVER_TRIED},
+    {"verdict": Verdict.REFUTED, "why": SOME_WHY},
+    {"no_verdict": NoVerdict.TRIED_NOT_JUDGED, "why": SOME_WHY}
+], ids=["neither", "both", "a-verdict-with-why", "tried-with-why"])
+@pytest.mark.unit
+def test_what_became_of_a_cause_is_one_thing_and_says_why_only_where_it_was_never_tried(
+        fields: dict[str, object]) -> None:
+    # Two things at once, or nothing, is a row the page and the review read
+    # differently; and a why is the gate's or a tier's words for a test held
+    # back, which nothing tried or judged has.
+    Scenario() \
+        .when(
+            attempting(lambda: WhatBecame.model_validate(fields))
+        ) \
+        .then(
+            an_error_was_raised(ValidationError)
+        )
+
+
+@pytest.mark.unit
+def test_a_row_saying_one_thing_of_a_cause_that_came_to_another_is_refused() -> None:
+    # The words are what the page shows and the value is what the review
+    # decides by: apart, the two say different things of one row.
+    Scenario() \
+        .when(
+            attempting(lambda: HypothesisConsidered(
+                summary="dont care", confidence=None, label="C1",
+                result="confirmed", became=WhatBecame(verdict=Verdict.REFUTED)))
+        ) \
+        .then(
+            an_error_was_raised(ValidationError)
+        )
+
+
+@pytest.mark.unit
+def test_a_row_stored_before_what_became_of_its_cause_was_a_value_is_read_without_one() -> None:
+    # A document written before it was carried is still read, its words whole.
+    Scenario() \
+        .when(
+            lambda: HypothesisConsidered.model_validate(
+                {"summary": "dont care", "confidence": None, "result": "never tried",
+                 "label": "C1"}).became
+        ) \
+        .then(
+            the_answer_was(None)
         )
 
 

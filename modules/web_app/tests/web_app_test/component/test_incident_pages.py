@@ -377,15 +377,18 @@ def test_an_incident_page_distinguishes_a_candidate_the_walk_never_reached() -> 
             lambda: page_at(f"/incidents/{incident_id}")
         ) \
         .then(
-            the_page_shows("tested", "true", "false")
+            all_of(
+                the_page_shows("tested", "true", "false"),
+                the_page_says('<span class="untried">never tried</span>')
+            )
         )
 
 
 @pytest.mark.component
-def test_an_incident_page_says_a_candidate_whose_test_was_held_back_was_held_back() -> None:
+def test_an_incident_page_says_a_candidate_whose_test_was_held_back_was_never_tried() -> None:
     # The walk reached it and the gate declined its test, writing why on its
-    # row. Said "never reached", a refusal read as a candidate nobody got to -
-    # the same words the one after it, which nobody did get to, carried.
+    # row - said as the postmortem says it, with the why, and not as a
+    # candidate nobody got to, which carries no why at all.
     some_reason = "some reason the gate held its test back"
 
     with connect_from_env() as conn:
@@ -402,8 +405,8 @@ def test_an_incident_page_says_a_candidate_whose_test_was_held_back_was_held_bac
             lambda: page_at(f"/incidents/{incident_id}")
         ) \
         .then(all_of(
-            the_page_says(f"test held back: {some_reason}"),
-            _the_page_does_not_say("never reached")
+            the_page_says(f'<span class="untried">never tried: {some_reason}</span>'),
+            _the_page_does_not_say('<span class="untried">never tried</span>')
         ))
 
 
@@ -437,15 +440,15 @@ def test_an_incident_page_says_a_candidate_whose_action_a_tier_could_not_take_wa
         .then(all_of(
             the_page_says(f"action not taken: <code>{some_name}</code> "
                           f"{some_rest_of_the_reason}"),
-            _the_page_does_not_say("test held back")
+            _the_page_does_not_say('<span class="untried">never tried')
         ))
 
 
 @pytest.mark.component
-def test_an_incident_page_does_not_say_a_candidate_with_an_attempt_was_never_reached() -> None:
+def test_an_incident_page_does_not_say_a_candidate_with_an_attempt_was_never_tried() -> None:
     # A walk stopped while its action was out - a person reported the incident
     # over - leaves the candidate untested and without a result, its attempt
-    # shown beneath it. Said "never reached", the line denied the attempt
+    # shown beneath it. Said "never tried", the line denied the attempt
     # printed right under it.
 
     with connect_from_env() as conn:
@@ -462,7 +465,7 @@ def test_an_incident_page_does_not_say_a_candidate_with_an_attempt_was_never_rea
             lambda: page_at(f"/incidents/{incident_id}")
         ) \
         .then(
-            _the_page_does_not_say("never reached")
+            _the_page_does_not_say('<span class="untried">never tried')
         )
 
 
@@ -3182,7 +3185,7 @@ def test_a_revision_a_candidate_names_opens_its_commit_in_the_timeline_and_the_w
 
 @pytest.mark.component
 @pytest.mark.parametrize(("attempted", "lead_in"), [
-    (False, "test held back"),
+    (False, "never tried"),
     (True, "action not taken")
 ], ids=["held-back", "not-taken"])
 def test_a_revision_the_reason_a_candidate_went_untested_names_opens_its_commit_in_the_walk(

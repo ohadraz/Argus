@@ -31,6 +31,7 @@ from core.models import (
     Impact,
     ImpactExtent,
     Lessons,
+    NoVerdict,
     OpenedPullRequest,
     PostmortemDocument,
     PostmortemLead,
@@ -42,6 +43,7 @@ from core.models import (
     TimelineMarker,
     Trigger,
     Verdict,
+    WhatBecame,
     why_it_was_refused,
 )
 from postmortem_writing.conversation import AskingStopped
@@ -53,7 +55,6 @@ from postmortem_writing.reviewing import (
     REVIEWED_AND_SHARED,
     review_of,
 )
-from postmortem_writing.sections import TRIED_NOT_JUDGED
 
 SOME_MOMENT = datetime(2026, 10, 11, 14, 3, tzinfo=UTC)
 SOME_FAULT = "the step [the divisor was zero] cites no evidence"
@@ -403,8 +404,7 @@ def test_an_analysis_that_tried_no_candidate_is_not_complete() -> None:
     Scenario() \
         .given(
             a_document_trying_nothing := _a_document(hypotheses=[
-                HypothesisConsidered(summary="dont care", confidence=None,
-                                     result="never tried", label="C1")
+                _a_row(WhatBecame(no_verdict=NoVerdict.NEVER_TRIED))
             ])
         ) \
         .when(
@@ -423,8 +423,7 @@ def test_a_candidate_never_tried_for_a_reason_is_still_one_nobody_tried() -> Non
     Scenario() \
         .given(
             a_document_trying_nothing := _a_document(hypotheses=[
-                HypothesisConsidered(summary="dont care", confidence=None,
-                                     result="never tried: some reason", label="C1")
+                _a_row(WhatBecame(no_verdict=NoVerdict.NEVER_TRIED, why="some reason"))
             ])
         ) \
         .when(
@@ -437,8 +436,12 @@ def test_a_candidate_never_tried_for_a_reason_is_still_one_nobody_tried() -> Non
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("result", ["action not taken", "action not taken: some reason"])
-def test_a_candidate_whose_action_was_not_taken_is_still_one_nobody_tried(result: str) -> None:
+@pytest.mark.parametrize("became", [
+    WhatBecame(no_verdict=NoVerdict.ACTION_NOT_TAKEN),
+    WhatBecame(no_verdict=NoVerdict.ACTION_NOT_TAKEN, why="some reason")
+], ids=["bare", "with-why"])
+def test_a_candidate_whose_action_was_not_taken_is_still_one_nobody_tried(
+        became: WhatBecame) -> None:
     # Its action was reached for and ended before its write, so nothing was
     # changed and nothing tested it. Said apart from "never tried" on its row,
     # and counted with it here: read as a verdict, it would make a cause nobody
@@ -446,8 +449,7 @@ def test_a_candidate_whose_action_was_not_taken_is_still_one_nobody_tried(result
     Scenario() \
         .given(
             a_document_trying_nothing := _a_document(hypotheses=[
-                HypothesisConsidered(summary="dont care", confidence=None,
-                                     result=result, label="C1")
+                _a_row(became)
             ])
         ) \
         .when(
@@ -460,16 +462,18 @@ def test_a_candidate_whose_action_was_not_taken_is_still_one_nobody_tried(result
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("result", ["not known whether tried", "tried, no verdict recorded"])
+@pytest.mark.parametrize("became", [
+    WhatBecame(no_verdict=NoVerdict.NOT_KNOWN_WHETHER_TRIED),
+    WhatBecame(no_verdict=NoVerdict.TRIED_NO_VERDICT_RECORDED)
+], ids=["not-known-whether-tried", "tried-no-verdict-recorded"])
 def test_a_candidate_whose_change_may_have_been_made_is_not_one_nobody_tried(
-        result: str) -> None:
+        became: WhatBecame) -> None:
     # Its change was made, or nobody can say it was not - so "none was tried"
     # would tell a reader the service was left alone.
     Scenario() \
         .given(
             a_document_trying_something := _a_document(hypotheses=[
-                HypothesisConsidered(summary="dont care", confidence=None,
-                                     result=result, label="C1")
+                _a_row(became)
             ])
         ) \
         .when(
@@ -501,8 +505,7 @@ def test_an_analysis_whose_leader_was_not_argus_s_to_test_says_why_and_is_left_f
     Scenario() \
         .given(
             a_document_refused_its_test := _a_document(
-                hypotheses=[HypothesisConsidered(summary="dont care", confidence=None,
-                                                 result="never tried", label="C1")],
+                hypotheses=[_a_row(WhatBecame(no_verdict=NoVerdict.NEVER_TRIED))],
                 resolution=[_a_refusal(refusal)])
         ) \
         .when(
@@ -522,8 +525,7 @@ def test_an_analysis_whose_leader_s_test_is_recommended_names_the_item_it_is_don
     Scenario() \
         .given(
             a_document_recommending_its_test := _a_document(
-                hypotheses=[HypothesisConsidered(summary="dont care", confidence=None,
-                                                 result="never tried", label="C1")],
+                hypotheses=[_a_row(WhatBecame(no_verdict=NoVerdict.NEVER_TRIED))],
                 resolution=[_a_refusal(Refusal.NOTHING_COULD_CONFIRM_IT)],
                 recommended_action=some_recommendation,
                 action_items=[ActionItem(number="AI-1", text=some_recommendation,
@@ -547,8 +549,7 @@ def test_an_analysis_with_faults_beside_a_held_test_says_both() -> None:
     Scenario() \
         .given(
             a_document_refused_its_test := _a_document(
-                hypotheses=[HypothesisConsidered(summary="dont care", confidence=None,
-                                                 result="never tried", label="C1")],
+                hypotheses=[_a_row(WhatBecame(no_verdict=NoVerdict.NEVER_TRIED))],
                 resolution=[_a_refusal(Refusal.NOTHING_COULD_CONFIRM_IT)])
         ) \
         .when(
@@ -571,10 +572,8 @@ def test_an_analysis_whose_leader_was_short_of_evidence_is_not_complete_whatever
     Scenario() \
         .given(
             a_document_short_on_its_leader := _a_document(
-                hypotheses=[HypothesisConsidered(summary="dont care", confidence=None,
-                                                 result="never tried", label="C1"),
-                            HypothesisConsidered(summary="dont care", confidence=None,
-                                                 result="never tried", label="C2")],
+                hypotheses=[_a_row(WhatBecame(no_verdict=NoVerdict.NEVER_TRIED)),
+                            _a_row(WhatBecame(no_verdict=NoVerdict.NEVER_TRIED), label="C2")],
                 resolution=[_a_refusal(Refusal.NO_MITIGATION_PROPOSED),
                             _a_refusal(Refusal.NOT_A_GENERIC_MITIGATION)])
         ) \
@@ -595,8 +594,7 @@ def test_a_test_refused_as_not_argus_s_names_the_fix_whose_tests_confirm_its_rea
     Scenario() \
         .given(
             a_document_with_a_fix := _a_document(
-                hypotheses=[HypothesisConsidered(summary="dont care", confidence=None,
-                                                 result="never tried", label="C1")],
+                hypotheses=[_a_row(WhatBecame(no_verdict=NoVerdict.NEVER_TRIED))],
                 resolution=[_a_refusal(Refusal.WOULD_UNDO_A_MEANT_CHANGE)],
                 pull_request=some_fix,
                 action_items=[ActionItem(number="AI-1", text="dont care",
@@ -624,8 +622,7 @@ def test_a_test_refused_as_not_argus_s_beside_a_fix_bringing_no_test_says_it_bri
     Scenario() \
         .given(
             a_document_with_a_fix_bringing_no_test := _a_document(
-                hypotheses=[HypothesisConsidered(summary="dont care", confidence=None,
-                                                 result="never tried", label="C1")],
+                hypotheses=[_a_row(WhatBecame(no_verdict=NoVerdict.NEVER_TRIED))],
                 resolution=[_a_refusal(Refusal.WOULD_UNDO_A_MEANT_CHANGE)],
                 pull_request=some_fix,
                 action_items=[ActionItem(number="AI-1", text="dont care",
@@ -654,8 +651,7 @@ def test_a_test_held_back_for_a_change_nothing_recorded_is_left_to_a_person() ->
     Scenario() \
         .given(
             a_document_held_for_an_unrecorded_change := _a_document(
-                hypotheses=[HypothesisConsidered(summary="dont care", confidence=None,
-                                                 result="never tried", label="C1")],
+                hypotheses=[_a_row(WhatBecame(no_verdict=NoVerdict.NEVER_TRIED))],
                 resolution=[_a_refusal(Refusal.NAMED_CHANGE_NOT_RECORDED)])
         ) \
         .when(
@@ -675,8 +671,7 @@ def test_an_analysis_with_no_mitigation_proposed_is_still_not_complete() -> None
     Scenario() \
         .given(
             a_document_that_proposed_nothing := _a_document(
-                hypotheses=[HypothesisConsidered(summary="dont care", confidence=None,
-                                                 result="never tried", label="C1")],
+                hypotheses=[_a_row(WhatBecame(no_verdict=NoVerdict.NEVER_TRIED))],
                 resolution=[_a_refusal(Refusal.NO_MITIGATION_PROPOSED)])
         ) \
         .when(
@@ -693,10 +688,8 @@ def test_an_analysis_whose_candidates_were_refuted_is_not_complete() -> None:
     Scenario() \
         .given(
             a_document_refuting_its_candidates := _a_document(hypotheses=[
-                HypothesisConsidered(summary="dont care", confidence=None,
-                                     result=Verdict.REFUTED, label="C1"),
-                HypothesisConsidered(summary="dont care", confidence=None,
-                                     result="never tried", label="C2")
+                _a_row(WhatBecame(verdict=Verdict.REFUTED)),
+                _a_row(WhatBecame(no_verdict=NoVerdict.NEVER_TRIED), label="C2")
             ])
         ) \
         .when(
@@ -710,20 +703,21 @@ def test_an_analysis_whose_candidates_were_refuted_is_not_complete() -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("results", [[Verdict.STOPPED], [Verdict.REFUTED, Verdict.STOPPED],
-                                     [TRIED_NOT_JUDGED]],
-                         ids=["stopped", "refuted-and-stopped", "tried-not-judged"])
+@pytest.mark.parametrize("results", [
+    [WhatBecame(verdict=Verdict.STOPPED)],
+    [WhatBecame(verdict=Verdict.REFUTED), WhatBecame(verdict=Verdict.STOPPED)],
+    [WhatBecame(no_verdict=NoVerdict.TRIED_NOT_JUDGED)]
+], ids=["stopped", "refuted-and-stopped", "tried-not-judged"])
 def test_an_analysis_whose_tries_came_to_no_verdict_says_only_that_none_was_confirmed(
-        results: list[str]) -> None:
+        results: list[WhatBecame]) -> None:
     # A candidate whose test a person's ending stopped was tried all the same,
     # so "none was tried" is false of it - and "those tried were refuted" is
     # false of a set where one came to no verdict.
     Scenario() \
         .given(
             a_document_trying_to_no_end := _a_document(hypotheses=[
-                HypothesisConsidered(summary="dont care", confidence=None, result=result,
-                                     label=f"C{place}")
-                for place, result in enumerate(results, start=1)])
+                _a_row(became, label=f"C{place}")
+                for place, became in enumerate(results, start=1)])
         ) \
         .when(
             lambda: review_of(a_document_trying_to_no_end, faults=[], reaches_a_cause=True)
@@ -780,8 +774,7 @@ def test_an_analysis_short_in_several_ways_says_each_in_the_order_checked() -> N
             a_document_short_every_way := _a_document(
                 trigger=_a_trigger(),
                 causal_chain=[_a_step("account pages failed")],
-                hypotheses=[HypothesisConsidered(summary="dont care", confidence=None,
-                                                 result="never tried", label="C1")])
+                hypotheses=[_a_row(WhatBecame(no_verdict=NoVerdict.NEVER_TRIED))])
         ) \
         .when(
             lambda: review_of(a_document_short_every_way, faults=[SOME_FAULT],
@@ -1096,6 +1089,14 @@ class _WhatADocumentHolds(TypedDict, total=False):
     review: list[ReviewCriterion]
 
 
+def _a_row(became: WhatBecame, label: str = "C1") -> HypothesisConsidered:
+    """A row of the hypotheses whose cause came to `became`, in the words it
+    says - the one way the writer builds a row, so the review is handed what
+    it is handed in a run."""
+    return HypothesisConsidered(summary="dont care", confidence=None, result=became.said,
+                                became=became, label=label)
+
+
 def _a_document(**overrides: Unpack[_WhatADocumentHolds]) -> PostmortemDocument:
     """A document that meets every criterion it can, but for what a test says."""
     complete: _WhatADocumentHolds = {
@@ -1110,8 +1111,7 @@ def _a_document(**overrides: Unpack[_WhatADocumentHolds]) -> PostmortemDocument:
         "causal_chain": [_a_step("account pages failed"), _a_step("the divisor was zero")],
         "timeline": [_a_marker(TimelineMarker.IMPACT_BEGINS),
                      _a_marker(TimelineMarker.IMPACT_ENDS)],
-        "hypotheses": [HypothesisConsidered(summary="dont care", confidence=None,
-                                            result=Verdict.CONFIRMED, label="C1")]
+        "hypotheses": [_a_row(WhatBecame(verdict=Verdict.CONFIRMED))]
     }
 
     return PostmortemDocument(**(complete | overrides))

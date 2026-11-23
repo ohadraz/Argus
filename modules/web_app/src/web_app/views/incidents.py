@@ -24,6 +24,7 @@ from core.models import (
     Hypothesis,
     Incident,
     IncidentStatus,
+    NoVerdict,
     TakenAction,
     Undone,
     Verdict,
@@ -91,6 +92,10 @@ class Candidate(BaseModel):
     evidence: list[Finding]
     tested: bool
     result: str | None
+    # How the page says a candidate never tried, in the postmortem's words for
+    # it - `None` for one tested, and for one whose attempt the walk stopped
+    # before its verdict, which was reached and has its attempt beneath.
+    untried: NoVerdict | None = None
     attempts: list[Attempt]
     # Each revision its claim, subject, move, findings and reason name, by the
     # short form they say it by, and where it opens - as a line of the timeline
@@ -268,7 +273,24 @@ def _a_candidate(hypothesis: Hypothesis,
         evidence=evidence,
         tested=hypothesis.tested,
         result=result,
+        untried=_how_it_went_untried(hypothesis, attempts),
         attempts=attempts,
         links=the_links_in([summary, subject or "", moved_from, moved_to, result or "",
                             *(finding.text for finding in evidence)], revisions)
     )
+
+
+def _how_it_went_untried(hypothesis: Hypothesis, attempts: list[Attempt]) -> NoVerdict | None:
+    """Whether a candidate was never tried, in the words the postmortem says it
+    in: its action not taken where a tier had nowhere to take it - its attempt
+    beneath, and the tier's words for why on its row - and never tried where
+    the gate held its test back, or nobody reached it. `None` for one tested,
+    and for one untested with no words for why and an attempt beneath: the
+    walk stopped while its action was out, and it was reached."""
+    if hypothesis.tested:
+        return None
+
+    if hypothesis.result:
+        return NoVerdict.ACTION_NOT_TAKEN if attempts else NoVerdict.NEVER_TRIED
+
+    return None if attempts else NoVerdict.NEVER_TRIED

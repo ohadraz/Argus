@@ -15,17 +15,18 @@ from __future__ import annotations
 from typing import Final
 
 from core.models import (
+    HypothesisConsidered,
     ImpactExtent,
     PostmortemDocument,
     Refusal,
     ReviewCriterion,
     Verdict,
+    WhatBecame,
     why_it_was_refused,
 )
 
 from postmortem_writing.conversation import AskingStopped
 from postmortem_writing.labels import is_a_code_reading
-from postmortem_writing.sections import was_never_tried
 
 KEY_DATA_COLLECTED: Final = "Key incident data collected"
 IMPACT_ASSESSED: Final = "Impact assessed"
@@ -348,13 +349,14 @@ def _what_the_analysis_lacks(document: PostmortemDocument, faults: list[str],
     analysis is the steps below it. A chain ending on a cause nothing confirmed
     is a document saying, rightly, that the cause is not confirmed, and a
     ticked box beside it would say the opposite."""
-    results = [hypothesis.result for hypothesis in document.hypotheses]
+    became = [_what_became_of(hypothesis) for hypothesis in document.hypotheses]
+    confirmed = any(each.verdict is Verdict.CONFIRMED for each in became)
 
     return [*([CHECK_FAULTS_LEFT] if faults else []),
             *([ASKING_STOPPED[stopped]] if stopped is not None else []),
             *(["the causal chain stops at the symptom"] if len(document.causal_chain) <= 1
               else []),
-            *([_why_nothing_was_confirmed(results)] if Verdict.CONFIRMED not in results else []),
+            *([_why_nothing_was_confirmed(became)] if not confirmed else []),
             *([_where_the_chain_stops(document)] if not reaches_a_cause else [])]
 
 
@@ -369,13 +371,27 @@ def _where_the_chain_stops(document: PostmortemDocument) -> str:
     return "the chain does not reach a cause beyond the change that set it off"
 
 
-def _why_nothing_was_confirmed(results: list[str]) -> str:
+def _what_became_of(hypothesis: HypothesisConsidered) -> WhatBecame:
+    """What became of a row's cause, as the value the review decides by.
+
+    Always carried: the review reads only the document just written, which
+    carries it on every row. A row without it is a document written before it
+    was carried, and the review deciding by its words instead would be the
+    second reading of them this value is here to end."""
+    if hypothesis.became is None:
+        raise ValueError(f"row {hypothesis.label} carries no value for what became of "
+                         f"its cause, only the words {hypothesis.result!r}")
+
+    return hypothesis.became
+
+
+def _why_nothing_was_confirmed(became: list[WhatBecame]) -> str:
     """That no candidate was confirmed, and - where it can say - why: none was
     tried, or every one tried was refuted. A candidate stopped, escalated or
     left with no verdict was tried all the same, and came to neither."""
-    tried = [result for result in results if not was_never_tried(result)]
+    tried = [each for each in became if not each.was_never_tried]
     if not tried:
         return NONE_TRIED
-    if all(result == Verdict.REFUTED for result in tried):
+    if all(each.verdict is Verdict.REFUTED for each in tried):
         return "no candidate was confirmed - those tried were refuted"
     return "no candidate was confirmed"

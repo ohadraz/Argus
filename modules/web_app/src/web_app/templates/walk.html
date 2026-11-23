@@ -65,21 +65,13 @@
         {% if candidate.confidence is not none %}
           <span class="confidence">{{ candidate.confidence|confidence }}</span>
         {% endif %}
-        {# Reached and held back is not never reached: the gate writes on the
-           row why it declined the test, and without it a refusal reads as a
-           candidate nobody got to - in the words the one after it carries.
-           A tier that had nowhere to take the action writes its own words
-           there too, and that candidate has its attempt beneath - so it reads
-           as the brief says it, an action not taken, where a gate's refusal,
-           which never reaches a tier, is a test held back. Nor is an attempt
-           the walk stopped before its verdict: untested and with no result,
-           it was still reached, and its attempt is beneath. #}
-        {% if not candidate.tested and candidate.result and candidate.attempts %}
-          <span class="untried">action not taken: {{ candidate.result | references([], candidate.links) }}</span>
-        {% elif not candidate.tested and candidate.result %}
-          <span class="untried">test held back: {{ candidate.result | references([], candidate.links) }}</span>
-        {% elif not candidate.tested and not candidate.attempts %}
-          <span class="untried">never reached</span>
+        {# A candidate never tried, in the postmortem's words for it, and why
+           where its row says: the gate writes why it held the test back, and
+           a tier that had nowhere to take the action writes its own words -
+           that candidate's attempt beneath, and its action not taken. Two
+           spellings of one state read as two states. #}
+        {% if candidate.untried %}
+          <span class="untried">{{ candidate.untried.value }}{% if candidate.result %}: {{ candidate.result | references([], candidate.links) }}{% endif %}</span>
         {% endif %}
       </p>
 
