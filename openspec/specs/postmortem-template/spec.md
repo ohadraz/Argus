@@ -276,9 +276,10 @@ be stored at the precision it was computed to.
 ### Requirement: No pay-band figure appears in the document
 
 No figure from which a pay band can be read SHALL appear in the document:
-neither a band's endpoints nor the response cost's range. How the response was
-priced - the working year and the band's midpoint - SHALL be stored beside the
-cost and never stated among the document's assumptions.
+neither a band's endpoints nor any cost of the response. The postmortem SHALL
+store no price of the response at all: the executive synopsis prices it, and
+how - the working year and the band's midpoint - is stored there beside the
+cost, never among the document's assumptions.
 
 #### Scenario: A priced response
 - **GIVEN** a responder priced at a band of 190000 to 250000 USD a year

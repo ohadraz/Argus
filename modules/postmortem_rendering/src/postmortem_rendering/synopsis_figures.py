@@ -17,7 +17,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Final
 
-from core.models import Alert, ImpactExtent, PostmortemDocument
+from core.models import Alert, ImpactExtent, PostmortemDocument, PricedResponse
 from narration import said_as_a_span, said_as_money
 
 from postmortem_rendering.impact import the_impact
@@ -31,11 +31,14 @@ _FLOORS: Final = frozenset({ImpactExtent.AT_LEAST, ImpactExtent.METRICS_MISSING}
 _WHAT_THE_MINUTES_COUNT: Final = "from each responder taking the page until the page was closed"
 
 
-def the_synopsis_figures(postmortem: PostmortemDocument, alert: Alert) -> dict[str, str]:
+def the_synopsis_figures(postmortem: PostmortemDocument,
+                         alert: Alert,
+                         cost: PricedResponse) -> dict[str, str]:
     """How long it lasted, how badly requests failed and what customers lost -
     none of them of a disproven alarm, which had no stretch to measure - and,
-    where anybody was paged, how many people responded, for how long, and at
-    what cost."""
+    where anybody responded, how many people, for how long, and at what cost:
+    `cost`, the response as the synopsis priced it, named only where every
+    title in it was priced."""
     figures: dict[str, str] = {}
 
     impact = postmortem.impact
@@ -62,18 +65,20 @@ def the_synopsis_figures(postmortem: PostmortemDocument, alert: Alert) -> dict[s
     if postmortem.engineer_minutes is not None:
         minutes = postmortem.engineer_minutes
         figures["engineer_minutes"] = f"{minutes} min" if minutes else "none"
-    if postmortem.responder_cost_estimate is not None:
-        figures["responder_cost"] = said_as_money(postmortem.responder_cost_estimate,
-                                                  postmortem.responder_cost_currency)
+    if cost.responder_cost_estimate is not None:
+        figures["responder_cost"] = said_as_money(cost.responder_cost_estimate,
+                                                  cost.responder_cost_currency)
 
     return figures
 
 
-def the_synopsis_figures_said(postmortem: PostmortemDocument, alert: Alert) -> dict[str, str]:
+def the_synopsis_figures_said(postmortem: PostmortemDocument,
+                              alert: Alert,
+                              cost: PricedResponse) -> dict[str, str]:
     """The same figures by the same names, as prose says them: the duration in
     words, a floor still a floor, and the minutes with what they count. The
     rest read in prose as on their tiles."""
-    said = the_synopsis_figures(postmortem, alert)
+    said = the_synopsis_figures(postmortem, alert, cost)
 
     impact = postmortem.impact
     a_floor = impact is not None and impact.extent in _FLOORS

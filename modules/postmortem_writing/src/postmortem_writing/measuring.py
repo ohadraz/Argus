@@ -22,9 +22,9 @@ Two clocks leave here, named as two. How long the service was broken is a fact
 about the fault; how long Argus held the incident is a fact about the
 response, and the second never stands in for the first.
 
-Two costs, and they are the same kind of thing: what the outage cost customers,
-and what the response cost the business. Both are money, both come from ports,
-and both are reported side by side on the page.
+One cost in money: what the outage cost customers. What the response cost is
+measured here in people and minutes, and priced only by the executive synopsis,
+since the postmortem's readers are the people it would price.
 
 Every source is asked once and what it answered is kept, because the sentences
 the document discloses are written from the same reads that produced the
@@ -46,7 +46,7 @@ from typing import NamedTuple
 from core import parse_iso, to_iso
 from core.anomaly import AnomalyThresholds, find_back_to_normal, find_recovery
 from core.models import MetricBucket, SeriesQuery, Unit
-from incident_cost import PayBand, RateTable, ResponderCost, estimate_loss, responder_cost
+from incident_cost import RateTable, estimate_loss
 from pydantic import BaseModel, Field
 
 from postmortem_writing.estimate import (
@@ -137,8 +137,6 @@ class Measurements(BaseModel):
     currencies_left_out: list[str]
     onset_at: datetime | None
     engaged: EngagementAnswer | NotPaged | None
-    cost: ResponderCost | None
-    bands: Mapping[str, PayBand] | None
     # The instant from which the metrics carry no minute at all, where the read
     # answered and its rows stop before the incident began. A different fact from
     # `back_to_normal_at` being `None`: that one measured a service still in trouble at
@@ -296,7 +294,6 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
     # alert, so an incident with none reads no takings at all.
     lost = estimate_loss(evidence.onset_at, measured_until, sources.money)
     engaged = sources.engagement(evidence.incident_id)
-    bands = sources.money.bands()
     alert_rule = sources.alert_rule(evidence.rule) if evidence.rule is not None else None
     waits = alert_rule.pending_seconds if alert_rule is not None else None
 
@@ -332,8 +329,6 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
         currencies_left_out=lost.currencies_left_out,
         onset_at=evidence.onset_at,
         engaged=engaged,
-        cost=_what_the_response_cost(engaged, bands, sources.money.working_hours_a_year),
-        bands=bands,
         metrics_stopped_at=sight.stopped_at if sight is not None else None,
         metrics_resumed_at=resumed.at if resumed is not None else None,
         # Over the same stretch as the error rate, for the same reason.
@@ -571,21 +566,3 @@ def _found_back_before(back: datetime | None,
         return credited.taken_at, False
 
     return back, back + timedelta(minutes=1) <= credited.taken_at
-
-
-def _what_the_response_cost(engaged: EngagementAnswer | NotPaged | None,
-                            bands: Mapping[str, PayBand] | None,
-                            working_hours_a_year: float) -> ResponderCost | None:
-    """What the people on the incident cost, or nothing where either half is
-    missing.
-
-    Both halves have to be there: minutes nobody could measure, minutes nobody
-    was paged to spend, and bands nobody could read are different absences with
-    the same consequence, and each is disclosed separately. The pricing itself
-    declines any response it cannot price in full, so nothing here inspects the
-    responders.
-    """
-    if not isinstance(engaged, EngagementAnswer) or bands is None:
-        return None
-
-    return responder_cost(engaged.engaged, bands, working_hours_a_year)

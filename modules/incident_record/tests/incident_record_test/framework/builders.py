@@ -79,11 +79,6 @@ class _WhatADocumentHolds(TypedDict, total=False):
     paged: bool | None
     responder_titles: list[str]
     minutes_by_title: list[TitleMinutes]
-    responder_cost_estimate: Decimal | None
-    responder_cost_minimum: Decimal | None
-    responder_cost_maximum: Decimal | None
-    responder_cost_currency: str | None
-    response_cost_basis: list[str]
     tokens_spent: int | None
     assumptions: list[str]
     pull_request: OpenedPullRequest | None
@@ -160,11 +155,6 @@ def a_postmortem_document_with_every_field() -> PostmortemDocument:
         "responder_titles": titles,
         "minutes_by_title": [TitleMinutes(title=title, responders=1, minutes=1)
                              for title in titles],
-        "responder_cost_estimate": amount,
-        "responder_cost_minimum": amount,
-        "responder_cost_maximum": amount,
-        "responder_cost_currency": "usd",
-        "response_cost_basis": ["dont care"],
         "tokens_spent": 1,
         "assumptions": ["dont care"],
         "pull_request": an_opened_pull_request(),

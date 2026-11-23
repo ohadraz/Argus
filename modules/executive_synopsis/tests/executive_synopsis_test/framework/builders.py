@@ -1,8 +1,8 @@
-"""The model, the judge and the sources a synopsis is written with.
+"""The model, the judge and the money a synopsis is written with.
 
-The synopsis reads the stored postmortem and, of the postmortem's sources, only
-the response per person, the bands and the working year - so `some_sources`
-answers the rest with nothing, and a test names only the source it is about.
+Of the money, the synopsis reads only the bands and the working year - so
+`some_money` answers the rest with nothing, and a test names only the source it
+is about.
 """
 
 from __future__ import annotations
@@ -14,33 +14,19 @@ from decimal import Decimal
 from typing import Any, NamedTuple
 
 from argus_testkit import Kept
-from core.anomaly import AnomalyThresholds
 from core.llm import LLMClient
-from core.models import AlertRuleStanding, MetricBucket, ToolCall, ToolDefinition, Transcript, Turn
-from incident_cost import EngagedResponder, MoneySources, PayBand, PayBands, RateTable
-from postmortem_writing import Engagement, EngagementAnswer, Flag, Flagging, Sources
+from core.models import ToolCall, ToolDefinition, Transcript, Turn
+from incident_cost import MoneySources, PayBand, PayBands, RateTable
+from postmortem_writing import Flag, Flagging
 
-# Where these cases draw the algorithm's lines - the same numbers the
-# environment carries by default. The synopsis never measures, so nothing here
-# turns on them.
-SOME_THRESHOLDS = AnomalyThresholds(
-    deviations_from_baseline=3.0,
-    persistence_minutes=2,
-    recovery_fraction_of_the_rise=0.8
-)
-
-DONT_CARE_ENGAGED_MINUTES = 25
-DONT_CARE_RESPONDERS = 2
 DONT_CARE_WORKING_YEAR = 2080.0
-DONT_CARE_REPORTING_LAG_MINUTES = 0
 SOME_CURRENCY = "usd"
 
 
-def some_sources(engagement: Engagement | None = None,
-                 bands: PayBands | None = None,
-                 working_hours_a_year: float = DONT_CARE_WORKING_YEAR) -> Sources:
-    """Everything the postmortem reads, with the three the synopsis reads again
-    answering plainly and the rest answering nothing.
+def some_money(bands: PayBands | None = None,
+               working_hours_a_year: float = DONT_CARE_WORKING_YEAR) -> MoneySources:
+    """Every source of money, with the bands answering plainly and the takings
+    and rates answering nothing.
 
     A test names only the source it is about and leaves the others alone, which
     is what makes the failure it describes attributable to the source it named.
@@ -52,79 +38,36 @@ def some_sources(engagement: Engagement | None = None,
     def no_rates() -> RateTable | None:
         return None
 
-    def no_metrics(dont_care_start: datetime,
-                   dont_care_end: datetime,
-                   dont_care_rule: str | None) -> list[MetricBucket]:
-        return []
-
-    def no_rule(dont_care_rule: str) -> AlertRuleStanding | None:
-        return None
-
-    return Sources(
-        money=MoneySources(
-            revenue=no_revenue,
-            rates=no_rates,
-            bands=bands if bands is not None else a_band_source_pricing({}),
-            working_hours_a_year=working_hours_a_year,
-            reporting_currency=SOME_CURRENCY
-        ),
-        engagement=engagement if engagement is not None
-                   else an_engagement_source_reporting(
-                       minutes=DONT_CARE_ENGAGED_MINUTES,
-                       responders=DONT_CARE_RESPONDERS),
-        metrics=no_metrics,
-        thresholds=SOME_THRESHOLDS,
-        metrics_reporting_lag_minutes=DONT_CARE_REPORTING_LAG_MINUTES,
-        alert_rule=no_rule
-    )
-
-
-def an_engagement_source_reporting(minutes: int,
-                                   responders: int,
-                                   titles: list[str] | None = None) -> Engagement:
-    """A source answering how much human attention the incident took."""
-    def engagement_for(dont_care_incident_id: str) -> EngagementAnswer | None:
-        return EngagementAnswer(minutes=minutes,
-                                responders=responders,
-                                titles=titles or [])
-
-    return engagement_for
-
-
-def an_engagement_source_reporting_each(engaged: list[EngagedResponder]) -> Engagement:
-    """A source answering the response per person, and the total beside it.
-
-    The total is summed here rather than stated independently, because a source
-    whose two answers disagree is a case about that source and not about this
-    document.
-    """
-    def engagement_for(dont_care_incident_id: str) -> EngagementAnswer | None:
-        return an_engagement_of(engaged)
-
-    return engagement_for
-
-
-def an_engagement_source_that_cannot_answer() -> Engagement:
-    def engagement_for(dont_care_incident_id: str) -> EngagementAnswer | None:
-        return None
-
-    return engagement_for
-
-
-def an_engagement_of(engaged: list[EngagedResponder]) -> EngagementAnswer:
-    """One incident's response, summed from the people who gave it."""
-    return EngagementAnswer(
-        minutes=sum(responder.minutes for responder in engaged),
-        responders=len(engaged),
-        titles=[responder.job_title for responder in engaged
-                if responder.job_title is not None],
-        engaged=engaged
+    return MoneySources(
+        revenue=no_revenue,
+        rates=no_rates,
+        bands=bands if bands is not None else a_band_source_pricing({}),
+        working_hours_a_year=working_hours_a_year,
+        reporting_currency=SOME_CURRENCY
     )
 
 
 def a_band_source_pricing(bands: Mapping[str, PayBand]) -> PayBands:
     def pay_bands() -> Mapping[str, PayBand] | None:
         return bands
+
+    return pay_bands
+
+
+def a_band_source_that_cannot_answer() -> PayBands:
+    def pay_bands() -> Mapping[str, PayBand] | None:
+        return None
+
+    return pay_bands
+
+
+def a_band_source_counting_reads_into(reads: Kept[None]) -> PayBands:
+    """A source pricing nothing, noting each time it is read - whether it was
+    read is the question."""
+    def pay_bands() -> Mapping[str, PayBand] | None:
+        reads.take(None)
+
+        return {}
 
     return pay_bands
 

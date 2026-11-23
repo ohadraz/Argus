@@ -2,10 +2,11 @@
 
 The minutes have their own file. This is the second half of the same figure:
 the pay band of each responder's title, read from an HR system Argus reaches
-over the network like any other provider. Every layer between the two is a
-place the cost can quietly become absent - a credential nobody set, a title the
-bands do not carry, an endpoint answering a shape the adapter cannot read - and
-each of those is a legitimate answer on its own, which is why only a run of the
+over the network like any other provider, and priced by the executive synopsis
+from the postmortem's minutes by title. Every layer between the two is a place
+the cost can quietly become absent - a credential nobody set, a title the bands
+do not carry, an endpoint answering a shape the adapter cannot read - and each
+of those is a legitimate answer on its own, which is why only a run of the
 whole stack tells them apart from a figure that was priced.
 
 The figure is bounded rather than named. What is not free to vary is the rate:
@@ -26,9 +27,9 @@ import pytest
 from argus_testkit import Assertion, Scenario, all_of, calling
 from argus_testkit.assertions import eventually
 from core import get_settings, utc_now
-from core.models import Postmortem
+from core.models import ExecutiveSynopsis, Postmortem
 from incident_cost import PAY_BAND_ASSUMPTION_LABEL, WORKING_YEAR_ASSUMPTION_LABEL
-from incident_record.repository import postmortems
+from incident_record.repository import postmortems, synopses
 
 from tests.e2e.framework.argus import (
     DATABASE_URL,
@@ -100,22 +101,23 @@ def test_an_incident_somebody_was_paged_for_prices_the_minutes_they_spent() -> N
             argus_is_triggered_with_alert(some_alert)
         ) \
         .then(
-            # `eventually` on the row alone: the webhook answers as soon as the
-            # incident exists, and a worker walks it and writes the document
-            # minutes afterwards. What it says is settled the moment it appears
-            # - one insert, never updated - so the figures are asserted once.
+            # `eventually` on the rows alone: the webhook answers as soon as the
+            # incident exists, and a worker walks it and writes the postmortem
+            # and then the synopsis minutes afterwards. What each says is
+            # settled the moment it appears - one insert, never updated - so
+            # the figures are asserted once.
             all_of(
                 eventually(argus_wrote_a_postmortem(),
                            timeout=WALK_TIMEOUT_SECONDS),
-                _the_postmortem_prices_the_response(),
+                _the_synopsis_prices_the_response(),
                 _the_figure_carries_the_band_it_came_from(),
                 _the_arithmetic_was_disclosed()
             )
         )
 
 
-def _the_postmortem_prices_the_response() -> Assertion[httpx2.Response]:
-    """A cost, over the minutes the same document reports.
+def _the_synopsis_prices_the_response() -> Assertion[httpx2.Response]:
+    """A cost, over the minutes the postmortem reports.
 
     Bounded by the two bands rather than named exactly, which still fails
     every wrong rate - a year divided by the wrong divisor, a salary read where
@@ -123,26 +125,27 @@ def _the_postmortem_prices_the_response() -> Assertion[httpx2.Response]:
     """
     def assertion(response: httpx2.Response) -> bool:
         postmortem = _the_postmortem_for(response)
+        synopsis = _the_synopsis_for(response)
         incident_id = incident_id_from(response)
 
-        if postmortem.responder_cost_estimate is None:
+        if synopsis.responder_cost_estimate is None:
             raise AssertionError(
-                f"Postmortem for [{incident_id}] prices no response, over an "
+                f"Synopsis for [{incident_id}] prices no response, over an "
                 f"incident two people with published bands were paged for. It "
-                f"says: {postmortem.assumptions}.")
+                f"says: {synopsis.response_cost_basis}.")
 
         if postmortem.engineer_minutes is None:
             raise AssertionError(
-                f"Postmortem for [{incident_id}] carries a response cost of "
-                f"[{postmortem.responder_cost_estimate}] and no minutes to have "
-                f"priced, so the two figures describe different responses.")
+                f"Synopsis for [{incident_id}] carries a response cost of "
+                f"[{synopsis.responder_cost_estimate}] and its postmortem no "
+                f"minutes to have priced, so the two describe different responses.")
 
         cheapest, dearest = _what_those_minutes_can_cost(postmortem.engineer_minutes)
 
-        if not cheapest <= postmortem.responder_cost_estimate <= dearest:
+        if not cheapest <= synopsis.responder_cost_estimate <= dearest:
             raise AssertionError(
-                f"Postmortem for [{incident_id}] puts the response cost at "
-                f"[{postmortem.responder_cost_estimate}] for "
+                f"Synopsis for [{incident_id}] puts the response cost at "
+                f"[{synopsis.responder_cost_estimate}] for "
                 f"[{postmortem.engineer_minutes}] minutes, outside the "
                 f"[{cheapest}] to [{dearest}] those minutes can come to at the "
                 f"bands the HR source publishes.")
@@ -156,30 +159,30 @@ def _the_figure_carries_the_band_it_came_from() -> Assertion[httpx2.Response]:
     """The range beside the figure, and the currency it is in.
 
     A midpoint published alone claims a precision a band does not have, so a
-    document carrying the headline and neither edge has lost the thing that
+    synopsis carrying the headline and neither edge has lost the thing that
     makes it honest. The minimum below the maximum, because two bands collapsed
     to one point would satisfy every other assertion here.
     """
     def assertion(response: httpx2.Response) -> bool:
-        postmortem = _the_postmortem_for(response)
+        synopsis = _the_synopsis_for(response)
         incident_id = incident_id_from(response)
-        low, high = postmortem.responder_cost_minimum, postmortem.responder_cost_maximum
+        low, high = synopsis.responder_cost_minimum, synopsis.responder_cost_maximum
 
         if low is None or high is None:
             raise AssertionError(
-                f"Postmortem for [{incident_id}] publishes a response cost of "
-                f"[{postmortem.responder_cost_estimate}] with no range around "
+                f"Synopsis for [{incident_id}] publishes a response cost of "
+                f"[{synopsis.responder_cost_estimate}] with no range around "
                 f"it: [{low}] to [{high}].")
 
         if not low < high:
             raise AssertionError(
-                f"Postmortem for [{incident_id}] reports a range from [{low}] "
+                f"Synopsis for [{incident_id}] reports a range from [{low}] "
                 f"to [{high}], which is not a band.")
 
-        if not postmortem.responder_cost_currency:
+        if not synopsis.responder_cost_currency:
             raise AssertionError(
-                f"Postmortem for [{incident_id}] prices the response at "
-                f"[{postmortem.responder_cost_estimate}] and names no currency, "
+                f"Synopsis for [{incident_id}] prices the response at "
+                f"[{synopsis.responder_cost_estimate}] and names no currency, "
                 f"so the figure is a number rather than money.")
 
         return True
@@ -198,14 +201,15 @@ def _the_arithmetic_was_disclosed() -> Assertion[httpx2.Response]:
     """
     def assertion(response: httpx2.Response) -> bool:
         postmortem = _the_postmortem_for(response)
+        synopsis = _the_synopsis_for(response)
         incident_id = incident_id_from(response)
-        kept = postmortem.response_cost_basis
+        kept = synopsis.response_cost_basis
         stated = postmortem.assumptions or []
 
         for label in (WORKING_YEAR_ASSUMPTION_LABEL, PAY_BAND_ASSUMPTION_LABEL):
             if not any(label in line for line in kept):
                 raise AssertionError(
-                    f"Postmortem for [{incident_id}] keeps no [{label}] behind its "
+                    f"Synopsis for [{incident_id}] keeps no [{label}] behind its "
                     f"response cost. It keeps: {kept}.")
 
             if any(label in assumption for assumption in stated):
@@ -223,7 +227,7 @@ def _what_those_minutes_can_cost(minutes: int) -> tuple[Decimal, Decimal]:
 
     Every responder is on one of the two bands, so the whole response cannot
     cost less than all of it at the cheaper midpoint nor more than all of it at
-    the dearer one. The working year comes from the same settings the agent
+    the dearer one. The working year comes from the same settings the synopsis
     priced with, rather than from a number repeated here: the divisor is
     configuration, and a test hardcoding it would disagree with a deployment
     that changed it.
@@ -244,3 +248,15 @@ def _the_postmortem_for(response: httpx2.Response) -> Postmortem:
         raise AssertionError(f"No postmortem exists for incident [{incident_id}].")
 
     return postmortem
+
+
+def _the_synopsis_for(response: httpx2.Response) -> ExecutiveSynopsis:
+    incident_id = incident_id_from(response)
+
+    with psycopg.connect(DATABASE_URL) as conn:
+        synopsis = synopses.get_by_incident(conn, incident_id)
+
+    if synopsis is None:
+        raise AssertionError(f"No executive synopsis exists for incident [{incident_id}].")
+
+    return synopsis

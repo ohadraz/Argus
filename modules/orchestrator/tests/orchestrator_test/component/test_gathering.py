@@ -3126,7 +3126,7 @@ def test_an_overview_is_judged_against_the_stored_postmortem_as_its_reader_reads
             lambda: write_synopsis_for(
                 incident_id,
                 connections=connect_from_env,
-                sources=_sources_recording_into([]),
+                money=_sources_recording_into([]).money,
                 client_for=_a_model_overviewing(),
                 judge_for=_a_judge_reading_into(the_judge_read),
                 address_of=_the_page_of
@@ -3156,7 +3156,7 @@ def test_an_overview_on_a_run_s_last_try_is_given_up_with_its_model_out_of_reach
             lambda: write_synopsis_for(
                 incident_id,
                 connections=connect_from_env,
-                sources=_sources_recording_into([]),
+                money=_sources_recording_into([]).money,
                 client_for=_a_model_out_of_reach(),
                 judge_for=_a_judge_reading_into([]),
                 address_of=_the_page_of,
@@ -3187,7 +3187,7 @@ def test_an_overview_with_tries_left_leaves_its_model_out_of_reach_to_the_run(
             attempting(lambda: write_synopsis_for(
                 incident_id,
                 connections=connect_from_env,
-                sources=_sources_recording_into([]),
+                money=_sources_recording_into([]).money,
                 client_for=_a_model_out_of_reach(),
                 judge_for=_a_judge_reading_into([]),
                 address_of=_the_page_of,

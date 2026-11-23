@@ -97,9 +97,7 @@ NOT_PAGED_ASSUMPTION = (
 SHARED_PAGE_ASSUMPTION_LABEL = "Shared page"
 
 
-def assumptions_of(answer: SubmittedPostmortem,
-                   measured: Measurements,
-                   working_hours_a_year: float) -> list[str]:
+def assumptions_of(answer: SubmittedPostmortem, measured: Measurements) -> list[str]:
     """Everything the document assumed, in the order a reader meets it.
 
     The conversions come first - they stand between the money the provider
@@ -108,8 +106,8 @@ def assumptions_of(answer: SubmittedPostmortem,
     then whatever the model says it assumed in its prose, then the absences,
     each saying which question went unanswered.
 
-    Nothing of how the response was priced: the document is read by the people
-    it would price, and that is kept apart, in `response_cost_basis`.
+    Nothing of pay: the document is read by the people it would price, and only
+    the executive synopsis prices the response.
     """
     assumptions: list[str] = []
 

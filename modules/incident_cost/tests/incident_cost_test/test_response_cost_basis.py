@@ -1,10 +1,10 @@
-"""How the response cost was arrived at, kept beside the figure and never shown.
+"""How the response cost was arrived at, kept beside the figure.
 
 The postmortem shows no pay: its readers are the people it would price. The
-figure is still computed and stored for the executive report, and a figure is
-only as honest as the steps between the source and it - a working year the
-bands were divided by, a band a title was priced at, a title nothing could
-price. Those steps are what this says, for whoever is shown the figure.
+figure is priced for the executive synopsis, and a figure is only as honest as
+the steps between the source and it - a working year the bands were divided
+by, a band a title was priced at, a title nothing could price. Those steps are
+what this says, for whoever is shown the figure.
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ from decimal import Decimal
 
 import pytest
 from argus_testkit import Assertion, Scenario, all_of
-from incident_cost.responder_cost import ResponderCost
 from incident_cost.response_cost_basis import (
     PAY_BAND_ASSUMPTION_LABEL,
     PAY_BANDS_UNAVAILABLE_ASSUMPTION,
@@ -21,14 +20,14 @@ from incident_cost.response_cost_basis import (
     WORKING_YEAR_ASSUMPTION_LABEL,
     response_cost_basis,
 )
-from incident_cost.sources import EngagedResponder, PayBand
+from incident_cost.sources import PayBand
 
-from incident_cost_test.framework.builders import DONT_CARE_WORKING_YEAR, SOME_CURRENCY
+from incident_cost_test.framework.builders import DONT_CARE_WORKING_YEAR, SOME_CURRENCY, Share
 
 SOME_TITLE = "Senior Kuki"
 SOME_TITLE_NO_BAND_COVERS = "Principal Buki"
 SOME_WORKING_YEAR_IN_HOURS = 2000.0
-SOME_ENGAGED_MINUTES = 30
+DONT_CARE_MINUTES = 30
 
 SOME_BAND = PayBand(
     minimum=Decimal(60_000),
@@ -37,14 +36,6 @@ SOME_BAND = PayBand(
     currency=SOME_CURRENCY
 )
 
-# A cost that was published, for the tests about what a published one has to
-# disclose. Its figures are never read - what is under test is the sentences
-# that accompany them.
-DONT_CARE_PUBLISHED_COST = ResponderCost(midpoint=Decimal(1),
-                                         minimum=Decimal(1),
-                                         maximum=Decimal(1),
-                                         currency=SOME_CURRENCY)
-
 
 @pytest.mark.unit
 def test_a_published_cost_discloses_the_working_year_and_the_bands_it_used() -> None:
@@ -52,16 +43,13 @@ def test_a_published_cost_discloses_the_working_year_and_the_bands_it_used() -> 
     # year is a convention somebody configured, and the band is a range
     # collapsed to a point - a reader who cannot see either is being asked to
     # take the figure on trust.
-    a_responder = EngagedResponder(minutes=SOME_ENGAGED_MINUTES, job_title=SOME_TITLE)
-
     Scenario() \
         .given(
-            a_response_priced := [a_responder]
+            a_response_priced := [Share(title=SOME_TITLE, minutes=DONT_CARE_MINUTES)]
         ) \
         .when(
             lambda: response_cost_basis(a_response_priced,
                                         {SOME_TITLE: SOME_BAND},
-                                        DONT_CARE_PUBLISHED_COST,
                                         SOME_WORKING_YEAR_IN_HOURS)
         ) \
         .then(
@@ -77,16 +65,13 @@ def test_a_published_cost_discloses_the_working_year_and_the_bands_it_used() -> 
 def test_a_published_cost_names_no_figure_of_the_band_it_used() -> None:
     # Whoever is shown the figure is shown that a midpoint was used, not the
     # band's own figures: a band is not a reader's to be handed.
-    a_responder = EngagedResponder(minutes=SOME_ENGAGED_MINUTES, job_title=SOME_TITLE)
-
     Scenario() \
         .given(
-            a_response_priced := [a_responder]
+            a_response_priced := [Share(title=SOME_TITLE, minutes=DONT_CARE_MINUTES)]
         ) \
         .when(
             lambda: response_cost_basis(a_response_priced,
                                         {SOME_TITLE: SOME_BAND},
-                                        DONT_CARE_PUBLISHED_COST,
                                         SOME_WORKING_YEAR_IN_HOURS)
         ) \
         .then(
@@ -100,46 +85,18 @@ def test_a_published_cost_names_no_figure_of_the_band_it_used() -> None:
 
 
 @pytest.mark.unit
-def test_a_title_two_people_held_is_disclosed_once() -> None:
-    # Two people can hold one title, and both are paid for - but a reader
-    # checking the figure needs the band once. The same sentence twice reads as
-    # a figure that priced something twice.
-    two_responders_holding_one_title = [
-        EngagedResponder(minutes=SOME_ENGAGED_MINUTES, job_title=SOME_TITLE),
-        EngagedResponder(minutes=SOME_ENGAGED_MINUTES, job_title=SOME_TITLE)
-    ]
-
-    Scenario() \
-        .given(
-            two_responders_holding_one_title
-        ) \
-        .when(
-            lambda: response_cost_basis(two_responders_holding_one_title,
-                                        {SOME_TITLE: SOME_BAND},
-                                        DONT_CARE_PUBLISHED_COST,
-                                        DONT_CARE_WORKING_YEAR)
-        ) \
-        .then(
-            _names_a_line_mentioning_exactly_once(PAY_BAND_ASSUMPTION_LABEL, SOME_TITLE)
-        )
-
-
-@pytest.mark.unit
 def test_an_unpriced_title_is_named_where_no_cost_could_be_published() -> None:
     # An absent figure is only honest while it can say which title left it
     # absent. "No cost available" with nothing beside it reads as a bug in
     # Argus rather than as a band nobody configured.
-    a_responder_no_band_covers = EngagedResponder(minutes=SOME_ENGAGED_MINUTES,
-                                                  job_title=SOME_TITLE_NO_BAND_COVERS)
-
     Scenario() \
         .given(
-            a_response_nobody_could_price := [a_responder_no_band_covers]
+            a_response_nobody_could_price := [Share(title=SOME_TITLE_NO_BAND_COVERS,
+                                                    minutes=DONT_CARE_MINUTES)]
         ) \
         .when(
             lambda: response_cost_basis(a_response_nobody_could_price,
                                         {SOME_TITLE: SOME_BAND},
-                                        None,
                                         DONT_CARE_WORKING_YEAR)
         ) \
         .then(
@@ -152,16 +109,13 @@ def test_an_unpriced_title_is_named_where_no_cost_could_be_published() -> None:
 def test_a_responder_with_no_title_is_said_to_have_none() -> None:
     # "no pay band covers [(no title recorded)]" blames a band for a title
     # nobody recorded; what stopped the figure is the missing title.
-    a_responder_with_no_title = EngagedResponder(minutes=SOME_ENGAGED_MINUTES, job_title=None)
-
     Scenario() \
         .given(
-            a_response_nobody_could_price := [a_responder_with_no_title]
+            a_response_nobody_could_price := [Share(title=None, minutes=DONT_CARE_MINUTES)]
         ) \
         .when(
             lambda: response_cost_basis(a_response_nobody_could_price,
                                         {SOME_TITLE: SOME_BAND},
-                                        None,
                                         DONT_CARE_WORKING_YEAR)
         ) \
         .then(
@@ -175,20 +129,31 @@ def test_a_responder_with_no_title_is_said_to_have_none() -> None:
 def test_bands_that_could_not_be_read_are_disclosed_where_somebody_responded() -> None:
     # Somebody spent the minutes and nothing could price them: the gap is the
     # source, and saying so keeps it from reading as nobody having responded.
-    a_responder = EngagedResponder(minutes=SOME_ENGAGED_MINUTES, job_title=SOME_TITLE)
-
     Scenario() \
         .given(
-            a_response_no_band_could_be_read_for := [a_responder]
+            a_response_no_band_could_be_read_for := [Share(title=SOME_TITLE,
+                                                           minutes=DONT_CARE_MINUTES)]
         ) \
         .when(
             lambda: response_cost_basis(a_response_no_band_could_be_read_for,
-                                        None,
                                         None,
                                         DONT_CARE_WORKING_YEAR)
         ) \
         .then(
             _names(PAY_BANDS_UNAVAILABLE_ASSUMPTION)
+        )
+
+
+@pytest.mark.unit
+def test_a_response_nobody_made_has_no_basis() -> None:
+    # There is no response to price, so nothing to say of how it was priced -
+    # not even that the bands could not be read.
+    Scenario() \
+        .when(
+            lambda: response_cost_basis([], None, DONT_CARE_WORKING_YEAR)
+        ) \
+        .then(
+            _is_empty()
         )
 
 
@@ -220,25 +185,21 @@ def _names_a_line_mentioning(label: str, detail: str) -> Assertion[list[str]]:
     return assertion
 
 
-def _names_a_line_mentioning_exactly_once(label: str,
-                                          detail: str) -> Assertion[list[str]]:
+def _says_nothing_about(unexpected: str) -> Assertion[list[str]]:
     def assertion(basis: list[str]) -> bool:
-        said = [stated for stated in basis if label in stated and detail in stated]
-
-        if len(said) != 1:
+        if any(unexpected in stated for stated in basis):
             raise AssertionError(
-                f"Expected [{label}] to mention [{detail}] exactly once, got {said}.")
+                f"Expected no line of the basis about [{unexpected}], got {basis}.")
 
         return True
 
     return assertion
 
 
-def _says_nothing_about(unexpected: str) -> Assertion[list[str]]:
+def _is_empty() -> Assertion[list[str]]:
     def assertion(basis: list[str]) -> bool:
-        if any(unexpected in stated for stated in basis):
-            raise AssertionError(
-                f"Expected no line of the basis about [{unexpected}], got {basis}.")
+        if basis:
+            raise AssertionError(f"Expected no basis, got {basis}.")
 
         return True
 

@@ -578,6 +578,7 @@ version = "0.1.0"
 source = { editable = "modules/executive_synopsis" }
 dependencies = [
     { name = "argus-core" },
+    { name = "argus-incident-cost" },
     { name = "argus-postmortem-writing" },
     { name = "pydantic" },
 ]
@@ -585,21 +586,18 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "argus-argus-testkit" },
-    { name = "argus-incident-cost" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "argus-core", editable = "modules/core" },
+    { name = "argus-incident-cost", editable = "modules/incident_cost" },
     { name = "argus-postmortem-writing", editable = "modules/postmortem_writing" },
     { name = "pydantic", specifier = ">=2.0" },
 ]
 
 [package.metadata.requires-dev]
-dev = [
-    { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
-    { name = "argus-incident-cost", editable = "modules/incident_cost" },
-]
+dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
 
 [[package]]
 name = "argus-flag-provider"

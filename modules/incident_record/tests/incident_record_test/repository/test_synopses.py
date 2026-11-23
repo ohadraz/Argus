@@ -25,11 +25,18 @@ def test_a_complete_synopsis_leaves_no_column_of_its_row_empty() -> None:
     dont_care_reason = "dont care"
     dont_care_title = "dont care"
     dont_care_shared_page = "dont care"
+    dont_care_amount = Decimal("1.00")
+    dont_care_currency = "usd"
+    dont_care_basis = ["dont care"]
     a_complete_synopsis = ExecutiveSynopsisDocument(
         overview=dont_care_overview,
         withheld_because=dont_care_reason,
         cost_by_title=[_a_priced_row(dont_care_title)],
-        breakdown_unmatched=True,
+        responder_cost_estimate=dont_care_amount,
+        responder_cost_minimum=dont_care_amount,
+        responder_cost_maximum=dont_care_amount,
+        responder_cost_currency=dont_care_currency,
+        response_cost_basis=dont_care_basis,
         response_shared=dont_care_shared_page
     )
 
@@ -107,6 +114,33 @@ def test_the_cost_by_title_comes_back_whole() -> None:
             ) \
             .then(
                 _the_stored_synopsis_carries_the_rows(conn, incident_id, some_rows)
+            )
+
+
+@pytest.mark.integration
+def test_the_response_s_totals_and_basis_come_back_whole() -> None:
+    # Amounts to four places, which a float would lose, and the basis as the
+    # list of lines it was written as.
+    some_amount = Decimal("31.5042")
+    some_currency = "usd"
+    some_basis = ["Working year: annual pay bands divided by 2080 hours",
+                  "Pay band: Senior Kuki priced at the midpoint of the title's band"]
+    a_priced_synopsis = _a_synopsis().model_copy(update={
+        "responder_cost_estimate": some_amount,
+        "responder_cost_minimum": some_amount / 2,
+        "responder_cost_maximum": some_amount * 2,
+        "responder_cost_currency": some_currency,
+        "response_cost_basis": some_basis})
+
+    with connect_from_env() as conn:
+        incident_id = an_incident_created_for(conn, _an_alert())
+
+        Scenario() \
+            .when(
+                lambda: synopses.record(conn, incident_id, a_priced_synopsis, at=utc_now())
+            ) \
+            .then(
+                _the_stored_synopsis_is_priced_as(conn, incident_id, a_priced_synopsis)
             )
 
 
@@ -200,6 +234,30 @@ def _the_stored_synopsis_carries_the_rows(conn: psycopg.Connection,
     return assertion
 
 
+def _the_stored_synopsis_is_priced_as(conn: psycopg.Connection,
+                                      incident_id: str,
+                                      expected: ExecutiveSynopsisDocument) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        stored = synopses.get_by_incident(conn, incident_id)
+
+        if stored is None:
+            raise AssertionError("Expected a synopsis to have been written, none was.")
+
+        wanted = (expected.responder_cost_estimate, expected.responder_cost_minimum,
+                  expected.responder_cost_maximum, expected.responder_cost_currency,
+                  expected.response_cost_basis)
+        got = (stored.responder_cost_estimate, stored.responder_cost_minimum,
+               stored.responder_cost_maximum, stored.responder_cost_currency,
+               stored.response_cost_basis)
+        if got != wanted:
+            raise AssertionError(
+                f"Expected the synopsis priced as {wanted}, and it came back priced as {got}.")
+
+        return True
+
+    return assertion
+
+
 def _nothing() -> Assertion[Any]:
     def assertion(found: Any) -> bool:
         if found is not None:
@@ -237,6 +295,5 @@ def _a_synopsis() -> ExecutiveSynopsisDocument:
     return ExecutiveSynopsisDocument(
         overview="dont care",
         withheld_because=None,
-        cost_by_title=[],
-        breakdown_unmatched=False
+        cost_by_title=[]
     )

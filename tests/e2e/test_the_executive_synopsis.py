@@ -8,7 +8,7 @@ nowhere else the responders it prices can read: not the war room, not the
 incident's thread, not an HTML page of Argus's. The synopsis's own PDF, which
 its Slack message links to, is the one route that serves it, by choice.
 
-The figure is the stored postmortem's, said as the synopsis says money. That
+The figure is the stored synopsis's, said as the synopsis says money. That
 the synopsis carries it is asserted too, so its absence everywhere else is an
 absence of something that exists rather than of something nobody priced.
 
@@ -28,7 +28,7 @@ import pytest
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 from chat_platform.slack import SlackSettings
 from core import utc_now
-from incident_record.repository import postmortems
+from incident_record.repository import synopses
 from narration import said_as_money
 
 from tests.e2e.framework.argus import (
@@ -116,20 +116,19 @@ def _said_since(already: int) -> list[dict[str, Any]]:
 
 
 def _the_response_cost_of(response: httpx2.Response) -> str:
-    """The stored postmortem's response cost, said as money is said
-    everywhere Argus says it."""
+    """The stored synopsis's response cost, said as money is said everywhere
+    Argus says it."""
     incident_id = incident_id_from(response)
 
     with psycopg.connect(DATABASE_URL) as conn:
-        postmortem = postmortems.get_by_incident(conn, incident_id)
+        synopsis = synopses.get_by_incident(conn, incident_id)
 
-    if postmortem is None or postmortem.responder_cost_estimate is None:
+    if synopsis is None or synopsis.responder_cost_estimate is None:
         raise AssertionError(
-            f"Expected incident [{incident_id}]'s postmortem to price the response, "
-            f"it is [{postmortem}].")
+            f"Expected incident [{incident_id}]'s synopsis to price the response, "
+            f"it is [{synopsis}].")
 
-    return said_as_money(postmortem.responder_cost_estimate,
-                         postmortem.responder_cost_currency)
+    return said_as_money(synopsis.responder_cost_estimate, synopsis.responder_cost_currency)
 
 
 def _each_id_was_sent_the_synopsis(already: int) -> Assertion[httpx2.Response]:

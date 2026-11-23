@@ -1224,7 +1224,7 @@ def _an_incident_with_a_synopsis(conn: psycopg.Connection,
     postmortems.record(conn, incident_id, _a_postmortem(), at=utc_now())
     synopses.record(conn, incident_id,
                     ExecutiveSynopsisDocument(overview=overview, withheld_because=None,
-                                              cost_by_title=[], breakdown_unmatched=False),
+                                              cost_by_title=[]),
                     at=utc_now())
     conn.commit()
 
@@ -1241,10 +1241,6 @@ def _a_postmortem() -> PostmortemDocument:
         engineer_minutes=None,
         responders=None,
         responder_titles=[],
-        responder_cost_estimate=None,
-        responder_cost_minimum=None,
-        responder_cost_maximum=None,
-        responder_cost_currency=None,
         tokens_spent=None,
         assumptions=[],
         pull_request=None

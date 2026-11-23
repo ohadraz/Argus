@@ -61,8 +61,7 @@ from core.models import (
     Verdict,
     Weighing,
 )
-from incident_cost import EngagedResponder, ResponderCost
-from postmortem_writing import DeploymentChangesRecord, write_postmortem
+from postmortem_writing import DeploymentChangesRecord, EngagedResponder, write_postmortem
 from postmortem_writing.answer import (
     SubmittedFactor,
     SubmittedItem,
@@ -99,17 +98,13 @@ from postmortem_writing.summary import the_executive_summary
 from postmortem_writing_test.framework.assertions import (
     estimates_a_loss_of,
     proposes_the_fix_at,
-    reports_a_cost_ranging_from,
-    reports_a_responder_cost_of,
     reports_engineer_minutes,
     reports_executive_summary,
     reports_no_engineer_minutes,
-    reports_no_responder_cost,
     reports_no_root_cause,
     reports_paged,
     reports_responders,
     reports_root_cause,
-    reports_the_cost_in,
     reports_the_titles,
     reports_tokens_spent,
     says_what_is_still_owed,
@@ -284,14 +279,9 @@ def test_the_figures_measured_are_the_figures_published() -> None:
     # Every column the document carries about money and people, taken from one
     # measured incident. What makes this worth asserting is not the arithmetic -
     # it is that each figure lands in its own column, and a document that put
-    # the minimum where the midpoint goes would be wrong in a way no reader
+    # the responders where the minutes go would be wrong in a way no reader
     # could see.
     some_loss = Decimal("1234.56")
-    some_midpoint = Decimal("30")
-    some_cost = ResponderCost(midpoint=some_midpoint,
-                              minimum=some_midpoint / 2,
-                              maximum=some_midpoint * 2,
-                              currency=SOME_CURRENCY)
 
     Scenario() \
         .given(
@@ -301,8 +291,7 @@ def test_the_figures_measured_are_the_figures_published() -> None:
             ]),
             a_fully_measured_incident := a_measured_incident(
                 loss=some_loss,
-                engaged=an_engagement,
-                cost=some_cost)
+                engaged=an_engagement)
         ) \
         .when(
             lambda: write_postmortem(
@@ -320,18 +309,15 @@ def test_the_figures_measured_are_the_figures_published() -> None:
                 reports_engineer_minutes(an_engagement.minutes),
                 reports_responders(an_engagement.responders),
                 reports_paged(True),
-                reports_the_titles(SOME_TITLE, SOME_OTHER_TITLE),
-                reports_a_responder_cost_of(some_cost.midpoint),
-                reports_a_cost_ranging_from(some_cost.minimum, some_cost.maximum),
-                reports_the_cost_in(SOME_CURRENCY)
+                reports_the_titles(SOME_TITLE, SOME_OTHER_TITLE)
             )
         )
 
 
 @pytest.mark.unit
 def test_the_response_is_kept_by_title_as_well() -> None:
-    # Held per title, for whatever prices the response after the document is
-    # written: a band prices a title, and the totals beside it cannot be priced.
+    # Held per title, for the executive synopsis to price: a band prices a
+    # title, and the totals beside it cannot be priced.
     some_minutes, some_other_minutes = 15, 10
 
     Scenario() \
@@ -365,7 +351,7 @@ def test_a_response_nobody_measured_or_nobody_was_paged_for_keeps_no_title(
         engaged: NotPaged | None) -> None:
     Scenario() \
         .given(
-            an_incident_with_no_response_measured := a_measured_incident(cost=None).model_copy(
+            an_incident_with_no_response_measured := a_measured_incident().model_copy(
                 update={"engaged": engaged})
         ) \
         .when(
@@ -389,8 +375,7 @@ def test_an_incident_nobody_could_measure_reports_no_response() -> None:
     # took nobody's night, out of a source Argus failed to reach.
     Scenario() \
         .given(
-            an_incident_nobody_could_say_who_worked_on := a_measured_incident(
-                engaged=None, cost=None)
+            an_incident_nobody_could_say_who_worked_on := a_measured_incident(engaged=None)
         ) \
         .when(
             lambda: write_postmortem(
@@ -405,7 +390,6 @@ def test_an_incident_nobody_could_measure_reports_no_response() -> None:
         .then(
             all_of(
                 reports_no_engineer_minutes(),
-                reports_no_responder_cost(),
                 reports_paged(None)
             )
         )
@@ -418,7 +402,7 @@ def test_an_incident_nobody_was_paged_for_reports_no_minutes_spent() -> None:
     # alike, and only one of them is unknown.
     Scenario() \
         .given(
-            an_incident_nobody_was_paged_for := a_measured_incident(cost=None).model_copy(
+            an_incident_nobody_was_paged_for := a_measured_incident().model_copy(
                 update={"engaged": NotPaged()})
         ) \
         .when(
@@ -434,8 +418,7 @@ def test_an_incident_nobody_was_paged_for_reports_no_minutes_spent() -> None:
             all_of(
                 reports_engineer_minutes(0),
                 reports_responders(0),
-                reports_paged(False),
-                reports_no_responder_cost()
+                reports_paged(False)
             )
         )
 
@@ -1988,30 +1971,23 @@ def test_the_answer_is_asked_for_saying_whether_an_outage_ends_it(outage_ends_it
 
 
 @pytest.mark.unit
-def test_the_disclosures_are_written_from_what_was_measured_and_configured() -> None:
+def test_the_disclosures_are_written_from_what_was_measured() -> None:
     # The disclosure module reads no source of its own, so everything it needs
-    # has to arrive here: the incident as measured, and the working year the
-    # bands were divided by. Handed a different working year from the one the
-    # cost was computed under, it would publish a divisor that does not explain
-    # the figure beside it.
+    # has to arrive here: the incident as measured.
     a_measurement = a_measured_incident()
     a_discloser = _disclosing_that_returns([])
-    some_working_year = 1_900.0
 
     Scenario() \
-        .given(
-            a_set_of_sources := some_sources(working_hours_a_year=some_working_year)
-        ) \
         .when(
             lambda: write_postmortem(an_evidence_bundle(),
-                                     a_set_of_sources,
+                                     some_sources(),
                                      _dont_care_llm(),
                                      measure=_measuring_that_returns(a_measurement),
                                      ask=_asking_that_answers(a_submitted_answer()),
                                      disclose=a_discloser)
         ) \
         .then(
-            _disclosed_from(a_discloser, a_measurement, some_working_year)
+            _disclosed_from(a_discloser, a_measurement)
         )
 
 
@@ -2326,20 +2302,14 @@ def _asked_with_an_outage_ending_it(asking: MagicMock,
 
 
 def _disclosed_from(disclosing: MagicMock,
-                    measured: Measurements,
-                    working_hours_a_year: float) -> Assertion[PostmortemDocument]:
+                    measured: Measurements) -> Assertion[PostmortemDocument]:
     def assertion(dont_care_document: PostmortemDocument) -> bool:
-        _, disclosed_from, under = disclosing.call_args.args
+        _, disclosed_from = disclosing.call_args.args
 
         if disclosed_from is not measured:
             raise AssertionError(
                 f"Expected the disclosures to be written from the incident as "
                 f"measured, got [{disclosed_from}].")
-
-        if under != working_hours_a_year:
-            raise AssertionError(
-                f"Expected the disclosures to be written under a working year of "
-                f"[{working_hours_a_year}], got [{under}].")
 
         return True
 

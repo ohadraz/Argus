@@ -24,7 +24,7 @@ from decimal import Decimal
 
 from argus_testkit import Assertion
 from core.llm import LLMClient
-from core.models import PostmortemDocument
+from core.models import PostmortemDocument, TitleMinutes
 from postmortem_writing.reviewing import ANALYSIS_COMPLETE
 
 from postmortem_writing_test.framework.builders import AGrounding
@@ -254,50 +254,11 @@ def says_what_is_still_owed(expected: str | None) -> Assertion[PostmortemDocumen
     return assertion
 
 
-def reports_a_responder_cost_of(expected: Decimal) -> Assertion[PostmortemDocument]:
+def holds_the_minutes_by_title(expected: list[TitleMinutes]) -> Assertion[PostmortemDocument]:
     def assertion(document: PostmortemDocument) -> bool:
-        if document.responder_cost_estimate != expected:
+        if document.minutes_by_title != expected:
             raise AssertionError(
-                f"Expected a responder cost of [{expected}], got "
-                f"[{document.responder_cost_estimate}].")
-
-        return True
-
-    return assertion
-
-
-def reports_a_cost_ranging_from(minimum: Decimal,
-                                maximum: Decimal) -> Assertion[PostmortemDocument]:
-    def assertion(document: PostmortemDocument) -> bool:
-        got = (document.responder_cost_minimum, document.responder_cost_maximum)
-        if got != (minimum, maximum):
-            raise AssertionError(
-                f"Expected the responder cost to range from [{minimum}] to "
-                f"[{maximum}], got {got}")
-
-        return True
-
-    return assertion
-
-
-def reports_the_cost_in(expected: str) -> Assertion[PostmortemDocument]:
-    def assertion(document: PostmortemDocument) -> bool:
-        if document.responder_cost_currency != expected:
-            raise AssertionError(
-                f"Expected the responder cost in [{expected}], got "
-                f"[{document.responder_cost_currency}].")
-
-        return True
-
-    return assertion
-
-
-def reports_no_responder_cost() -> Assertion[PostmortemDocument]:
-    def assertion(document: PostmortemDocument) -> bool:
-        if document.responder_cost_estimate is not None:
-            raise AssertionError(
-                f"Expected no responder cost where the response could not be "
-                f"priced, got [{document.responder_cost_estimate}].")
+                f"Expected the minutes by title {expected}, got {document.minutes_by_title}.")
 
         return True
 
@@ -347,34 +308,6 @@ def discloses_an_assumption_mentioning(label: str,
             raise AssertionError(
                 f"Expected an assumption mentioning [{label}] and [{detail}], "
                 f"got {document.assumptions}")
-
-        return True
-
-    return assertion
-
-
-def keeps_a_cost_basis_line_mentioning(label: str,
-                                       detail: str) -> Assertion[PostmortemDocument]:
-    """How the response cost was arrived at, kept apart from the assumptions:
-    the postmortem says nothing of pay, and what is shown the figure reads this."""
-    def assertion(document: PostmortemDocument) -> bool:
-        if not any(label in stated and detail in stated
-                   for stated in document.response_cost_basis):
-            raise AssertionError(
-                f"Expected a line of the cost basis mentioning [{label}] and [{detail}], "
-                f"got {document.response_cost_basis}.")
-
-        return True
-
-    return assertion
-
-
-def keeps_the_cost_basis_line(expected: str) -> Assertion[PostmortemDocument]:
-    def assertion(document: PostmortemDocument) -> bool:
-        if expected not in document.response_cost_basis:
-            raise AssertionError(
-                f"Expected the cost basis line [{expected}], got "
-                f"{document.response_cost_basis}.")
 
         return True
 

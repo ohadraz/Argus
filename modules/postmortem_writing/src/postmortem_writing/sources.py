@@ -27,7 +27,7 @@ from datetime import datetime
 
 from core.anomaly import AnomalyThresholds
 from core.models import AlertRuleStanding, MetricBucket
-from incident_cost import EngagedResponder, MoneySources
+from incident_cost import MoneySources
 from pydantic import BaseModel
 
 # Pre-aggregated service metrics over a window - the same channel the
@@ -43,6 +43,24 @@ type Metrics = Callable[[datetime, datetime, str | None], list[MetricBucket]]
 # could say. The rule as it is defined when the document is written, minutes
 # after it paged - the same rule the metrics are read for.
 type AlertRule = Callable[[str], AlertRuleStanding | None]
+
+
+class EngagedResponder(BaseModel):
+    """One person's own share of the response: their minutes, and what they
+    were called.
+
+    The pair stays together because a band belongs to a job title: the
+    document holds the minutes by title for whatever prices them, and a total
+    that has already added a senior engineer's hour to a junior's cannot be
+    priced at all.
+
+    `job_title` is absent where the source held none. Reporting the responder
+    anyway is what lets a consumer decline to price the incident rather than
+    quietly price it short.
+    """
+
+    minutes: int
+    job_title: str | None
 
 
 class EngagementAnswer(BaseModel):

@@ -56,24 +56,6 @@ class RateTable(BaseModel):
 type Rates = Callable[[], RateTable | None]
 
 
-class EngagedResponder(BaseModel):
-    """One person's own share of the response: their minutes, and what they
-    were called.
-
-    The unit anything pricing this response has to work in. A band belongs to a
-    job title, so a total that has already added a senior engineer's hour to a
-    junior's cannot be priced at all - and the pair has to stay together,
-    because minutes are only worth what the person holding them was.
-
-    `job_title` is absent where the source held none. Reporting the responder
-    anyway is what lets a consumer decline to price the incident rather than
-    quietly price it short.
-    """
-
-    minutes: int
-    job_title: str | None
-
-
 class PayBand(BaseModel):
     """What one job title's time is worth a year, as an HR source states it.
 

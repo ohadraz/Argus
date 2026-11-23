@@ -415,7 +415,7 @@ def against(connections: Connections,
         write_synopsis=partial(
             write_synopsis_for,
             connections=connections,
-            sources=sources,
+            money=sources.money,
             client_for=partial(
                 build_llm_client,
                 models,

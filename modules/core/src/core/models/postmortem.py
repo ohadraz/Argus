@@ -129,29 +129,13 @@ class PostmortemDocument(BaseModel):
     # description missing, rather than a measurement.
     responder_titles: list[str] = []
     # The same response held by title, in the order each title first responded,
-    # responders with no title recorded a row of their own: what prices the
-    # response prices these rows, since a band prices a title and a total that
-    # has added one title's minutes to another's cannot be priced. Empty where
-    # nobody could say who responded, or nobody was paged.
+    # responders with no title recorded a row of their own: what the executive
+    # synopsis prices, since a band prices a title and a total that has added
+    # one title's minutes to another's cannot be priced. Never priced here: the
+    # postmortem says nothing of pay, since its readers are the people it
+    # would price. Empty where nobody could say who responded, or nobody was
+    # paged.
     minutes_by_title: list[TitleMinutes] = []
-    # What those minutes were worth, at the midpoint of each responder's band.
-    # Absent - never zero, and never a partial sum - where any one of them
-    # could not be priced, since a cost missing a responder is wrong in the
-    # flattering direction rather than merely small.
-    responder_cost_estimate: Decimal | None = None
-    # The same minutes at the bottom and top of the same bands, published
-    # beside the figure so a midpoint is not read as measured to the dollar.
-    responder_cost_minimum: Decimal | None = None
-    responder_cost_maximum: Decimal | None = None
-    # What the bands were quoted in, carried for the same reason
-    # `estimate_currency` is: a figure relabelled from settings would rewrite
-    # documents already published.
-    responder_cost_currency: str | None = None
-    # How that cost was arrived at - the working year, the band each title was
-    # priced at, or what stopped it. Kept beside the figure for whoever is shown
-    # the figure, and apart from `assumptions`: the postmortem says nothing of
-    # pay, since its readers are the people it would price.
-    response_cost_basis: list[str] = []
     tokens_spent: int | None
     assumptions: list[str]
     # Where the permanent fix can be read, for the incidents that produced one.

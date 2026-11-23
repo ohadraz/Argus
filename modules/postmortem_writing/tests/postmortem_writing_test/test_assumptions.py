@@ -6,10 +6,9 @@ in prose, and that answer has to reach the page - dropped, it would leave a
 document claiming more certainty than the thing that wrote it had.
 
 The other is Argus's, and it is here because a figure is only as honest as the
-steps between the source and the page. A rate applied, a band a title was
-priced at, a working year the bands were divided by: none of those is a
-measurement, and a reader who cannot see them is being asked to take the
-figures on trust.
+steps between the source and the page. A rate applied, a currency left out, a
+shortfall within what the shop varies by: none of those is a measurement, and
+a reader who cannot see them is being asked to take the figures on trust.
 
 An absence gets a line too, and it is the half most worth testing. A figure
 that is missing and a figure that is zero look identical on a page unless the
@@ -18,8 +17,7 @@ document says which it is - and each absence has its own sentence, because
 findings that would otherwise leave the same blank.
 
 Nothing here reads a source. Everything was read while the incident was being
-measured, so this takes a measured incident and the one setting the figures
-were produced under, and turns them into sentences.
+measured, so this takes a measured incident and turns it into sentences.
 """
 
 from __future__ import annotations
@@ -33,10 +31,7 @@ from incident_cost import (
     PAY_BANDS_UNAVAILABLE_ASSUMPTION,
     UNPRICED_TITLE_ASSUMPTION_LABEL,
     WORKING_YEAR_ASSUMPTION_LABEL,
-    EngagedResponder,
-    PayBand,
     RateTable,
-    ResponderCost,
 )
 from postmortem_writing import (
     ENGAGEMENT_UNAVAILABLE_ASSUMPTION,
@@ -49,6 +44,7 @@ from postmortem_writing import (
     RATES_UNAVAILABLE_REASON,
     REVENUE_UNAVAILABLE_ASSUMPTION,
     SHARED_PAGE_ASSUMPTION_LABEL,
+    EngagedResponder,
 )
 from postmortem_writing.answer import SubmittedPostmortem
 from postmortem_writing.assumptions import assumptions_of
@@ -58,7 +54,6 @@ from postmortem_writing.sources import NotPaged
 
 from postmortem_writing_test.framework.builders import (
     DONT_CARE_BASELINE_REVENUE,
-    DONT_CARE_WORKING_YEAR,
     ONSET,
     SOME_CURRENCY,
     SOME_OTHER_CURRENCY,
@@ -68,28 +63,11 @@ from postmortem_writing_test.framework.builders import (
 )
 
 SOME_TITLE = "Senior Kuki"
-SOME_TITLE_NO_BAND_COVERS = "Principal Buki"
-SOME_WORKING_YEAR_IN_HOURS = 2000.0
 SOME_ENGAGED_MINUTES = 30
-
-SOME_BAND = PayBand(
-    minimum=Decimal(60_000),
-    midpoint=Decimal(120_000),
-    maximum=Decimal(240_000),
-    currency=SOME_CURRENCY
-)
 
 # An answer the model gave that says nothing about assumptions, for the tests
 # whose subject is one of Argus's own disclosures.
 DONT_CARE_ANSWER = SubmittedPostmortem()
-
-# A cost that was published, for the tests about what a published one has to
-# disclose. Its figures are never read - what is under test is the sentences
-# that accompany them.
-DONT_CARE_PUBLISHED_COST = ResponderCost(midpoint=Decimal(1),
-                                         minimum=Decimal(1),
-                                         maximum=Decimal(1),
-                                         currency=SOME_CURRENCY)
 
 
 @pytest.mark.unit
@@ -105,8 +83,7 @@ def test_what_the_model_says_it_assumed_is_carried_through() -> None:
         ) \
         .when(
             lambda: assumptions_of(an_answer,
-                                   a_measured_incident(),
-                                   DONT_CARE_WORKING_YEAR)
+                                   a_measured_incident())
         ) \
         .then(
             _names(some_assumption)
@@ -114,37 +91,18 @@ def test_what_the_model_says_it_assumed_is_carried_through() -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("an_incident", [
-    pytest.param(a_measured_incident(
-        engaged=an_engagement_of([EngagedResponder(minutes=SOME_ENGAGED_MINUTES,
-                                                   job_title=SOME_TITLE)]),
-        bands={SOME_TITLE: SOME_BAND},
-        cost=DONT_CARE_PUBLISHED_COST),
-        id="a priced response"),
-    pytest.param(a_measured_incident(
-        engaged=an_engagement_of([EngagedResponder(minutes=SOME_ENGAGED_MINUTES,
-                                                   job_title=SOME_TITLE_NO_BAND_COVERS)]),
-        bands={SOME_TITLE: SOME_BAND},
-        cost=None),
-        id="an unpriced title"),
-    pytest.param(a_measured_incident(
-        engaged=an_engagement_of([EngagedResponder(minutes=SOME_ENGAGED_MINUTES,
-                                                   job_title=SOME_TITLE)]),
-        bands=None,
-        cost=None),
-        id="no pay bands")
-])
-def test_how_a_response_was_priced_is_no_assumption_of_the_postmortem(
-        an_incident: Measurements) -> None:
+def test_pay_is_no_assumption_of_the_postmortem() -> None:
     # The postmortem is read by the people it would price. How their minutes
-    # were priced - or why they could not be - is kept beside the figure, for
-    # whoever is shown the figure, and is nothing this document assumed.
+    # are priced - or why they could not be - is the executive synopsis's to
+    # say, and nothing this document assumed.
     Scenario() \
         .given(
-            an_incident
+            an_incident := a_measured_incident(
+                engaged=an_engagement_of([EngagedResponder(minutes=SOME_ENGAGED_MINUTES,
+                                                           job_title=SOME_TITLE)]))
         ) \
         .when(
-            lambda: assumptions_of(DONT_CARE_ANSWER, an_incident, SOME_WORKING_YEAR_IN_HOURS)
+            lambda: assumptions_of(DONT_CARE_ANSWER, an_incident)
         ) \
         .then(all_of(
             _says_nothing_about(WORKING_YEAR_ASSUMPTION_LABEL),
@@ -174,8 +132,7 @@ def test_every_conversion_is_disclosed_with_its_rate_and_the_day_it_was_publishe
         ) \
         .when(
             lambda: assumptions_of(DONT_CARE_ANSWER,
-                                   an_incident_costed_from_money_taken_abroad,
-                                   DONT_CARE_WORKING_YEAR)
+                                   an_incident_costed_from_money_taken_abroad)
         ) \
         .then(
             all_of(
@@ -201,8 +158,7 @@ def test_money_taken_in_the_reporting_currency_discloses_no_conversion() -> None
         ) \
         .when(
             lambda: assumptions_of(DONT_CARE_ANSWER,
-                                   an_incident_costed_from_money_taken_at_home,
-                                   DONT_CARE_WORKING_YEAR)
+                                   an_incident_costed_from_money_taken_at_home)
         ) \
         .then(
             _says_nothing_about(EXCHANGE_RATE_ASSUMPTION_LABEL)
@@ -221,8 +177,7 @@ def test_a_currency_left_out_of_the_figure_is_named_with_the_reason() -> None:
         ) \
         .when(
             lambda: assumptions_of(DONT_CARE_ANSWER,
-                                   an_incident_whose_figure_is_partial,
-                                   DONT_CARE_WORKING_YEAR)
+                                   an_incident_whose_figure_is_partial)
         ) \
         .then(
             all_of(
@@ -247,8 +202,7 @@ def test_an_incident_with_no_onset_says_so() -> None:
         ) \
         .when(
             lambda: assumptions_of(DONT_CARE_ANSWER,
-                                   an_incident_nothing_measured_an_onset_for,
-                                   DONT_CARE_WORKING_YEAR)
+                                   an_incident_nothing_measured_an_onset_for)
         ) \
         .then(
             _names(ONSET_UNKNOWN_ASSUMPTION)
@@ -267,8 +221,7 @@ def test_an_incident_none_of_whose_metrics_could_be_read_says_so_not_that_none_d
         ) \
         .when(
             lambda: assumptions_of(DONT_CARE_ANSWER,
-                                   an_incident_nothing_could_be_read_for,
-                                   DONT_CARE_WORKING_YEAR)
+                                   an_incident_nothing_could_be_read_for)
         ) \
         .then(all_of(
             _names(NOTHING_READ_ASSUMPTION),
@@ -287,8 +240,7 @@ def test_a_revenue_source_that_could_not_be_read_says_so() -> None:
         ) \
         .when(
             lambda: assumptions_of(DONT_CARE_ANSWER,
-                                   an_incident_nobody_could_cost,
-                                   DONT_CARE_WORKING_YEAR)
+                                   an_incident_nobody_could_cost)
         ) \
         .then(
             _names(REVENUE_UNAVAILABLE_ASSUMPTION)
@@ -306,8 +258,7 @@ def test_an_incident_with_no_onset_owes_no_apology_for_takings_never_asked_for()
         ) \
         .when(
             lambda: assumptions_of(DONT_CARE_ANSWER,
-                                   an_incident_nothing_measured_an_onset_for,
-                                   DONT_CARE_WORKING_YEAR)
+                                   an_incident_nothing_measured_an_onset_for)
         ) \
         .then(
             _says_nothing_about(REVENUE_UNAVAILABLE_ASSUMPTION)
@@ -336,7 +287,7 @@ def test_takings_no_loss_was_made_of_disclose_nothing_of_their_money(an_incident
             an_incident
         ) \
         .when(
-            lambda: assumptions_of(DONT_CARE_ANSWER, an_incident, DONT_CARE_WORKING_YEAR)
+            lambda: assumptions_of(DONT_CARE_ANSWER, an_incident)
         ) \
         .then(
             _says_nothing_about(label)
@@ -357,8 +308,7 @@ def test_a_currency_left_out_because_no_table_arrived_says_which() -> None:
         ) \
         .when(
             lambda: assumptions_of(DONT_CARE_ANSWER,
-                                   an_incident_no_table_arrived_for,
-                                   DONT_CARE_WORKING_YEAR)
+                                   an_incident_no_table_arrived_for)
         ) \
         .then(
             all_of(
@@ -380,8 +330,7 @@ def test_an_engagement_source_that_could_not_be_read_says_so() -> None:
         ) \
         .when(
             lambda: assumptions_of(DONT_CARE_ANSWER,
-                                   an_incident_nobody_could_say_who_worked_on,
-                                   DONT_CARE_WORKING_YEAR)
+                                   an_incident_nobody_could_say_who_worked_on)
         ) \
         .then(
             _names(ENGAGEMENT_UNAVAILABLE_ASSUMPTION)
@@ -400,8 +349,7 @@ def test_an_incident_nobody_responded_to_apologises_for_nothing() -> None:
         ) \
         .when(
             lambda: assumptions_of(DONT_CARE_ANSWER,
-                                   an_incident_argus_handled_alone,
-                                   DONT_CARE_WORKING_YEAR)
+                                   an_incident_argus_handled_alone)
         ) \
         .then(
             _says_nothing_about(ENGAGEMENT_UNAVAILABLE_ASSUMPTION)
@@ -425,8 +373,7 @@ def test_a_page_other_incidents_shared_is_disclosed_with_how_many() -> None:
         ) \
         .when(
             lambda: assumptions_of(DONT_CARE_ANSWER,
-                                   an_incident_whose_page_two_others_shared,
-                                   DONT_CARE_WORKING_YEAR)
+                                   an_incident_whose_page_two_others_shared)
         ) \
         .then(
             _names_a_line_mentioning(SHARED_PAGE_ASSUMPTION_LABEL, "2 other incidents")
@@ -445,8 +392,7 @@ def test_a_page_one_other_incident_shared_is_said_in_the_singular() -> None:
         ) \
         .when(
             lambda: assumptions_of(DONT_CARE_ANSWER,
-                                   an_incident_whose_page_one_other_shared,
-                                   DONT_CARE_WORKING_YEAR)
+                                   an_incident_whose_page_one_other_shared)
         ) \
         .then(
             all_of(
@@ -467,8 +413,7 @@ def test_a_page_this_incident_had_alone_needs_no_such_disclosure() -> None:
         ) \
         .when(
             lambda: assumptions_of(DONT_CARE_ANSWER,
-                                   an_incident_paged_alone,
-                                   DONT_CARE_WORKING_YEAR)
+                                   an_incident_paged_alone)
         ) \
         .then(
             _says_nothing_about(SHARED_PAGE_ASSUMPTION_LABEL)
@@ -490,8 +435,7 @@ def test_a_shortfall_within_what_the_shop_varies_by_is_disclosed_as_no_loss() ->
         ) \
         .when(
             lambda: assumptions_of(DONT_CARE_ANSWER,
-                                   an_incident_within_the_shop_s_variation,
-                                   DONT_CARE_WORKING_YEAR)
+                                   an_incident_within_the_shop_s_variation)
         ) \
         .then(
             all_of(
@@ -512,8 +456,7 @@ def test_a_loss_beyond_what_the_shop_varies_by_needs_no_such_disclosure() -> Non
         ) \
         .when(
             lambda: assumptions_of(DONT_CARE_ANSWER,
-                                   an_incident_that_lost_money,
-                                   DONT_CARE_WORKING_YEAR)
+                                   an_incident_that_lost_money)
         ) \
         .then(
             _says_nothing_about(NORMAL_VARIATION_ASSUMPTION_LABEL)
@@ -557,8 +500,7 @@ def test_every_disclosure_argus_writes_begins_with_a_capital(an_incident: Measur
         ) \
         .when(
             lambda: assumptions_of(DONT_CARE_ANSWER,
-                                   an_incident,
-                                   DONT_CARE_WORKING_YEAR)
+                                   an_incident)
         ) \
         .then(
             _every_line_begins_with_a_capital()

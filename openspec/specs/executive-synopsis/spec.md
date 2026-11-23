@@ -308,7 +308,7 @@ The synopsis SHALL show, for each title responders held, how many held it, their
 minutes, and their cost at the band's midpoint with the range from the band's
 minimum to its maximum; responders with no recorded title as a row of their
 own; and, beneath two rows or more, a total row - beneath one row it would say
-the row again. The total shown SHALL be the stored postmortem's, to the
+the row again. The total shown SHALL be the synopsis's own stored total, to the
 cent, everywhere the synopsis states it - the overview included. Each row SHALL
 be rounded to the cent so that the rows shown add up to the total shown, the
 cents a plain rounding leaves over going to the rows with the largest
@@ -339,29 +339,28 @@ bands were divided by, and that each title is priced at its band's midpoint.
 - **THEN** people and minutes are shown, no cost is shown, and the synopsis names
   the title nothing could price
 
-### Requirement: The breakdown agrees with the postmortem or is not shown
-The step SHALL read each responder's minutes and their titles' bands itself,
-through the postmortem's own reads, and SHALL check that the rows' people,
-minutes, midpoint, minimum and maximum sum to the stored postmortem's - the
-amounts compared to the cent - and that their currency is the stored one. Where
-any differs, the synopsis SHALL show the postmortem's totals with no per-title
-rows, and say the breakdown could not be matched.
+### Requirement: The synopsis prices the postmortem's minutes by title, once
+The step SHALL price the stored postmortem's minutes by title at the pay bands
+it reads once, before the overview is asked for, working out every title's row
+and the totals in one pass, and SHALL store both with the basis they rest on.
+The totals SHALL be absent wherever any title is unpriced. Nothing SHALL be read
+where the postmortem holds no minutes by title.
 
-#### Scenario: Summation order is not a mismatch
-- **GIVEN** rows whose amounts sum to the stored total within a fraction of a cent
-- **WHEN** they are checked
-- **THEN** they match
-
-#### Scenario: A band that moved
-- **GIVEN** a band whose maximum changed since the postmortem was written
+#### Scenario: Rows and totals from one pass
+- **GIVEN** a postmortem whose responders held two priced titles
 - **WHEN** the synopsis is written
-- **THEN** it shows the postmortem's totals and no rows
+- **THEN** the bands are read once, and the totals are the rows added up
 
-#### Scenario: A source that changed since the postmortem
-- **GIVEN** an on-call source answering differently than when the postmortem
-  was written
+#### Scenario: An unpriced title leaves no total
+- **GIVEN** a postmortem one of whose titles has no band
 - **WHEN** the synopsis is written
-- **THEN** it shows the postmortem's totals, no rows, and says why
+- **THEN** that title's row has no amounts, the totals are absent, and the
+  overview may not name a response cost
+
+#### Scenario: Bands that cannot be read
+- **GIVEN** a pay band source that cannot be read
+- **WHEN** the synopsis is written
+- **THEN** every row is unpriced and the basis says the source could not be read
 
 ### Requirement: A response shared with other incidents is said to be
 Where the on-call page also covered other incidents, the synopsis SHALL say beside

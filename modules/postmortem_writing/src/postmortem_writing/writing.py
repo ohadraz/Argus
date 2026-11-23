@@ -34,7 +34,6 @@ from core.models import (
     RuledOut,
     labelled,
 )
-from incident_cost import response_cost_basis
 
 from postmortem_writing.answer import SubmittedPostmortem
 from postmortem_writing.assumptions import assumptions_of
@@ -110,10 +109,7 @@ class Ask(Protocol):
 class Disclose(Protocol):
     """Turning what was measured into what the document admits to assuming."""
 
-    def __call__(self,
-                 answer: SubmittedPostmortem,
-                 measured: Measurements,
-                 working_hours_a_year: float) -> list[str]: ...
+    def __call__(self, answer: SubmittedPostmortem, measured: Measurements) -> list[str]: ...
 
 
 class Review(Protocol):
@@ -187,10 +183,6 @@ def write_postmortem(evidence: IncidentEvidence,
         paged=True if engaged else (False if not_paged else None),
         responder_titles=engaged.titles if engaged else [],
         minutes_by_title=minutes_by_title(engaged.engaged) if engaged else [],
-        responder_cost_estimate=measured.cost.midpoint if measured.cost else None,
-        responder_cost_minimum=measured.cost.minimum if measured.cost else None,
-        responder_cost_maximum=measured.cost.maximum if measured.cost else None,
-        responder_cost_currency=measured.cost.currency if measured.cost else None,
         # Left to whoever holds the replay log, which reads it once this is
         # written: the count is of every call, this document's own among them.
         tokens_spent=None,
@@ -215,14 +207,7 @@ def write_postmortem(evidence: IncidentEvidence,
                            effect=answer.lead_effects.get(label))
             for label, lead in labelled(evidence.leads)
         ],
-        assumptions=disclose(answer, measured, sources.money.working_hours_a_year),
-        # Beside the cost it explains, never among the assumptions: the
-        # document says nothing of pay.
-        response_cost_basis=response_cost_basis(
-            measured.engaged.engaged if isinstance(measured.engaged, EngagementAnswer) else None,
-            measured.bands,
-            measured.cost,
-            sources.money.working_hours_a_year),
+        assumptions=disclose(answer, measured),
         # Written by code from the record - and, of how the service did where
         # the metrics stopped, from the model's yes or no, never its prose.
         impact=impact_of(measured,

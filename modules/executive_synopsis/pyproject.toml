@@ -9,6 +9,8 @@ dependencies = [
     # write-up's are.
     "argus-core",
     "argus-postmortem_writing",
+    # The bands the response is priced at, and the pricing.
+    "argus-incident_cost",
     "pydantic>=2.0",
 ]
 
@@ -18,9 +20,6 @@ dependencies = [
 [dependency-groups]
 dev = [
     "argus-argus_testkit",
-    # The money types a suite builds the writer's sources from. Never a
-    # runtime dependency - the synopsis reads the money through `Sources`.
-    "argus-incident_cost",
 ]
 
 

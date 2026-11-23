@@ -3,9 +3,10 @@ postmortem page writes it - so the synopsis and the page it links to never state
 one figure two ways - and each said as the overview's prose says it.
 
 Only figures the record holds are named: a figure nobody measured has no name,
-so the overview cannot be asked for it or write one in.
+so the overview cannot be asked for it or write one in. The response's cost is
+the synopsis's own, priced before the figures are worded and handed in.
 
-Each case is one postmortem and the figures it gives.
+Each case is one postmortem, the response as priced, and the figures they give.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from decimal import Decimal
 
 import pytest
 from argus_testkit import Assertion, Scenario
-from core.models import Impact, ImpactExtent, Postmortem
+from core.models import Impact, ImpactExtent, Postmortem, PricedResponse, TitleCost
 from narration import said_as_money
 from postmortem_rendering.impact import the_impact
 from postmortem_rendering.synopsis_figures import (
@@ -33,6 +34,16 @@ SOME_IMPACT = Impact(duration=timedelta(minutes=SOME_MINUTES, seconds=SOME_SECON
 SOME_LOSS = Decimal("1840.005")
 SOME_COST = Decimal("31.504")
 SOME_CURRENCY = "usd"
+SOME_RESPONDERS = 3
+SOME_RESPONSE_MINUTES = 42
+SOME_TITLE = "Senior Kuki"
+
+# The response priced in all - every title it held priced at its band.
+SOME_PRICE = PricedResponse(responder_cost_estimate=SOME_COST,
+                            responder_cost_currency=SOME_CURRENCY)
+# What pricing leaves where nothing was priced in all: nobody responded, or a
+# title no band covers.
+NOTHING_PRICED = PricedResponse()
 
 
 @pytest.mark.unit
@@ -47,7 +58,7 @@ def test_the_duration_and_the_loss_are_named_as_the_page_writes_them() -> None:
             some_postmortem
         ) \
         .when(
-            lambda: the_synopsis_figures(some_postmortem, an_alert())
+            lambda: the_synopsis_figures(some_postmortem, an_alert(), NOTHING_PRICED)
         ) \
         .then(
             _names({"duration": the_page.cards[0].value,
@@ -69,7 +80,7 @@ def test_a_floor_is_named_as_a_floor() -> None:
             some_postmortem
         ) \
         .when(
-            lambda: the_synopsis_figures(some_postmortem, an_alert())
+            lambda: the_synopsis_figures(some_postmortem, an_alert(), NOTHING_PRICED)
         ) \
         .then(
             _names_as("duration", f"at least {SOME_MINUTES}m {SOME_SECONDS}s")
@@ -78,23 +89,48 @@ def test_a_floor_is_named_as_a_floor() -> None:
 
 @pytest.mark.unit
 def test_the_response_is_named_by_its_people_minutes_and_cost_to_the_cent() -> None:
-    some_responders = 3
-    some_minutes = 42
-    some_postmortem = a_postmortem(responders=some_responders, engineer_minutes=some_minutes,
-                                   responder_cost_estimate=SOME_COST,
-                                   responder_cost_currency=SOME_CURRENCY)
+    some_postmortem = a_postmortem(responders=SOME_RESPONDERS,
+                                   engineer_minutes=SOME_RESPONSE_MINUTES)
 
     Scenario() \
         .given(
             some_postmortem
         ) \
         .when(
-            lambda: the_synopsis_figures(some_postmortem, an_alert())
+            lambda: the_synopsis_figures(some_postmortem, an_alert(), SOME_PRICE)
         ) \
         .then(
-            _names({"responders": str(some_responders),
-                    "engineer_minutes": f"{some_minutes} min",
+            _names({"responders": str(SOME_RESPONDERS),
+                    "engineer_minutes": f"{SOME_RESPONSE_MINUTES} min",
                     "responder_cost": said_as_money(SOME_COST, SOME_CURRENCY)})
+        )
+
+
+@pytest.mark.unit
+def test_a_response_with_a_title_nothing_priced_names_no_cost() -> None:
+    # The priced title's row has an amount, and the response in all has none:
+    # a cost missing one title is wrong in the flattering direction, so none
+    # is named and none can be asked for.
+    some_priced_minutes = 30
+    some_unpriced_minutes = SOME_RESPONSE_MINUTES - some_priced_minutes
+    priced_in_part = PricedResponse(
+        cost_by_title=[TitleCost(title=SOME_TITLE, responders=2, minutes=some_priced_minutes,
+                                 midpoint=SOME_COST, minimum=SOME_COST, maximum=SOME_COST),
+                       TitleCost(title=None, responders=1, minutes=some_unpriced_minutes,
+                                 midpoint=None, minimum=None, maximum=None)],
+        responder_cost_currency=SOME_CURRENCY)
+    some_postmortem = a_postmortem(responders=SOME_RESPONDERS,
+                                   engineer_minutes=SOME_RESPONSE_MINUTES)
+
+    Scenario() \
+        .given(
+            some_postmortem
+        ) \
+        .when(
+            lambda: the_synopsis_figures(some_postmortem, an_alert(), priced_in_part)
+        ) \
+        .then(
+            _names_none_of(["responder_cost"])
         )
 
 
@@ -113,7 +149,7 @@ def test_a_disproven_alarm_names_no_duration_harm_or_loss() -> None:
             some_postmortem
         ) \
         .when(
-            lambda: the_synopsis_figures(some_postmortem, an_alert())
+            lambda: the_synopsis_figures(some_postmortem, an_alert(), NOTHING_PRICED)
         ) \
         .then(
             _names({"responders": str(some_responders),
@@ -131,14 +167,14 @@ def test_what_was_not_measured_is_not_named() -> None:
     some_postmortem = a_postmortem(
         impact=Impact(duration=timedelta(minutes=some_minutes_down), extent=ImpactExtent.MEASURED,
                       peak_error_rate=None),
-        responders=some_responders, engineer_minutes=some_minutes, responder_cost_estimate=None)
+        responders=some_responders, engineer_minutes=some_minutes)
 
     Scenario() \
         .given(
             some_postmortem
         ) \
         .when(
-            lambda: the_synopsis_figures(some_postmortem, an_alert())
+            lambda: the_synopsis_figures(some_postmortem, an_alert(), NOTHING_PRICED)
         ) \
         .then(
             _names({"duration": f"{some_minutes_down}m 0s",
@@ -161,7 +197,7 @@ def test_no_response_names_no_response(responders: int | None, minutes: int | No
             some_postmortem
         ) \
         .when(
-            lambda: the_synopsis_figures(some_postmortem, an_alert())
+            lambda: the_synopsis_figures(some_postmortem, an_alert(), NOTHING_PRICED)
         ) \
         .then(
             _names_none_of(["responders", "engineer_minutes", "responder_cost"])
@@ -179,10 +215,10 @@ def test_prose_says_each_figure_the_tiles_name_and_no_other() -> None:
             some_postmortem
         ) \
         .when(
-            lambda: the_synopsis_figures_said(some_postmortem, an_alert())
+            lambda: the_synopsis_figures_said(some_postmortem, an_alert(), SOME_PRICE)
         ) \
         .then(
-            _names_exactly(the_synopsis_figures(some_postmortem, an_alert()).keys())
+            _names_exactly(the_synopsis_figures(some_postmortem, an_alert(), SOME_PRICE).keys())
         )
 
 
@@ -203,7 +239,7 @@ def test_prose_says_the_duration_in_words_and_a_floor_as_a_floor(extent: ImpactE
             some_postmortem
         ) \
         .when(
-            lambda: the_synopsis_figures_said(some_postmortem, an_alert())
+            lambda: the_synopsis_figures_said(some_postmortem, an_alert(), NOTHING_PRICED)
         ) \
         .then(
             _names_as("duration", said)
@@ -224,7 +260,7 @@ def test_prose_says_what_the_responders_minutes_measure(minutes: int, unit: str)
             some_postmortem
         ) \
         .when(
-            lambda: the_synopsis_figures_said(some_postmortem, an_alert())
+            lambda: the_synopsis_figures_said(some_postmortem, an_alert(), NOTHING_PRICED)
         ) \
         .then(
             _names_as("engineer_minutes",
@@ -244,7 +280,7 @@ def test_prose_says_no_minutes_as_none_and_says_nothing_of_a_page() -> None:
             some_postmortem
         ) \
         .when(
-            lambda: the_synopsis_figures_said(some_postmortem, an_alert())
+            lambda: the_synopsis_figures_said(some_postmortem, an_alert(), NOTHING_PRICED)
         ) \
         .then(
             _names_as("engineer_minutes", "none")
@@ -269,7 +305,7 @@ def test_prose_says_no_loss_as_an_amount(extent: ImpactExtent, said: str) -> Non
             some_postmortem
         ) \
         .when(
-            lambda: the_synopsis_figures_said(some_postmortem, an_alert())
+            lambda: the_synopsis_figures_said(some_postmortem, an_alert(), NOTHING_PRICED)
         ) \
         .then(
             _names_as("customer_loss", f"{said_as_money(no_loss, SOME_CURRENCY)}{said}")
@@ -287,20 +323,19 @@ def test_prose_says_every_other_figure_as_its_tile_does(name: str) -> None:
             some_postmortem
         ) \
         .when(
-            lambda: the_synopsis_figures_said(some_postmortem, an_alert())
+            lambda: the_synopsis_figures_said(some_postmortem, an_alert(), SOME_PRICE)
         ) \
         .then(
-            _names_as(name, the_synopsis_figures(some_postmortem, an_alert())[name])
+            _names_as(name, the_synopsis_figures(some_postmortem, an_alert(), SOME_PRICE)[name])
         )
 
 
 def _a_postmortem_with_every_figure() -> Postmortem:
-    """A postmortem the overview may name every figure of."""
+    """A postmortem the overview may name every figure of, beside `SOME_PRICE`."""
     return a_postmortem(impact=SOME_IMPACT,
                         customer_loss_estimate=SOME_LOSS,
-                        estimate_currency=SOME_CURRENCY, responders=3, engineer_minutes=42,
-                        responder_cost_estimate=SOME_COST,
-                        responder_cost_currency=SOME_CURRENCY)
+                        estimate_currency=SOME_CURRENCY, responders=SOME_RESPONDERS,
+                        engineer_minutes=SOME_RESPONSE_MINUTES)
 
 
 def _names(expected: dict[str, str]) -> Assertion[dict[str, str]]:

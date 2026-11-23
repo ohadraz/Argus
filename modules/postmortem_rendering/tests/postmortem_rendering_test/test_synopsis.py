@@ -3,8 +3,8 @@ message.
 
 Every figure is the postmortem page's own, worded by the same code, so the
 synopsis and the page it links to never state one figure two ways. The human
-cost is the one part the page does not have: per title, with its range, a
-total that is the stored postmortem's to the cent, and the basis it rests on.
+cost is the one part the page does not have: the synopsis's own pricing, per
+title with its range, its total, and the basis it rests on.
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ def _a_title_cost(title: str | None,
 
 
 def _their_total(costs: list[TitleCost]) -> TitleCost:
-    """What `costs` come to together, as the postmortem stores the total."""
+    """What `costs` come to together, as the synopsis stores the total."""
     return TitleCost(title="Total",
                      responders=sum(cost.responders for cost in costs),
                      minutes=sum(cost.minutes for cost in costs),
@@ -93,13 +93,16 @@ EVERY_PART_HEADED = {SynopsisPartKey.OVERVIEW: "Overview", SynopsisPartKey.WHEN:
                      SynopsisPartKey.IMPACT: "Impact",
                      SynopsisPartKey.RESOLUTION: "Resolution",
                      SynopsisPartKey.HUMAN_COST: "Human cost"}
+# A synopsis whose response nothing priced in all.
+NOTHING_PRICED_IN_ALL = {"responder_cost_estimate": None, "responder_cost_minimum": None,
+                         "responder_cost_maximum": None, "responder_cost_currency": None}
 
 
 @pytest.mark.unit
 def test_the_parts_are_read_in_the_order_a_reader_asks_them() -> None:
     Scenario() \
         .when(
-            lambda: the_synopsis(_a_synopsis(), _a_priced_postmortem(), an_alert(), None,
+            lambda: the_synopsis(_a_synopsis(), _their_postmortem(), an_alert(), None,
                                  SOME_ADDRESS)
         ) \
         .then(
@@ -111,7 +114,7 @@ def test_the_parts_are_read_in_the_order_a_reader_asks_them() -> None:
 def test_the_overview_is_the_model_s_prose_as_it_was_kept() -> None:
     Scenario() \
         .when(
-            lambda: the_synopsis(_a_synopsis(), _a_priced_postmortem(), an_alert(), None,
+            lambda: the_synopsis(_a_synopsis(), _their_postmortem(), an_alert(), None,
                                  SOME_ADDRESS)
         ) \
         .then(
@@ -128,7 +131,7 @@ def test_when_it_happened_is_the_postmortem_s_window_in_utc_and_how_long_it_last
         extent: ImpactExtent, lasted: str) -> None:
     # From and to alone leave the reader to subtract; how long is what a
     # reader of When wants first, as the duration's tile says it.
-    some_postmortem = _a_priced_postmortem(impact=SOME_IMPACT.model_copy(
+    some_postmortem = _their_postmortem(impact=SOME_IMPACT.model_copy(
         update={"extent": extent}))
 
     Scenario() \
@@ -143,7 +146,7 @@ def test_when_it_happened_is_the_postmortem_s_window_in_utc_and_how_long_it_last
 @pytest.mark.unit
 def test_a_disproven_alarm_s_when_says_no_duration() -> None:
     # It had no stretch: the alert and the close, as the page says them.
-    some_postmortem = _a_priced_postmortem(
+    some_postmortem = _their_postmortem(
         impact=Impact(duration=timedelta(0), extent=ImpactExtent.DISPROVEN,
                       peak_error_rate=None))
 
@@ -164,7 +167,7 @@ def test_a_disproven_alarm_s_when_says_no_duration() -> None:
 def test_the_impact_is_the_postmortem_page_s_own_cards(impact: Impact) -> None:
     # A disproven alarm's too: no stretch, no harm and no loss, as the page
     # says of one.
-    some_postmortem = _a_priced_postmortem(impact=impact)
+    some_postmortem = _their_postmortem(impact=impact)
 
     Scenario() \
         .when(
@@ -182,7 +185,7 @@ def test_the_impact_is_the_postmortem_page_s_own_cards(impact: Impact) -> None:
 ], ids=["argus-ended-it", "a-person-ended-it"])
 def test_the_resolution_is_the_list_of_what_was_done_and_by_whom(
         resolution: ReportedResolution | None) -> None:
-    some_postmortem = _a_priced_postmortem()
+    some_postmortem = _their_postmortem()
 
     Scenario() \
         .when(
@@ -195,10 +198,10 @@ def test_the_resolution_is_the_list_of_what_was_done_and_by_whom(
 
 
 @pytest.mark.unit
-def test_each_title_is_a_row_beside_the_stored_total_and_the_basis() -> None:
+def test_each_title_is_a_row_beside_the_total_and_the_basis() -> None:
     Scenario() \
         .when(
-            lambda: the_synopsis(_a_synopsis(), _a_priced_postmortem(), an_alert(), None,
+            lambda: the_synopsis(_a_synopsis(), _their_postmortem(), an_alert(), None,
                                  SOME_ADDRESS)
         ) \
         .then(all_of(
@@ -214,15 +217,14 @@ def test_a_single_row_stands_without_a_total_beneath_it() -> None:
     # three times over, with the basis line, where nothing could price it.
     one_title = [_a_title_cost(None, responders=2, minutes=17, midpoint=None)]
     its_total = _their_total(one_title)
-    an_unpriced_postmortem = _a_priced_postmortem(
-        responders=its_total.responders, engineer_minutes=its_total.minutes,
-        responder_cost_estimate=None, responder_cost_minimum=None,
-        responder_cost_maximum=None, responder_cost_currency=None, response_cost_basis=[])
+    some_postmortem = _their_postmortem(responders=its_total.responders,
+                                        engineer_minutes=its_total.minutes)
 
     Scenario() \
         .when(
-            lambda: the_synopsis(_a_synopsis(cost_by_title=one_title), an_unpriced_postmortem,
-                                 an_alert(), None, SOME_ADDRESS)
+            lambda: the_synopsis(_a_synopsis(cost_by_title=one_title, response_cost_basis=[],
+                                             **NOTHING_PRICED_IN_ALL),
+                                 some_postmortem, an_alert(), None, SOME_ADDRESS)
         ) \
         .then(all_of(
             _rows_are([_a_row_of(cost) for cost in one_title]),
@@ -240,16 +242,16 @@ def test_rows_that_each_round_down_still_add_up_to_the_total() -> None:
                            minimum=a_third, maximum=a_third)
                  for title in ("Kuki", "Buki", "Muki")]
     their_total = _their_total(some_rows)
-    some_postmortem = _a_priced_postmortem(responders=their_total.responders,
-                                           engineer_minutes=their_total.minutes,
-                                           responder_cost_estimate=the_whole,
-                                           responder_cost_minimum=the_whole,
-                                           responder_cost_maximum=the_whole)
+    some_postmortem = _their_postmortem(responders=their_total.responders,
+                                        engineer_minutes=their_total.minutes)
 
     Scenario() \
         .when(
-            lambda: the_synopsis(_a_synopsis(cost_by_title=some_rows), some_postmortem,
-                                 an_alert(), None, SOME_ADDRESS)
+            lambda: the_synopsis(_a_synopsis(cost_by_title=some_rows,
+                                             responder_cost_estimate=the_whole,
+                                             responder_cost_minimum=the_whole,
+                                             responder_cost_maximum=the_whole),
+                                 some_postmortem, an_alert(), None, SOME_ADDRESS)
         ) \
         .then(
             _midpoints_are([f"0.34 {SOME_CURRENCY}", f"0.33 {SOME_CURRENCY}",
@@ -266,35 +268,20 @@ def test_a_responder_with_no_title_and_a_title_nothing_priced_keep_their_rows() 
     their_total = _their_total(some_rows)
     some_basis = ["Unpriced title: no responder cost, because no pay band covers "
                   f"[{some_unpriced_title}]"]
-    an_unpriced_postmortem = _a_priced_postmortem(
-        responders=their_total.responders, engineer_minutes=their_total.minutes,
-        responder_cost_estimate=None, responder_cost_minimum=None,
-        responder_cost_maximum=None, responder_cost_currency=None,
-        response_cost_basis=some_basis)
+    some_postmortem = _their_postmortem(responders=their_total.responders,
+                                        engineer_minutes=their_total.minutes)
 
     Scenario() \
         .when(
-            lambda: the_synopsis(_a_synopsis(cost_by_title=some_rows), an_unpriced_postmortem,
-                                 an_alert(), None, SOME_ADDRESS)
+            lambda: the_synopsis(_a_synopsis(cost_by_title=some_rows,
+                                             response_cost_basis=some_basis,
+                                             **NOTHING_PRICED_IN_ALL),
+                                 some_postmortem, an_alert(), None, SOME_ADDRESS)
         ) \
         .then(all_of(
             _rows_are([_a_row_of(cost) for cost in some_rows]),
             _total_is(_a_row_of(their_total)),
             _notes_are(some_basis)
-        ))
-
-
-@pytest.mark.unit
-def test_a_breakdown_that_could_not_be_matched_shows_the_totals_and_says_so() -> None:
-    Scenario() \
-        .when(
-            lambda: the_synopsis(_a_synopsis(cost_by_title=[], breakdown_unmatched=True),
-                                 _a_priced_postmortem(), an_alert(), None, SOME_ADDRESS)
-        ) \
-        .then(all_of(
-            _rows_are([]),
-            _total_is(_a_row_of(THEIR_TOTAL)),
-            _a_note_says("could not be matched")
         ))
 
 
@@ -306,7 +293,7 @@ def test_a_response_shared_with_other_incidents_is_said_beside_the_cost() -> Non
     Scenario() \
         .when(
             lambda: the_synopsis(_a_synopsis(response_shared=some_sharing),
-                                 _a_priced_postmortem(), an_alert(), None, SOME_ADDRESS)
+                                 _their_postmortem(), an_alert(), None, SOME_ADDRESS)
         ) \
         .then(
             _a_note_says(some_sharing)
@@ -324,15 +311,14 @@ def test_no_response_has_no_cost_and_says_why(responders: int | None, paged: boo
     # The postmortem records nobody responding as none and an on-call source
     # it could not read as unknown - and whether a page went out, which tells
     # a page nobody acknowledged from no page at all. Three blanks, said apart.
-    no_response = _a_priced_postmortem(
-        responders=responders, engineer_minutes=responders, paged=paged,
-        responder_cost_estimate=None, responder_cost_minimum=None,
-        responder_cost_maximum=None, responder_cost_currency=None, response_cost_basis=[])
+    no_response = _their_postmortem(responders=responders, engineer_minutes=responders,
+                                    paged=paged)
 
     Scenario() \
         .when(
-            lambda: the_synopsis(_a_synopsis(cost_by_title=[]), no_response, an_alert(), None,
-                                 SOME_ADDRESS)
+            lambda: the_synopsis(_a_synopsis(cost_by_title=[], response_cost_basis=[],
+                                             **NOTHING_PRICED_IN_ALL),
+                                 no_response, an_alert(), None, SOME_ADDRESS)
         ) \
         .then(all_of(
             _rows_are([]),
@@ -346,8 +332,8 @@ def test_the_customer_loss_and_the_responder_cost_are_never_one_figure() -> None
     # The business and the people are two costs: added, the figure says
     # neither.
     some_loss = Decimal("100.00")
-    some_postmortem = _a_priced_postmortem(customer_loss_estimate=some_loss,
-                                           estimate_currency=SOME_CURRENCY)
+    some_postmortem = _their_postmortem(customer_loss_estimate=some_loss,
+                                        estimate_currency=SOME_CURRENCY)
 
     Scenario() \
         .when(
@@ -363,7 +349,7 @@ def test_the_customer_loss_and_the_responder_cost_are_never_one_figure() -> None
 def test_the_postmortem_is_linked_where_its_address_is_known(address: str | None) -> None:
     Scenario() \
         .when(
-            lambda: the_synopsis(_a_synopsis(), _a_priced_postmortem(), an_alert(), None,
+            lambda: the_synopsis(_a_synopsis(), _their_postmortem(), an_alert(), None,
                                  address)
         ) \
         .then(
@@ -372,28 +358,29 @@ def test_the_postmortem_is_linked_where_its_address_is_known(address: str | None
 
 
 def _a_synopsis(**differing: Any) -> ExecutiveSynopsis:
-    """A synopsis of the two titles' response, with its overview kept - and
-    whatever a case says differs."""
+    """A synopsis of the two titles' response, priced at their total, with its
+    overview kept - and whatever a case says differs."""
     return ExecutiveSynopsis(id=new_id(), incident_id=new_id(),
                              created_at=SOME_BEGINNING + timedelta(hours=1),
                              overview=SOME_OVERVIEW,
-                             cost_by_title=TWO_TITLES).model_copy(update=differing)
+                             cost_by_title=TWO_TITLES,
+                             responder_cost_estimate=THEIR_TOTAL.midpoint,
+                             responder_cost_minimum=THEIR_TOTAL.minimum,
+                             responder_cost_maximum=THEIR_TOTAL.maximum,
+                             responder_cost_currency=SOME_CURRENCY,
+                             response_cost_basis=SOME_BASIS).model_copy(update=differing)
 
 
-def _a_priced_postmortem(**differing: Any) -> Postmortem:
-    """A postmortem of the two titles' response, priced at their total, with a
-    measured window - and whatever a case says differs."""
+def _their_postmortem(**differing: Any) -> Postmortem:
+    """A postmortem of the two titles' response, with a measured window - and
+    whatever a case says differs."""
     return a_postmortem(
         impact=SOME_IMPACT,
         timeline=[a_marker(TimelineMarker.IMPACT_BEGINS, SOME_BEGINNING),
                   a_marker(TimelineMarker.IMPACT_ENDS, SOME_BEGINNING + SOME_IMPACT.duration)],
         responders=THEIR_TOTAL.responders,
-        engineer_minutes=THEIR_TOTAL.minutes,
-        responder_cost_estimate=THEIR_TOTAL.midpoint,
-        responder_cost_minimum=THEIR_TOTAL.minimum,
-        responder_cost_maximum=THEIR_TOTAL.maximum,
-        responder_cost_currency=SOME_CURRENCY
-    ).model_copy(update={"response_cost_basis": SOME_BASIS, **differing})
+        engineer_minutes=THEIR_TOTAL.minutes
+    ).model_copy(update=differing)
 
 
 def _a_row_of(cost: TitleCost) -> CostRow:

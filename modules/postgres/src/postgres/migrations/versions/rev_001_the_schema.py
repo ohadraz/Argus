@@ -339,29 +339,12 @@ CREATE TABLE IF NOT EXISTS postmortem (
     -- null would collapse the two.
     responder_titles JSONB NOT NULL DEFAULT '[]'::jsonb,
     -- The same response held by title - how many held each and their minutes -
-    -- in the order each title first responded, for whatever prices it: a band
-    -- prices a title, and a total across titles cannot be priced. Never null,
-    -- for the reason `responder_titles` is not.
+    -- in the order each title first responded, for the executive synopsis to
+    -- price: a band prices a title, and a total across titles cannot be
+    -- priced. Never priced here, because the postmortem says nothing of pay -
+    -- its readers are the people it would price. Never null, for the reason
+    -- `responder_titles` is not.
     minutes_by_title JSONB NOT NULL DEFAULT '[]'::jsonb,
-    -- What those minutes were worth, priced at the pay band of each
-    -- responder's title. Three columns rather than one, because a band is a
-    -- range: the midpoint is the figure, and the two beside it are the same
-    -- minutes at the bottom and top of the same bands. Stored rather than
-    -- re-derived, for the same reason the loss estimate is - bands are
-    -- republished, and a figure recomputed next year would describe a
-    -- different incident.
-    responder_cost_estimate NUMERIC,
-    responder_cost_minimum NUMERIC,
-    responder_cost_maximum NUMERIC,
-    -- Its own currency rather than `estimate_currency`: the bands come from a
-    -- different source than the takings, and nothing here converts one figure
-    -- into the other.
-    responder_cost_currency TEXT,
-    -- How that cost was arrived at: the working year, the band each title was
-    -- priced at, or what stopped it. Beside the figure rather than among the
-    -- assumptions, because the postmortem says nothing of pay - its readers are
-    -- the people it would price - and whoever is shown the figure reads this.
-    response_cost_basis JSONB NOT NULL DEFAULT '[]'::jsonb,
     tokens_spent INTEGER,
     -- Never null, for the reason `responder_titles` is not: a document that
     -- rested on nothing worth disclosing discloses nothing, and that is an
@@ -479,13 +462,27 @@ CREATE TABLE IF NOT EXISTS executive_synopsis (
     -- was not.
     withheld_because TEXT,
     -- Each title's people, minutes and cost at its band's midpoint, minimum
-    -- and maximum. A list rather than a table: it is read whole, by the
-    -- synopsis that prints it. Never null: an empty list is a response nobody
-    -- held a title in, or a breakdown that could not be matched.
+    -- and maximum, priced from the postmortem's minutes by title. A list
+    -- rather than a table: it is read whole, by the synopsis that prints it.
+    -- Never null: an empty list is a response nobody made, or nobody could
+    -- say who made.
     cost_by_title JSONB NOT NULL DEFAULT '[]'::jsonb,
-    -- Whether the breakdown, read again, disagreed with the postmortem's
-    -- totals - which is why `cost_by_title` would then be empty.
-    breakdown_unmatched BOOLEAN NOT NULL,
+    -- What those minutes cost in all. Three columns rather than one, because
+    -- a band is a range: the midpoint is the figure, and the two beside it are
+    -- the same minutes at the bottom and top of the same bands. Null where any
+    -- title is unpriced - a partial sum would be wrong in the flattering
+    -- direction. Stored rather than re-derived, for the reason the loss
+    -- estimate is: bands are republished, and a figure recomputed next year
+    -- would describe a different incident.
+    responder_cost_estimate NUMERIC,
+    responder_cost_minimum NUMERIC,
+    responder_cost_maximum NUMERIC,
+    -- Its own currency rather than the postmortem's `estimate_currency`: the
+    -- bands come from a different source than the takings.
+    responder_cost_currency TEXT,
+    -- How that cost was arrived at: the working year, the band each title was
+    -- priced at, or what stopped it - for whoever is shown the cost.
+    response_cost_basis JSONB NOT NULL DEFAULT '[]'::jsonb,
     -- The postmortem's own line saying its on-call page also covered other
     -- incidents. Null where it did not.
     response_shared TEXT,

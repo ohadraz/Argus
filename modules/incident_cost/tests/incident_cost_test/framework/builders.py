@@ -10,6 +10,7 @@ the thing it does name visible.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
@@ -133,6 +134,15 @@ def rates_that_cannot_be_read() -> Rates:
         return None
 
     return rates
+
+
+@dataclass(frozen=True)
+class Share:
+    """One title's share of a response, as the pricing reads one - the shape a
+    document's own rows have, with nothing else of theirs."""
+
+    title: str | None
+    minutes: int
 
 
 def a_band_source_pricing(bands: Mapping[str, PayBand]) -> PayBands:

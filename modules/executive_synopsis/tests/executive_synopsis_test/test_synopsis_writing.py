@@ -1,9 +1,8 @@
 """The executive synopsis, written from the stored postmortem.
 
-What the postmortem does not store - the minutes and the bands per title - is
-read again here and shown only where it agrees with the postmortem's totals.
-The overview is the conversation's, kept or given up there, and handed in -
-naming the record's pull request wherever it names one.
+The response arrives priced, and the synopsis carries it as priced. The
+overview is the conversation's, kept or given up there, and handed in - naming
+the record's pull request wherever it names one.
 """
 
 from __future__ import annotations
@@ -14,46 +13,38 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from argus_testkit import Assertion, Kept, Scenario, all_of
+from argus_testkit import Assertion, Kept, Scenario
 from core.llm import LLMClient
 from core.models import (
     ExecutiveSynopsisDocument,
     OpenedPullRequest,
     PostmortemDocument,
+    PricedResponse,
     TitleCost,
 )
 from executive_synopsis.synopsis_conversation import Overview
 from executive_synopsis.synopsis_prompting import Paging
 from executive_synopsis.synopsis_writing import Overviewing, write_executive_synopsis
-from incident_cost import EngagedResponder, PayBand
-from postmortem_writing import SHARED_PAGE_ASSUMPTION_LABEL, NotPaged
+from postmortem_writing import SHARED_PAGE_ASSUMPTION_LABEL
 
-from executive_synopsis_test.framework.builders import (
-    a_band_source_pricing,
-    a_model_answering_in_turn,
-    an_engagement_source_reporting_each,
-    an_engagement_source_that_cannot_answer,
-    some_sources,
-)
+from executive_synopsis_test.framework.builders import a_model_answering_in_turn
 
 SOME_SERVICE = "io-shop"
 SOME_INCIDENT_ID = "6f1c2a8e-4b1d-4c6e-9a51-0d2f3b7e8c11"
-SOME_CURRENCY = "USD"
+SOME_CURRENCY = "usd"
 SOME_TITLE = "Senior Kuki"
 
-# A working year of 2,000 hours is 120,000 minutes, so a band whose midpoint
-# is that many prices a minute at one - at half that at its bottom, and twice
-# at its top.
-WORKING_YEAR = 2000.0
-MINUTES_A_WORKING_YEAR = Decimal(WORKING_YEAR) * 60
-A_BAND = PayBand(minimum=MINUTES_A_WORKING_YEAR / 2, midpoint=MINUTES_A_WORKING_YEAR,
-                 maximum=MINUTES_A_WORKING_YEAR * 2, currency=SOME_CURRENCY)
-TWO_SENIORS = [EngagedResponder(minutes=10, job_title=SOME_TITLE),
-               EngagedResponder(minutes=20, job_title=SOME_TITLE)]
-THEIR_MINUTES = sum(senior.minutes for senior in TWO_SENIORS)
-THEIR_ROW = TitleCost(title=SOME_TITLE, responders=len(TWO_SENIORS), minutes=THEIR_MINUTES,
+THEIR_MINUTES = 30
+THEIR_ROW = TitleCost(title=SOME_TITLE, responders=2, minutes=THEIR_MINUTES,
                       midpoint=Decimal(THEIR_MINUTES), minimum=Decimal(THEIR_MINUTES) / 2,
                       maximum=Decimal(THEIR_MINUTES) * 2)
+SOME_BASIS = ["Working year: annual pay bands divided by 2000 hours"]
+THEIR_COST = PricedResponse(cost_by_title=[THEIR_ROW],
+                            responder_cost_estimate=THEIR_ROW.midpoint,
+                            responder_cost_minimum=THEIR_ROW.minimum,
+                            responder_cost_maximum=THEIR_ROW.maximum,
+                            responder_cost_currency=SOME_CURRENCY,
+                            response_cost_basis=SOME_BASIS)
 
 SOME_MINUTES = 7
 SOME_SECONDS = 12
@@ -223,74 +214,15 @@ def test_the_overview_is_asked_saying_the_alarm_was_disproven() -> None:
 
 
 @pytest.mark.unit
-def test_a_breakdown_agreeing_with_the_postmortem_is_shown() -> None:
+def test_the_response_is_carried_as_priced() -> None:
+    # Every row, every total and every line of the basis, as the pricing left
+    # them: the synopsis is where they are kept.
     Scenario() \
         .when(
             lambda: _the_synopsis_of(_a_postmortem_of_two_seniors())
         ) \
         .then(
-            _broken_down_into([THEIR_ROW])
-        )
-
-
-@pytest.mark.unit
-def test_a_breakdown_disagreeing_with_the_postmortem_is_left_out_and_said() -> None:
-    # Somebody acknowledged after the postmortem was written.
-    dont_care_minutes = 5
-    a_third_senior = EngagedResponder(minutes=dont_care_minutes, job_title=SOME_TITLE)
-
-    Scenario() \
-        .when(
-            lambda: _the_synopsis_of(_a_postmortem_of_two_seniors(),
-                                     engaged=[*TWO_SENIORS, a_third_senior])
-        ) \
-        .then(
-            _left_unmatched()
-        )
-
-
-@pytest.mark.unit
-def test_a_response_that_cannot_be_read_again_is_left_out_and_said() -> None:
-    Scenario() \
-        .when(
-            lambda: write_executive_synopsis(
-                _a_postmortem_of_two_seniors(), incident_id=SOME_INCIDENT_ID,
-                service=SOME_SERVICE, figures=SOME_FIGURES, said=SOME_FIGURES_SAID,
-                resolution=SOME_RESOLUTION, document=SOME_DOCUMENT, labels=SOME_LABELS,
-                sources=some_sources(engagement=an_engagement_source_that_cannot_answer(),
-                                     bands=a_band_source_pricing({SOME_TITLE: A_BAND}),
-                                     working_hours_a_year=WORKING_YEAR),
-                llm=_dont_care_llm(), judge=_dont_care_llm(),
-                overview_of=_an_overview_of(Overview(text=SOME_OVERVIEW)))
-        ) \
-        .then(
-            _left_unmatched()
-        )
-
-
-@pytest.mark.unit
-def test_a_response_nobody_was_paged_for_has_nothing_to_break_down() -> None:
-    a_postmortem_nobody_responded_to = _a_postmortem_of_two_seniors().model_copy(update={
-        "responders": 0, "engineer_minutes": 0, "responder_cost_estimate": None,
-        "responder_cost_minimum": None, "responder_cost_maximum": None,
-        "responder_cost_currency": None})
-
-    Scenario() \
-        .when(
-            lambda: write_executive_synopsis(
-                a_postmortem_nobody_responded_to, incident_id=SOME_INCIDENT_ID,
-                service=SOME_SERVICE, figures=SOME_FIGURES, said=SOME_FIGURES_SAID,
-                resolution=SOME_RESOLUTION, document=SOME_DOCUMENT, labels=SOME_LABELS,
-                sources=some_sources(engagement=lambda dont_care_incident_id: NotPaged(),
-                                     working_hours_a_year=WORKING_YEAR),
-                llm=_dont_care_llm(), judge=_dont_care_llm(),
-                overview_of=_an_overview_of(Overview(text=SOME_OVERVIEW)))
-        ) \
-        .then(
-            all_of(
-                _broken_down_into([]),
-                _not_said_unmatched()
-            )
+            _priced_as(THEIR_COST)
         )
 
 
@@ -318,20 +250,13 @@ def test_a_response_shared_with_other_incidents_is_said_in_the_postmortem_s_word
 
 def _the_synopsis_of(postmortem: PostmortemDocument,
                      overview_of: Overviewing | None = None,
-                     engaged: list[EngagedResponder] | None = None,
                      judge: LLMClient | None = None,
                      outage_ends_it: bool = False) -> ExecutiveSynopsisDocument:
-    """The synopsis of `postmortem`, its responders read again as `engaged` - the
-    two seniors it was written from, unless a test says otherwise."""
+    """The synopsis of `postmortem`, the two seniors' response priced."""
     return write_executive_synopsis(
-        postmortem, incident_id=SOME_INCIDENT_ID, service=SOME_SERVICE,
+        postmortem, incident_id=SOME_INCIDENT_ID, service=SOME_SERVICE, cost=THEIR_COST,
         figures=SOME_FIGURES, said=SOME_FIGURES_SAID, resolution=SOME_RESOLUTION,
         document=SOME_DOCUMENT, labels=SOME_LABELS,
-        sources=some_sources(
-            engagement=an_engagement_source_reporting_each(
-                engaged if engaged is not None else TWO_SENIORS),
-            bands=a_band_source_pricing({SOME_TITLE: A_BAND}),
-            working_hours_a_year=WORKING_YEAR),
         llm=_dont_care_llm(),
         judge=judge if judge is not None else _dont_care_llm(),
         outage_ends_it=outage_ends_it,
@@ -340,7 +265,7 @@ def _the_synopsis_of(postmortem: PostmortemDocument,
 
 
 def _a_postmortem_of_two_seniors() -> PostmortemDocument:
-    """A postmortem of the two seniors' response, priced at their band."""
+    """A postmortem of the two seniors' response."""
     return PostmortemDocument(
         root_cause="dont care",
         cause_in_plain_words=SOME_CAUSE,
@@ -350,10 +275,6 @@ def _a_postmortem_of_two_seniors() -> PostmortemDocument:
         estimate_currency=None,
         engineer_minutes=THEIR_ROW.minutes,
         responders=THEIR_ROW.responders,
-        responder_cost_estimate=THEIR_ROW.midpoint,
-        responder_cost_minimum=THEIR_ROW.minimum,
-        responder_cost_maximum=THEIR_ROW.maximum,
-        responder_cost_currency=SOME_CURRENCY,
         tokens_spent=None,
         assumptions=[]
     )
@@ -471,24 +392,13 @@ def _asked_as_disproven(asked: Kept[dict[str, Any]]) -> Assertion[ExecutiveSynop
     return assertion
 
 
-def _broken_down_into(expected: list[TitleCost]) -> Assertion[ExecutiveSynopsisDocument]:
+def _priced_as(expected: PricedResponse) -> Assertion[ExecutiveSynopsisDocument]:
     def assertion(synopsis: ExecutiveSynopsisDocument) -> bool:
-        if synopsis.cost_by_title != expected or synopsis.breakdown_unmatched:
-            raise AssertionError(
-                f"Expected the breakdown {expected}, got {synopsis.cost_by_title} "
-                f"with unmatched [{synopsis.breakdown_unmatched}].")
-
-        return True
-
-    return assertion
-
-
-def _left_unmatched() -> Assertion[ExecutiveSynopsisDocument]:
-    def assertion(synopsis: ExecutiveSynopsisDocument) -> bool:
-        if synopsis.cost_by_title or not synopsis.breakdown_unmatched:
-            raise AssertionError(
-                f"Expected no breakdown, said to be unmatched, got {synopsis.cost_by_title} "
-                f"with unmatched [{synopsis.breakdown_unmatched}].")
+        # The synopsis's own fields beyond the pricing's are ignored.
+        carried = PricedResponse.model_validate(synopsis.model_dump())
+        if carried != expected:
+            raise AssertionError(f"Expected the response carried as [{expected}], "
+                                 f"got [{carried}].")
 
         return True
 
@@ -500,17 +410,6 @@ def _said_shared(expected: str | None) -> Assertion[ExecutiveSynopsisDocument]:
         if synopsis.response_shared != expected:
             raise AssertionError(f"Expected the response said shared as [{expected}], "
                                  f"got [{synopsis.response_shared}].")
-
-        return True
-
-    return assertion
-
-
-def _not_said_unmatched() -> Assertion[ExecutiveSynopsisDocument]:
-    def assertion(synopsis: ExecutiveSynopsisDocument) -> bool:
-        if synopsis.breakdown_unmatched:
-            raise AssertionError("Expected nothing said unmatched, since nobody responded, "
-                                 "got it said.")
 
         return True
 

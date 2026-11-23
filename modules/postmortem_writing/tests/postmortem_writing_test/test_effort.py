@@ -10,8 +10,8 @@ from __future__ import annotations
 import pytest
 from argus_testkit import Scenario, the_answer_was
 from core.models import TitleMinutes
-from incident_cost import EngagedResponder
 from postmortem_writing.effort import minutes_by_title
+from postmortem_writing.sources import EngagedResponder
 
 SOME_TITLE = "Site Reliability Engineer"
 SOME_OTHER_TITLE = "Senior Software Engineer"

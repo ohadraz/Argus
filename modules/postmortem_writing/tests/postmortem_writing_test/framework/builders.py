@@ -46,19 +46,18 @@ from core.models import (
     a_chat_message,
 )
 from incident_cost import (
-    EngagedResponder,
     MoneySources,
     PayBand,
     PayBands,
     Rates,
     RateTable,
-    ResponderCost,
     Revenue,
 )
 from postmortem_writing import (
     ActionRecord,
     CandidateRecord,
     DeploymentChangesRecord,
+    EngagedResponder,
     IncidentEvidence,
     ResolutionRecord,
     write_postmortem,
@@ -175,12 +174,11 @@ SOME_UNPRICED_CURRENCY = "kuki"
 DONT_CARE_TAKINGS = {SOME_CURRENCY: DONT_CARE_BASELINE_REVENUE}
 DONT_CARE_TABLE = RateTable(base=SOME_CURRENCY, on=DONT_CARE_RATE_DATE, per_unit={})
 
-# An incident Argus handled alone, and no bands to price nobody at. Real values
-# rather than `None` defaults, so a test passing `None` is saying "nobody could
-# read this" and gets exactly that - which a `None`-means-default cannot
-# express, and which is the one distinction these tests are about.
+# An incident Argus handled alone. A real value rather than a `None` default,
+# so a test passing `None` is saying "nobody could read this" and gets exactly
+# that - which a `None`-means-default cannot express, and which is the one
+# distinction these tests are about.
 NOBODY_RESPONDED = EngagementAnswer(minutes=0, responders=0)
-NO_BANDS_NEEDED: Mapping[str, PayBand] = {}
 
 
 def an_evidence_bundle(started_at: datetime = STARTED_AT,
@@ -379,8 +377,6 @@ def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
                         left_out: list[str] | None = None,
                         onset_at: datetime | None = ONSET,
                         engaged: EngagementAnswer | None = NOBODY_RESPONDED,
-                        cost: ResponderCost | None = None,
-                        bands: Mapping[str, PayBand] | None = NO_BANDS_NEEDED,
                         metrics_stopped_at: datetime | None = None,
                         metrics_resumed_at: datetime | None = None,
                         rule_series: RuleSeriesLevels | None = None,
@@ -433,8 +429,6 @@ def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
         currencies_left_out=left_out if left_out is not None else [],
         onset_at=onset_at,
         engaged=engaged,
-        cost=cost,
-        bands=bands,
         metrics_stopped_at=metrics_stopped_at,
         metrics_resumed_at=metrics_resumed_at,
         rule_series=rule_series,
@@ -458,7 +452,6 @@ def a_measured_incident(duration_in_hours: float = DONT_CARE_DURATION_IN_HOURS,
 def some_sources(revenue: Revenue | None = None,
                  rates: Rates | None = None,
                  engagement: Engagement | None = None,
-                 bands: PayBands | None = None,
                  metrics: Metrics | None = None,
                  thresholds: AnomalyThresholds = SOME_THRESHOLDS,
                  working_hours_a_year: float = DONT_CARE_WORKING_YEAR,
@@ -479,7 +472,7 @@ def some_sources(revenue: Revenue | None = None,
                         until=ONSET,
                         and_then={SOME_CURRENCY: DONT_CARE_REVENUE_DURING_THE_INCIDENT}),
             rates=rates if rates is not None else rates_in(SOME_CURRENCY),
-            bands=bands if bands is not None else a_band_source_pricing_nobody(),
+            bands=a_band_source_never_read(),
             working_hours_a_year=working_hours_a_year,
             reporting_currency=reporting_currency
         ),
@@ -640,26 +633,12 @@ def an_engagement_of(engaged: list[EngagedResponder]) -> EngagementAnswer:
     )
 
 
-def a_band_source_pricing(bands: Mapping[str, PayBand]) -> PayBands:
+def a_band_source_never_read() -> PayBands:
+    """A band source that fails whatever reads it: the postmortem prices
+    nobody, so every case in this suite holds that it never asks."""
     def pay_bands() -> Mapping[str, PayBand] | None:
-        return bands
-
-    return pay_bands
-
-
-def a_band_source_pricing_nobody() -> PayBands:
-    """An empty band table, for a test whose responders are never priced.
-
-    Empty rather than unreadable: where nothing engages a responder holding a
-    title there is nothing to price and no absence to apologise for, and the
-    document says nothing about pay in either direction.
-    """
-    return a_band_source_pricing({})
-
-
-def a_band_source_that_cannot_answer() -> PayBands:
-    def pay_bands() -> Mapping[str, PayBand] | None:
-        return None
+        raise AssertionError("The postmortem read the pay bands, which only the executive "
+                             "synopsis prices with.")
 
     return pay_bands
 

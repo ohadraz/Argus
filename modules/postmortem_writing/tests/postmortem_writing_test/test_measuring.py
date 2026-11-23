@@ -27,8 +27,8 @@ from math import isclose
 import pytest
 from argus_testkit import Assertion, Kept, Scenario, all_of, the_answer_was
 from core.models import MetricBucket, RuleLine, RuleReading, SeriesQuery, Unit, Verdict
-from incident_cost import EngagedResponder, PayBand, Revenue
-from postmortem_writing import IncidentEvidence
+from incident_cost import Revenue
+from postmortem_writing import EngagedResponder, IncidentEvidence
 from postmortem_writing.estimate import (
     DemandLevels,
     LatencyLevels,
@@ -46,10 +46,7 @@ from postmortem_writing_test.framework.builders import (
     ONSET,
     RECORDED_RECOVERY_AT,
     RECOVERED_AT,
-    SOME_CURRENCY,
     STARTED_AT,
-    a_band_source_pricing,
-    a_band_source_that_cannot_answer,
     a_bucket,
     a_resolution,
     an_action,
@@ -69,21 +66,7 @@ from postmortem_writing_test.framework.builders import (
 )
 
 SOME_TITLE = "Senior Kuki"
-SOME_TITLE_NO_BAND_COVERS = "Principal Buki"
 SOME_ENGAGED_MINUTES = 30
-
-# A 2000-hour year is 120,000 minutes, so a midpoint of 120,000 is worth one
-# unit a minute and an arithmetic slip shows as a different figure rather than
-# as a rounding argument.
-SOME_WORKING_YEAR_IN_HOURS = 2000.0
-SOME_WORKING_YEAR_IN_MINUTES = Decimal(120_000)
-
-SOME_BAND = PayBand(
-    minimum=Decimal(60_000),
-    midpoint=Decimal(120_000),
-    maximum=Decimal(240_000),
-    currency=SOME_CURRENCY
-)
 
 A_WEEK = timedelta(weeks=1)
 A_MINUTE = timedelta(minutes=1)
@@ -1472,14 +1455,10 @@ def test_the_rules_series_stops_before_the_normal_minute_the_fix_landed_in() -> 
 
 
 @pytest.mark.unit
-def test_the_response_is_priced_at_the_bands_published_for_it() -> None:
-    # The second cost, and the one nobody thinks to check: an incident's real
-    # price is what it took out of the shop plus what it took out of the people.
-    # The minutes come from one source and the bands from another, and pricing
-    # is the only place they meet.
+def test_the_response_is_measured_from_the_engagement_source() -> None:
+    # The minutes, and nothing priced: only the executive synopsis prices the
+    # response, and these sources' bands fail any read of them.
     a_responder = EngagedResponder(minutes=SOME_ENGAGED_MINUTES, job_title=SOME_TITLE)
-    cost_at_midpoint = (SOME_BAND.midpoint * SOME_ENGAGED_MINUTES
-                        / SOME_WORKING_YEAR_IN_MINUTES)
 
     Scenario() \
         .given(
@@ -1488,23 +1467,16 @@ def test_the_response_is_priced_at_the_bands_published_for_it() -> None:
         .when(
             lambda: measure(
                 an_evidence_bundle(),
-                some_sources(
-                    engagement=an_engagement_source_reporting_each([a_responder]),
-                    bands=a_band_source_pricing({SOME_TITLE: SOME_BAND}),
-                    working_hours_a_year=SOME_WORKING_YEAR_IN_HOURS))
+                some_sources(engagement=an_engagement_source_reporting_each([a_responder])))
         ) \
         .then(
-            all_of(
-                _the_response_took(SOME_ENGAGED_MINUTES),
-                _the_response_cost(cost_at_midpoint)
-            )
+            _the_response_took(SOME_ENGAGED_MINUTES)
         )
 
 
 @pytest.mark.unit
 def test_an_engagement_source_that_cannot_be_read_measures_no_response_at_all() -> None:
-    # Nothing to report and nothing to price, which are one absence rather than
-    # two: a response nobody could measure cannot be costed, and a cost of zero
+    # A response nobody could measure, rather than one of zero minutes, which
     # would say the incident took nobody's night.
     Scenario() \
         .given(
@@ -1516,68 +1488,7 @@ def test_an_engagement_source_that_cannot_be_read_measures_no_response_at_all() 
                 some_sources(engagement=an_engagement_source_that_cannot_answer()))
         ) \
         .then(
-            all_of(
-                _measured_no_response(),
-                _priced_no_response()
-            )
-        )
-
-
-@pytest.mark.unit
-def test_bands_that_cannot_be_read_leave_the_response_measured_but_unpriced() -> None:
-    # An HR system Argus could not reach is not evidence that the response was
-    # free. The minutes were measured and the money was not, so only one of them
-    # goes - the same distinction the revenue source already makes.
-    a_responder = EngagedResponder(minutes=SOME_ENGAGED_MINUTES, job_title=SOME_TITLE)
-
-    Scenario() \
-        .given(
-            a_responder
-        ) \
-        .when(
-            lambda: measure(
-                an_evidence_bundle(),
-                some_sources(
-                    engagement=an_engagement_source_reporting_each([a_responder]),
-                    bands=a_band_source_that_cannot_answer()))
-        ) \
-        .then(
-            all_of(
-                _the_response_took(SOME_ENGAGED_MINUTES),
-                _priced_no_response()
-            )
-        )
-
-
-@pytest.mark.unit
-def test_a_title_no_band_covers_leaves_the_response_measured_but_unpriced() -> None:
-    # A cost covering one of two people is not a smaller cost, it is a wrong
-    # one - and wrong in the direction that flatters the response, which is the
-    # one nobody questions. The minutes stay, because they were measured.
-    a_priced_responder = EngagedResponder(minutes=SOME_ENGAGED_MINUTES,
-                                          job_title=SOME_TITLE)
-    a_responder_no_band_covers = EngagedResponder(minutes=SOME_ENGAGED_MINUTES,
-                                                  job_title=SOME_TITLE_NO_BAND_COVERS)
-
-    Scenario() \
-        .given(
-            a_priced_responder,
-            a_responder_no_band_covers
-        ) \
-        .when(
-            lambda: measure(
-                an_evidence_bundle(),
-                some_sources(
-                    engagement=an_engagement_source_reporting_each(
-                        [a_priced_responder, a_responder_no_band_covers]),
-                    bands=a_band_source_pricing({SOME_TITLE: SOME_BAND}),
-                    working_hours_a_year=SOME_WORKING_YEAR_IN_HOURS))
-        ) \
-        .then(
-            all_of(
-                _the_response_took(SOME_ENGAGED_MINUTES * 2),
-                _priced_no_response()
-            )
+            _measured_no_response()
         )
 
 
@@ -1841,35 +1752,6 @@ def _measured_no_response() -> Assertion[Measurements]:
             raise AssertionError(
                 f"Expected no response where nobody could say, got "
                 f"[{measured.engaged}].")
-
-        return True
-
-    return assertion
-
-
-def _the_response_cost(expected: Decimal) -> Assertion[Measurements]:
-    def assertion(measured: Measurements) -> bool:
-        if measured.cost is None:
-            raise AssertionError(
-                f"Expected the response to be priced at [{expected}], and it was "
-                f"not priced at all.")
-
-        if measured.cost.midpoint != expected:
-            raise AssertionError(
-                f"Expected a response cost of [{expected}], got "
-                f"[{measured.cost.midpoint}].")
-
-        return True
-
-    return assertion
-
-
-def _priced_no_response() -> Assertion[Measurements]:
-    def assertion(measured: Measurements) -> bool:
-        if measured.cost is not None:
-            raise AssertionError(
-                f"Expected no response cost where it could not be priced in full, "
-                f"got [{measured.cost.midpoint}].")
 
         return True
 

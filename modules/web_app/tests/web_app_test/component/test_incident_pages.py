@@ -2100,7 +2100,6 @@ def test_the_postmortem_page_shows_every_amount_to_the_cent() -> None:
     some_currency = "usd"
     dont_care_minutes = 22
     dont_care_responders = 1
-    dont_care_responder_cost = Decimal("412.5")
 
     with connect_from_env() as conn:
         incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
@@ -2114,8 +2113,6 @@ def test_the_postmortem_page_shows_every_amount_to_the_cent() -> None:
                 estimate_currency=some_currency,
                 engineer_minutes=dont_care_minutes,
                 responders=dont_care_responders,
-                responder_cost_estimate=dont_care_responder_cost,
-                responder_cost_currency=DONT_CARE_CURRENCY,
                 tokens_spent=None,
                 assumptions=[]
             ),
@@ -3462,8 +3459,7 @@ def _a_synopsis_recorded_for(conn: psycopg.Connection,
         incident_id,
         ExecutiveSynopsisDocument(overview=overview,
                                   withheld_because=None if overview else DONT_CARE_WORDS,
-                                  cost_by_title=[],
-                                  breakdown_unmatched=False),
+                                  cost_by_title=[]),
         at=utc_now()
     )
 

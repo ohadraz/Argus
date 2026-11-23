@@ -83,7 +83,8 @@ from core.models import (
 )
 from core.replay import Recorder, Replay
 from core.replay import nobody as records_nothing
-from executive_synopsis import write_executive_synopsis
+from executive_synopsis import the_response_priced, write_executive_synopsis
+from incident_cost import MoneySources
 from incident_record import when_it_was_taken
 from incident_record.repository import (
     conversation,
@@ -207,7 +208,7 @@ def write_postmortem_for(incident_id: str,
 
 def write_synopsis_for(incident_id: str,
                        connections: Connections,
-                       sources: Sources,
+                       money: MoneySources,
                        client_for: Callable[[Replay], LLMClient],
                        judge_for: Callable[[Replay], LLMClient],
                        address_of: Callable[[str], str],
@@ -216,12 +217,14 @@ def write_synopsis_for(incident_id: str,
                        ) -> ExecutiveSynopsisDocument:
     """The executive synopsis for one incident, from its stored postmortem.
 
-    The figures and the resolution are worded here, as the postmortem's page
-    words them - with a person's resolution read off the account, as the page
-    reads it - and handed to the agent: what the page says is not the agent's
-    to work out. Read off the row rather than handed from the postmortem's
-    node, which stores it and moves on - the postmortem is not changed for the
-    synopsis's sake.
+    The response is priced first, from the postmortem's minutes by title at
+    the bands `money` reads, since its cost is one of the figures. The figures
+    and the resolution are worded here, as the postmortem's page words them -
+    with a person's resolution read off the account, as the page reads it - and
+    handed to the agent: what the page says is not the agent's to work out.
+    Read off the row rather than handed from the postmortem's node, which
+    stores it and moves on - the postmortem is not changed for the synopsis's
+    sake.
 
     And the whole postmortem as its reader reads it, with every label its rows
     go by, for the grounding judge (`judge_for`) to read the overview against:
@@ -242,17 +245,19 @@ def write_synopsis_for(incident_id: str,
 
     alert = Alert.model_validate(incident.alert_payload)
     rendered = render(postmortem, alert, account, address_of)
+    # Priced before the figures are worded, since the cost is one of them.
+    cost = the_response_priced(postmortem.minutes_by_title, money)
 
     return write_executive_synopsis(
         postmortem,
         incident_id=incident_id,
         service=alert.service,
-        figures=the_synopsis_figures(postmortem, alert),
-        said=the_synopsis_figures_said(postmortem, alert),
+        cost=cost,
+        figures=the_synopsis_figures(postmortem, alert, cost),
+        said=the_synopsis_figures_said(postmortem, alert, cost),
         resolution=the_resolution_list(postmortem, the_reported_resolution(account)),
         document=as_text(rendered),
         labels=rendered.labels,
-        sources=sources,
         llm=client_for(Replay(incident_id, recorder)),
         judge=judge_for(Replay(incident_id, recorder)),
         outage_ends_it=last_try())

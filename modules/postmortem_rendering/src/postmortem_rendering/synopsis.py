@@ -4,18 +4,17 @@ message.
 Every figure is the postmortem page's own, worded by the same code - the
 window its head says, the cards its Impact shows, the steps its Resolution
 lists - so the synopsis and the page it links to never state one figure two
-ways. The human cost is the one part the page does not have: per title, with
-its range, beside a total that is the stored postmortem's to the cent and the
-basis it rests on.
+ways. The human cost is the one part the page does not have: the synopsis's
+own pricing, per title with its range, beside its total and the basis it rests
+on - the people and minutes the postmortem's.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from decimal import ROUND_FLOOR, ROUND_HALF_UP, Decimal
 from typing import Final
 
-from core.models import Alert, ExecutiveSynopsis, Postmortem, TitleCost
+from core.models import Alert, ExecutiveSynopsis, Postmortem
 from narration import said_as_money
 from pydantic import BaseModel, ConfigDict
 
@@ -44,8 +43,6 @@ if list(_HEADINGS) != list(SynopsisPartKey):
 
 _NO_TITLE: Final = "No title recorded"
 _TOTAL: Final = "Total"
-_UNMATCHED: Final = ("The cost by title could not be matched to the postmortem's totals, so "
-                     "only the totals are shown.")
 _NOBODY_PAGED: Final = "Nobody was paged for this incident."
 _NOBODY_ACKNOWLEDGED: Final = ("Somebody was paged for this incident, and nobody acknowledged "
                                "the page.")
@@ -71,8 +68,8 @@ class CostRow(BaseModel):
 class HumanCost(BaseModel):
     """The rows, the total - `None` where nobody responded, or nobody could
     say who did, or one row says it already - and what is said beneath them:
-    the basis, a page shared with other incidents, a breakdown left out, or why
-    there is no cost at all."""
+    the basis, a page shared with other incidents, or why there is no cost at
+    all."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -120,19 +117,19 @@ def the_synopsis(synopsis: ExecutiveSynopsis,
         title=a_title(postmortem, alert),
         headings=dict(_HEADINGS),
         overview=Line(runs=(Run(text=synopsis.overview, role=Role.PROSE),)),
-        window=_the_window(postmortem, alert),
+        window=_the_window(synopsis, postmortem, alert),
         impact=the_impact(postmortem, alert).cards,
         resolution=the_resolution_list(postmortem, resolution),
         human_cost=_the_human_cost(synopsis, postmortem),
         postmortem_at=postmortem_at)
 
 
-def _the_window(postmortem: Postmortem, alert: Alert) -> Line:
+def _the_window(synopsis: ExecutiveSynopsis, postmortem: Postmortem, alert: Alert) -> Line:
     """From and to as the page's head says them, and how long, as the
     duration's tile says it: from and to alone leave a reader to subtract. A
     disproven alarm had no stretch, so its window says none."""
     window = a_head(postmortem, alert, None).date
-    lasted = the_synopsis_figures(postmortem, alert).get("duration")
+    lasted = the_synopsis_figures(postmortem, alert, synopsis).get("duration")
     if lasted is None:
         return window
 
@@ -140,8 +137,8 @@ def _the_window(postmortem: Postmortem, alert: Alert) -> Line:
 
 
 def _the_human_cost(synopsis: ExecutiveSynopsis, postmortem: Postmortem) -> HumanCost:
-    """Each title's row and the postmortem's total, with the basis beneath -
-    or, where nobody responded, why there is nothing to show."""
+    """Each title's row and the total, with the basis beneath - or, where
+    nobody responded, why there is nothing to show."""
     if postmortem.responders is None or postmortem.engineer_minutes is None:
         return HumanCost(rows=(), total=None, notes=(_UNREAD,))
 
@@ -150,33 +147,33 @@ def _the_human_cost(synopsis: ExecutiveSynopsis, postmortem: Postmortem) -> Huma
         return HumanCost(rows=(), total=None,
                          notes=(_NOBODY_ACKNOWLEDGED if postmortem.paged else _NOBODY_PAGED,))
 
-    currency = postmortem.responder_cost_currency
+    currency = synopsis.responder_cost_currency
     total = CostRow(title=_TOTAL,
                     people=postmortem.responders,
                     minutes=_minutes(postmortem.engineer_minutes),
-                    midpoint=_money(postmortem.responder_cost_estimate, currency),
-                    range=_range(postmortem.responder_cost_minimum,
-                                 postmortem.responder_cost_maximum, currency))
-    rows = _the_rows(synopsis.cost_by_title, postmortem)
+                    midpoint=_money(synopsis.responder_cost_estimate, currency),
+                    range=_range(synopsis.responder_cost_minimum,
+                                 synopsis.responder_cost_maximum, currency))
+    rows = _the_rows(synopsis)
 
     return HumanCost(
         rows=rows,
         # Beneath one row, a total says the row again: rows add up to it.
         total=total if len(rows) != 1 else None,
-        notes=(*postmortem.response_cost_basis,
-               *((synopsis.response_shared,) if synopsis.response_shared else ()),
-               *((_UNMATCHED,) if synopsis.breakdown_unmatched else ())))
+        notes=(*synopsis.response_cost_basis,
+               *((synopsis.response_shared,) if synopsis.response_shared else ())))
 
 
-def _the_rows(rows: Sequence[TitleCost], postmortem: Postmortem) -> tuple[CostRow, ...]:
+def _the_rows(synopsis: ExecutiveSynopsis) -> tuple[CostRow, ...]:
     """Each title's row, its amounts rounded so the column adds up to the
     total shown beside it - the cents a plain rounding leaves over going to
-    the rows with the largest remainders. Rounded plainly where the postmortem
-    has no total for them to add up to."""
-    currency = postmortem.responder_cost_currency
-    midpoints = _adding_up([row.midpoint for row in rows], postmortem.responder_cost_estimate)
-    minimums = _adding_up([row.minimum for row in rows], postmortem.responder_cost_minimum)
-    maximums = _adding_up([row.maximum for row in rows], postmortem.responder_cost_maximum)
+    the rows with the largest remainders. Rounded plainly where there is no
+    total for them to add up to."""
+    rows = synopsis.cost_by_title
+    currency = synopsis.responder_cost_currency
+    midpoints = _adding_up([row.midpoint for row in rows], synopsis.responder_cost_estimate)
+    minimums = _adding_up([row.minimum for row in rows], synopsis.responder_cost_minimum)
+    maximums = _adding_up([row.maximum for row in rows], synopsis.responder_cost_maximum)
 
     return tuple(CostRow(title=row.title if row.title is not None else _NO_TITLE,
                          people=row.responders,

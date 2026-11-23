@@ -26,22 +26,15 @@ from decimal import Decimal
 
 import pytest
 from argus_testkit import Scenario, all_of
-from core.models import Verdict
-from incident_cost import (
-    PAY_BAND_ASSUMPTION_LABEL,
-    PAY_BANDS_UNAVAILABLE_ASSUMPTION,
-    UNPRICED_TITLE_ASSUMPTION_LABEL,
-    WORKING_YEAR_ASSUMPTION_LABEL,
-    EngagedResponder,
-    PayBand,
-    Revenue,
-)
+from core.models import TitleMinutes, Verdict
+from incident_cost import Revenue
 from postmortem_writing import (
     ENGAGEMENT_UNAVAILABLE_ASSUMPTION,
     EXCHANGE_RATE_ASSUMPTION_LABEL,
     NOT_PAGED_ASSUMPTION,
     ONSET_UNKNOWN_ASSUMPTION,
     REVENUE_UNAVAILABLE_ASSUMPTION,
+    EngagedResponder,
 )
 from postmortem_writing.answer import (
     CITES_FIELD,
@@ -56,14 +49,11 @@ from postmortem_writing_test.framework.assertions import (
     discloses_the_assumption,
     estimates_a_loss_of,
     estimates_nothing,
+    holds_the_minutes_by_title,
     is_marked_complete,
     is_marked_incomplete,
-    keeps_a_cost_basis_line_mentioning,
-    keeps_the_cost_basis_line,
-    reports_a_responder_cost_of,
     reports_engineer_minutes,
     reports_engineer_minutes_across,
-    reports_no_responder_cost,
     reports_root_cause,
     reports_the_titles,
     states_the_estimate_is_in,
@@ -74,8 +64,6 @@ from postmortem_writing_test.framework.builders import (
     ONSET,
     SOME_CURRENCY,
     SOME_OTHER_CURRENCY,
-    a_band_source_pricing,
-    a_band_source_that_cannot_answer,
     a_candidate,
     a_model_answering,
     a_model_answering_in_prose_then,
@@ -99,21 +87,8 @@ SOME_CALM_HOURLY_REVENUE = 1_200
 SOME_REVENUE_DURING_THE_INCIDENT = Decimal("100.00")
 
 SOME_TITLE = "Senior Kuki"
-SOME_TITLE_NO_BAND_COVERS = "Principal Buki"
+SOME_OTHER_TITLE = "Junior Buki"
 SOME_ENGAGED_MINUTES = 30
-
-# A 2000-hour year is 120,000 minutes, so a midpoint of 120,000 is worth one
-# unit a minute and an arithmetic slip shows as a different figure rather than
-# as a rounding argument.
-SOME_WORKING_YEAR_IN_HOURS = 2000.0
-SOME_WORKING_YEAR_IN_MINUTES = Decimal(120_000)
-
-SOME_BAND = PayBand(
-    minimum=Decimal(60_000),
-    midpoint=Decimal(120_000),
-    maximum=Decimal(240_000),
-    currency=SOME_CURRENCY
-)
 
 
 @pytest.mark.component
@@ -345,20 +320,20 @@ def test_an_incident_nobody_was_paged_for_says_so_on_the_page() -> None:
                 reports_engineer_minutes(0),
                 discloses_the_assumption(NOT_PAGED_ASSUMPTION),
                 discloses_no_assumption_about(ENGAGEMENT_UNAVAILABLE_ASSUMPTION),
-                reports_no_responder_cost()
+                holds_the_minutes_by_title([])
             )
         )
 
 
 @pytest.mark.component
-def test_the_response_is_priced_on_the_page_and_the_arithmetic_disclosed() -> None:
-    # The second cost, all the way through: minutes from one port, bands from
-    # another, priced while the incident is measured and explained while the
-    # assumptions are written. The working year and the band have to be the
-    # ones the figure beside them was computed from.
+def test_the_response_is_held_by_title_and_never_priced() -> None:
+    # The minutes from the on-call port, kept title by title for the executive
+    # synopsis to price: the postmortem's readers are the people it would
+    # price, so it says nothing of pay. Its sources' bands fail any read of
+    # them, so a document written at all is one that never asked.
     a_responder = EngagedResponder(minutes=SOME_ENGAGED_MINUTES, job_title=SOME_TITLE)
-    cost_at_midpoint = (SOME_BAND.midpoint * SOME_ENGAGED_MINUTES
-                        / SOME_WORKING_YEAR_IN_MINUTES)
+    another_responder = EngagedResponder(minutes=SOME_ENGAGED_MINUTES,
+                                         job_title=SOME_OTHER_TITLE)
 
     Scenario() \
         .given(
@@ -369,82 +344,17 @@ def test_the_response_is_priced_on_the_page_and_the_arithmetic_disclosed() -> No
                 evidence,
                 llm=a_model_answering(),
                 sources=some_sources(
-                    engagement=an_engagement_source_reporting_each([a_responder]),
-                    bands=a_band_source_pricing({SOME_TITLE: SOME_BAND}),
-                    working_hours_a_year=SOME_WORKING_YEAR_IN_HOURS))
-        ) \
-        .then(
-            all_of(
-                reports_engineer_minutes(SOME_ENGAGED_MINUTES),
-                reports_a_responder_cost_of(cost_at_midpoint),
-                reports_the_titles(SOME_TITLE),
-                keeps_a_cost_basis_line_mentioning(
-                    WORKING_YEAR_ASSUMPTION_LABEL,
-                    str(int(SOME_WORKING_YEAR_IN_HOURS))),
-                keeps_a_cost_basis_line_mentioning(PAY_BAND_ASSUMPTION_LABEL, SOME_TITLE)
-            )
-        )
-
-
-@pytest.mark.component
-def test_a_title_no_band_covers_leaves_the_minutes_and_takes_the_cost() -> None:
-    # The minutes were measured and the cost was not, so only one of them goes.
-    # Publishing the priced responder's share alone would charge the incident
-    # for one person and quietly not for the other, and the page has to name
-    # the title that stopped it or the gap reads as a bug in Argus.
-    a_priced_responder = EngagedResponder(minutes=SOME_ENGAGED_MINUTES,
-                                          job_title=SOME_TITLE)
-    a_responder_no_band_covers = EngagedResponder(minutes=SOME_ENGAGED_MINUTES,
-                                                  job_title=SOME_TITLE_NO_BAND_COVERS)
-
-    Scenario() \
-        .given(
-            evidence := an_evidence_bundle()
-        ) \
-        .when(
-            lambda: a_postmortem_written_with(
-                evidence,
-                llm=a_model_answering(),
-                sources=some_sources(
-                    engagement=an_engagement_source_reporting_each(
-                        [a_priced_responder, a_responder_no_band_covers]),
-                    bands=a_band_source_pricing({SOME_TITLE: SOME_BAND}),
-                    working_hours_a_year=SOME_WORKING_YEAR_IN_HOURS))
+                    engagement=an_engagement_source_reporting_each([a_responder,
+                                                                    another_responder])))
         ) \
         .then(
             all_of(
                 reports_engineer_minutes(SOME_ENGAGED_MINUTES * 2),
-                reports_no_responder_cost(),
-                keeps_a_cost_basis_line_mentioning(UNPRICED_TITLE_ASSUMPTION_LABEL,
-                                                   SOME_TITLE_NO_BAND_COVERS)
-            )
-        )
-
-
-@pytest.mark.component
-def test_a_band_source_that_cannot_be_read_costs_nothing_but_the_figure() -> None:
-    # An HR system Argus could not reach is not evidence that the response was
-    # free. The incident is over by the time this runs, so the document is
-    # written without the figure rather than not written.
-    a_responder = EngagedResponder(minutes=SOME_ENGAGED_MINUTES, job_title=SOME_TITLE)
-
-    Scenario() \
-        .given(
-            evidence := an_evidence_bundle()
-        ) \
-        .when(
-            lambda: a_postmortem_written_with(
-                evidence,
-                llm=a_model_answering(),
-                sources=some_sources(
-                    engagement=an_engagement_source_reporting_each([a_responder]),
-                    bands=a_band_source_that_cannot_answer()))
-        ) \
-        .then(
-            all_of(
-                reports_engineer_minutes(SOME_ENGAGED_MINUTES),
-                reports_no_responder_cost(),
-                keeps_the_cost_basis_line(PAY_BANDS_UNAVAILABLE_ASSUMPTION)
+                reports_the_titles(SOME_TITLE, SOME_OTHER_TITLE),
+                holds_the_minutes_by_title([
+                    TitleMinutes(title=SOME_TITLE, responders=1, minutes=SOME_ENGAGED_MINUTES),
+                    TitleMinutes(title=SOME_OTHER_TITLE, responders=1,
+                                 minutes=SOME_ENGAGED_MINUTES)])
             )
         )
 

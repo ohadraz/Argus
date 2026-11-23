@@ -168,7 +168,12 @@ from core.models.remembered import RecalledIncident, WhatWasTried
 from core.models.report import Report, ReportChannel
 from core.models.rollout import RolloutAccount, RolloutProgress
 from core.models.service_dependency import Ownership, ServiceDependency
-from core.models.synopsis import ExecutiveSynopsis, ExecutiveSynopsisDocument, TitleCost
+from core.models.synopsis import (
+    ExecutiveSynopsis,
+    ExecutiveSynopsisDocument,
+    PricedResponse,
+    TitleCost,
+)
 from core.models.taken_action import (
     ActionProgress,
     AlreadyClaimed,
@@ -326,6 +331,7 @@ __all__ = [
     "Postmortem",
     "PostmortemDocument",
     "PostmortemLead",
+    "PricedResponse",
     "ProposedFix",
     "PublishedRates",
     "Quantile",

@@ -95,10 +95,6 @@ class _WhatAPostmortemHolds(TypedDict, total=False):
     engineer_minutes: int | None
     responders: int | None
     responder_titles: list[str]
-    responder_cost_estimate: Decimal | None
-    responder_cost_minimum: Decimal | None
-    responder_cost_maximum: Decimal | None
-    responder_cost_currency: str | None
     tokens_spent: int | None
     assumptions: list[str]
     pull_request: OpenedPullRequest | None
