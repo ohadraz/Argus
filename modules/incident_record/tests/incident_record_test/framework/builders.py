@@ -38,6 +38,7 @@ from core.models import (
     Standing,
     TimelineEntry,
     TimelineMarker,
+    TitleMinutes,
     Trigger,
     Weighing,
     WhyNoTrigger,
@@ -77,6 +78,7 @@ class _WhatADocumentHolds(TypedDict, total=False):
     responders: int | None
     paged: bool | None
     responder_titles: list[str]
+    minutes_by_title: list[TitleMinutes]
     responder_cost_estimate: Decimal | None
     responder_cost_minimum: Decimal | None
     responder_cost_maximum: Decimal | None
@@ -156,6 +158,8 @@ def a_postmortem_document_with_every_field() -> PostmortemDocument:
         "responders": len(titles),
         "paged": True,
         "responder_titles": titles,
+        "minutes_by_title": [TitleMinutes(title=title, responders=1, minutes=1)
+                             for title in titles],
         "responder_cost_estimate": amount,
         "responder_cost_minimum": amount,
         "responder_cost_maximum": amount,

@@ -96,7 +96,7 @@ from core.models.model_policy import DEFAULT_MAX_OUTPUT_TOKENS, ModelPolicy, Rea
 from core.models.onset import EstablishedOnset, HowTheMinuteIsKnown
 from core.models.placement import PodPlacement, RecordedPlacement
 from core.models.planned import ChangeFound, FlagState, Made, NotMade, Planned
-from core.models.postmortem import Postmortem, PostmortemDocument, PostmortemLead
+from core.models.postmortem import Postmortem, PostmortemDocument, PostmortemLead, TitleMinutes
 from core.models.postmortem_sections import (
     NOT_JUDGED,
     ActionItem,
@@ -389,6 +389,7 @@ __all__ = [
     "ClaimAnswer",
     "ThreadMessage",
     "TitleCost",
+    "TitleMinutes",
     "ToolCall",
     "ToolDefinition",
     "ToolResult",

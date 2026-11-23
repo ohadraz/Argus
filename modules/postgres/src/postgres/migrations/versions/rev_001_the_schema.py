@@ -338,6 +338,11 @@ CREATE TABLE IF NOT EXISTS postmortem (
     -- of them was called - which is a different fact from not having asked, and
     -- null would collapse the two.
     responder_titles JSONB NOT NULL DEFAULT '[]'::jsonb,
+    -- The same response held by title - how many held each and their minutes -
+    -- in the order each title first responded, for whatever prices it: a band
+    -- prices a title, and a total across titles cannot be priced. Never null,
+    -- for the reason `responder_titles` is not.
+    minutes_by_title JSONB NOT NULL DEFAULT '[]'::jsonb,
     -- What those minutes were worth, priced at the pay band of each
     -- responder's title. Three columns rather than one, because a band is a
     -- range: the midpoint is the figure, and the two beside it are the same

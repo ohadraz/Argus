@@ -57,6 +57,7 @@ from core.models import (
     ReviewCriterion,
     RuledOut,
     Standing,
+    TitleMinutes,
     Verdict,
     Weighing,
 )
@@ -324,6 +325,60 @@ def test_the_figures_measured_are_the_figures_published() -> None:
                 reports_a_cost_ranging_from(some_cost.minimum, some_cost.maximum),
                 reports_the_cost_in(SOME_CURRENCY)
             )
+        )
+
+
+@pytest.mark.unit
+def test_the_response_is_kept_by_title_as_well() -> None:
+    # Held per title, for whatever prices the response after the document is
+    # written: a band prices a title, and the totals beside it cannot be priced.
+    some_minutes, some_other_minutes = 15, 10
+
+    Scenario() \
+        .given(
+            an_incident_two_titles_responded_to := a_measured_incident(
+                engaged=an_engagement_of([
+                    EngagedResponder(minutes=some_minutes, job_title=SOME_TITLE),
+                    EngagedResponder(minutes=some_other_minutes, job_title=SOME_OTHER_TITLE)
+                ]))
+        ) \
+        .when(
+            lambda: write_postmortem(
+                an_evidence_bundle(),
+                some_sources(),
+                _dont_care_llm(),
+                measure=_measuring_that_returns(an_incident_two_titles_responded_to),
+                ask=_asking_that_answers(a_submitted_answer()),
+                disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _publishes("the minutes by title", lambda document: document.minutes_by_title, [
+                TitleMinutes(title=SOME_TITLE, responders=1, minutes=some_minutes),
+                TitleMinutes(title=SOME_OTHER_TITLE, responders=1, minutes=some_other_minutes)
+            ])
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("engaged", [None, NotPaged()], ids=["nobody-could-say", "not-paged"])
+def test_a_response_nobody_measured_or_nobody_was_paged_for_keeps_no_title(
+        engaged: NotPaged | None) -> None:
+    Scenario() \
+        .given(
+            an_incident_with_no_response_measured := a_measured_incident(cost=None).model_copy(
+                update={"engaged": engaged})
+        ) \
+        .when(
+            lambda: write_postmortem(
+                an_evidence_bundle(),
+                some_sources(),
+                _dont_care_llm(),
+                measure=_measuring_that_returns(an_incident_with_no_response_measured),
+                ask=_asking_that_answers(a_submitted_answer()),
+                disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _publishes("the minutes by title", lambda document: document.minutes_by_title, [])
         )
 
 

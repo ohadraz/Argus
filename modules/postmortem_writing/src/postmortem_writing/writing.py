@@ -48,6 +48,7 @@ from postmortem_writing.citations import (
 )
 from postmortem_writing.conversation import Answered, AskingStopped, answer_worth_writing
 from postmortem_writing.detection_lesson import the_detection_lesson
+from postmortem_writing.effort import minutes_by_title
 from postmortem_writing.evidence import IncidentEvidence
 from postmortem_writing.figures import the_day_it_began, the_latency_told
 from postmortem_writing.labels import action_item_number
@@ -185,6 +186,7 @@ def write_postmortem(evidence: IncidentEvidence,
         # Kept apart from the count, which is nobody both ways.
         paged=True if engaged else (False if not_paged else None),
         responder_titles=engaged.titles if engaged else [],
+        minutes_by_title=minutes_by_title(engaged.engaged) if engaged else [],
         responder_cost_estimate=measured.cost.midpoint if measured.cost else None,
         responder_cost_minimum=measured.cost.minimum if measured.cost else None,
         responder_cost_maximum=measured.cost.maximum if measured.cost else None,

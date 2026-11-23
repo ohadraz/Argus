@@ -76,6 +76,16 @@ class PostmortemLead(BaseModel):
     effect: str | None
 
 
+class TitleMinutes(BaseModel):
+    """One title's share of the response's time: how many held it, and their
+    minutes added together. `title` is `None` for responders the source
+    recorded no title for."""
+
+    title: str | None
+    responders: int
+    minutes: int
+
+
 class PostmortemDocument(BaseModel):
     """The finished postmortem, as the agent hands it over.
 
@@ -118,6 +128,12 @@ class PostmortemDocument(BaseModel):
     # how many people responded and not what any of them was called - a
     # description missing, rather than a measurement.
     responder_titles: list[str] = []
+    # The same response held by title, in the order each title first responded,
+    # responders with no title recorded a row of their own: what prices the
+    # response prices these rows, since a band prices a title and a total that
+    # has added one title's minutes to another's cannot be priced. Empty where
+    # nobody could say who responded, or nobody was paged.
+    minutes_by_title: list[TitleMinutes] = []
     # What those minutes were worth, at the midpoint of each responder's band.
     # Absent - never zero, and never a partial sum - where any one of them
     # could not be priced, since a cost missing a responder is wrong in the
