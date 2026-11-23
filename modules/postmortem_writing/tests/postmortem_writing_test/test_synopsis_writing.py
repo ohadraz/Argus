@@ -150,7 +150,28 @@ def test_the_overview_is_asked_of_the_postmortem_and_judged_against_it() -> None
                                 "said": SOME_FIGURES_SAID, "paging": Paging.ANSWERED,
                                 "disproven": False, "resolution": SOME_RESOLUTION,
                                 "judge": some_judge, "document": SOME_DOCUMENT,
-                                "labels": SOME_LABELS, "incident_id": SOME_INCIDENT_ID})
+                                "labels": SOME_LABELS, "incident_id": SOME_INCIDENT_ID,
+                                "outage_ends_it": False})
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("outage_ends_it", [True, False], ids=["last-try", "tries-left"])
+def test_the_overview_is_asked_saying_whether_an_outage_ends_it(outage_ends_it: bool) -> None:
+    # Whether this is the run's last try is the caller's to know; the
+    # conversation is only told what it comes to.
+    asked: Kept[dict[str, Any]] = Kept()
+
+    Scenario() \
+        .given(
+            an_overview := _an_overview_of(Overview(text=SOME_OVERVIEW), asked_into=asked)
+        ) \
+        .when(
+            lambda: _the_synopsis_of(_a_postmortem_of_two_seniors(), an_overview,
+                                     outage_ends_it=outage_ends_it)
+        ) \
+        .then(
+            _asked_with_an_outage_ending_it(asked, outage_ends_it)
         )
 
 
@@ -297,7 +318,8 @@ def test_a_response_shared_with_other_incidents_is_said_in_the_postmortem_s_word
 def _the_synopsis_of(postmortem: PostmortemDocument,
                      overview_of: Overviewing | None = None,
                      engaged: list[EngagedResponder] | None = None,
-                     judge: LLMClient | None = None) -> ExecutiveSynopsisDocument:
+                     judge: LLMClient | None = None,
+                     outage_ends_it: bool = False) -> ExecutiveSynopsisDocument:
     """The synopsis of `postmortem`, its responders read again as `engaged` - the
     two seniors it was written from, unless a test says otherwise."""
     return write_executive_synopsis(
@@ -311,6 +333,7 @@ def _the_synopsis_of(postmortem: PostmortemDocument,
             working_hours_a_year=WORKING_YEAR),
         llm=_dont_care_llm(),
         judge=judge if judge is not None else _dont_care_llm(),
+        outage_ends_it=outage_ends_it,
         overview_of=(overview_of if overview_of is not None
                      else _an_overview_of(Overview(text=SOME_OVERVIEW))))
 
@@ -356,13 +379,14 @@ def _an_overview_of(overview: Overview,
                     judge: LLMClient | None,
                     document: str,
                     labels: frozenset[str],
-                    incident_id: str) -> Overview:
+                    incident_id: str,
+                    outage_ends_it: bool = False) -> Overview:
         if asked_into is not None:
             asked_into.take({"service": service, "symptom": symptom, "cause": cause,
                              "figures": figures, "said": said, "paging": paging,
                              "disproven": disproven, "resolution": resolution,
                              "judge": judge, "document": document, "labels": labels,
-                             "incident_id": incident_id})
+                             "incident_id": incident_id, "outage_ends_it": outage_ends_it})
 
         return overview
 
@@ -404,6 +428,19 @@ def _asked_with(asked: Kept[dict[str, Any]],
         if asked.only() != expected:
             raise AssertionError(f"Expected the overview asked with {expected}, "
                                  f"got {asked.only()}.")
+
+        return True
+
+    return assertion
+
+
+def _asked_with_an_outage_ending_it(asked: Kept[dict[str, Any]],
+                                    expected: bool) -> Assertion[ExecutiveSynopsisDocument]:
+    def assertion(_: ExecutiveSynopsisDocument) -> bool:
+        handed = asked.only()["outage_ends_it"]
+        if handed is not expected:
+            raise AssertionError(f"Expected the overview asked with outage_ends_it "
+                                 f"[{expected}], got [{handed}].")
 
         return True
 

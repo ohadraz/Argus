@@ -44,6 +44,7 @@ from core.models import (
     Verdict,
     why_it_was_refused,
 )
+from postmortem_writing.conversation import AskingStopped
 from postmortem_writing.reviewing import (
     ANALYSIS_COMPLETE,
     IMPACT_ASSESSED,
@@ -296,6 +297,47 @@ def test_an_analysis_the_answer_still_had_faults_in_is_not_complete() -> None:
                               because="the answer still had faults the checks found"),
                 _says(KEY_DATA_COLLECTED, met=True)
             )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("stopped", "said"), [
+    (AskingStopped.DID_NOT_ANSWER, "the model did not answer, so the asking stopped"),
+    (AskingStopped.OUT_OF_REACH, "the model could not be reached, so the asking stopped"),
+    (AskingStopped.REJECTED, "the model's API rejected the request, so the asking stopped")
+], ids=["did-not-answer", "out-of-reach", "rejected"])
+def test_an_analysis_whose_asking_stopped_says_why_and_no_fault_it_never_had(
+        stopped: AskingStopped, said: str) -> None:
+    # Said as faults the checks found, a model that never answered read as one
+    # whose answer the checks had found wrong - and a first ask stopped short
+    # has no answer to find anything in.
+    Scenario() \
+        .given(
+            a_complete_document := _a_document()
+        ) \
+        .when(
+            lambda: review_of(a_complete_document, faults=[], reaches_a_cause=True,
+                              stopped=stopped)
+        ) \
+        .then(
+            _says_because(ANALYSIS_COMPLETE, met=False, because=said)
+        )
+
+
+@pytest.mark.unit
+def test_an_analysis_with_faults_left_when_the_asking_stopped_says_both() -> None:
+    Scenario() \
+        .given(
+            a_complete_document := _a_document()
+        ) \
+        .when(
+            lambda: review_of(a_complete_document, faults=[SOME_FAULT], reaches_a_cause=True,
+                              stopped=AskingStopped.REJECTED)
+        ) \
+        .then(
+            _says_because(ANALYSIS_COMPLETE, met=False,
+                          because="the answer still had faults the checks found; the model's "
+                                  "API rejected the request, so the asking stopped")
         )
 
 

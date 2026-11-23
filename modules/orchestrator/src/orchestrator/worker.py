@@ -161,7 +161,9 @@ def take_one_run(conn: psycopg.Connection,
     the run is resumed from its
     checkpoint by whichever claim takes it next, so the incident stays where
     the walk had taken it and nothing it changed is put back. Its last try
-    fails as any other failure does.
+    fails as any other failure does - and the walk is told it is the last
+    (`Holding.on_its_last_try`), so that a write-up the model cannot be
+    reached for ends the write-up rather than the run.
 
     Any other walk that raises settles the run as failed and does not re-raise:
     one incident Argus could not finish must not stop it working on the next,
@@ -223,6 +225,10 @@ def take_one_run(conn: psycopg.Connection,
 
     held = Fence(run_id=claimed.id, epoch=claimed.epoch)
     held_by = holding if holding is not None else Holding()
+    # Asked once, of the one rule: the walk is told it, so that what it writes
+    # on its last try has no later one to wait for, and a failure for want of
+    # a model is requeued on any other.
+    last_try = claimed.retries + 1 >= trying_again.attempts
 
     # Read on a connection of its own, so that `conn` is the claim's, the
     # fence's and the settling's alone.
@@ -234,7 +240,7 @@ def take_one_run(conn: psycopg.Connection,
     with (
         inside_the_incidents_trace(claimed.incident_id, kept, RUN_SPAN, tracer=tracer) as span,
         _the_run_in_the_baggage(claimed.id),
-        held_by.of(held),
+        held_by.of(held, last_try=last_try),
         _fenced(conn, held)
     ):
         span.set_attribute(ARGUS_RUN_ID, claimed.id)
@@ -253,8 +259,7 @@ def take_one_run(conn: psycopg.Connection,
         except Exception as failure:
             if was_lost(failure):
                 _the_run_was_lost()
-            elif (isinstance(failure, ModelUnavailable)
-                  and claimed.retries + 1 < trying_again.attempts):
+            elif isinstance(failure, ModelUnavailable) and not last_try:
                 _requeue_to_try_again(conn, claimed, failure, trying_again)
             else:
                 logger.exception("run failed")

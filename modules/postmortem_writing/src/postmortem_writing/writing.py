@@ -37,7 +37,7 @@ from core.models import (
 
 from postmortem_writing.answer import SubmittedPostmortem
 from postmortem_writing.assumptions import assumptions_of
-from postmortem_writing.conversation import answer_worth_writing
+from postmortem_writing.conversation import Answered, AskingStopped, answer_worth_writing
 from postmortem_writing.detection_lesson import the_detection_lesson
 from postmortem_writing.evidence import IncidentEvidence
 from postmortem_writing.figures import the_day_it_began, the_latency_told
@@ -100,8 +100,10 @@ class Ask(Protocol):
                  llm: LLMClient,
                  evidence: IncidentEvidence,
                  measured: Measurements,
-                 judge: LLMClient | None = None
-                 ) -> tuple[SubmittedPostmortem, list[str]]: ...
+                 judge: LLMClient | None = None,
+                 *,
+                 outage_ends_it: bool = False
+                 ) -> Answered: ...
 
 
 class Disclose(Protocol):
@@ -121,7 +123,8 @@ class Review(Protocol):
                  faults: list[str],
                  *,
                  reaches_a_cause: bool,
-                 rests_on_an_unrun_reading: bool | None = None) -> list[ReviewCriterion]: ...
+                 rests_on_an_unrun_reading: bool | None = None,
+                 stopped: AskingStopped | None = None) -> list[ReviewCriterion]: ...
 
 
 def write_postmortem(evidence: IncidentEvidence,
@@ -129,6 +132,7 @@ def write_postmortem(evidence: IncidentEvidence,
                      llm: LLMClient,
                      *,
                      judge: LLMClient | None = None,
+                     outage_ends_it: bool = False,
                      measure: Measure = measure,
                      ask: Ask = answer_worth_writing,
                      disclose: Disclose = assumptions_of,
@@ -142,10 +146,12 @@ def write_postmortem(evidence: IncidentEvidence,
     is a value computed from the evidence, and placing it is all this does.
 
     `judge` is the grounding judge the answer is read by (`grounding`), where
-    there is one.
+    there is one. `outage_ends_it` is whether a model that cannot be reached
+    ends the asking, as on a run's last try, rather than the run.
     """
     measured = measure(evidence, sources)
-    answer, faults = ask(llm, evidence, measured, judge=judge)
+    answer, faults, stopped = ask(llm, evidence, measured, judge=judge,
+                                  outage_ends_it=outage_ends_it)
     shown = the_evidence_labelled(evidence, measured)
 
     if faults:
@@ -261,7 +267,8 @@ def write_postmortem(evidence: IncidentEvidence,
     # Reviewed last, because what it reviews is the document as written.
     return document.model_copy(update={
         "review": review(document, faults, reaches_a_cause=answer.reaches_a_cause,
-                         rests_on_an_unrun_reading=answer.cause_rests_on_an_unrun_reading)
+                         rests_on_an_unrun_reading=answer.cause_rests_on_an_unrun_reading,
+                         stopped=stopped)
     })
 
 

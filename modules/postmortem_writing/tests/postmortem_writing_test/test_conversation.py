@@ -27,6 +27,7 @@ import logging
 from collections.abc import Mapping
 from datetime import timedelta
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from argus_testkit import (
@@ -34,11 +35,22 @@ from argus_testkit import (
     Kept,
     Scenario,
     all_of,
+    attempting,
     one_record_was_logged,
     the_answer_was,
+    the_same_error_reached_the_caller,
 )
 from core import parse_iso, to_iso
 from core.events import PATCH_LINE_INDENT, a_changed_file_line
+from core.llm import (
+    AnswerTruncated,
+    LLMClient,
+    ModelDidNotAnswer,
+    ModelRefused,
+    ModelUnavailable,
+    RequestRejected,
+    TurnPaused,
+)
 from core.models import (
     Ask,
     ChangeEvent,
@@ -68,6 +80,7 @@ from postmortem_writing.answer import (
     STEP_FIELD,
     STILL_AT_RISK_FIELD,
     STOPS_THE_HARM_FIELD,
+    SYMPTOM_FIELD,
     TIMED_BY_FIELD,
     WENT_WELL_FIELD,
     WENT_WRONG_FIELD,
@@ -75,7 +88,12 @@ from postmortem_writing.answer import (
     WHY_IT_DID_NOT_HELP_FIELD,
     SubmittedPostmortem,
 )
-from postmortem_writing.conversation import WRITE_UP_SCOPE, answer_worth_writing
+from postmortem_writing.conversation import (
+    WRITE_UP_SCOPE,
+    Answered,
+    AskingStopped,
+    answer_worth_writing,
+)
 from postmortem_writing.grounding import Flag
 from postmortem_writing.log_groups import grouped
 from postmortem_writing.ordering import ORDER_FIELD
@@ -92,6 +110,7 @@ from postmortem_writing_test.framework.builders import (
     a_model_answering_in_turn,
     a_model_calling,
     a_model_submitting_two_answers_at_once,
+    a_submission_of,
     a_timeline_entry,
     an_action,
     an_answer,
@@ -123,6 +142,12 @@ THE_CONVERSATION_S_LOGGER = "postmortem_writing.conversation"
 
 DONT_CARE_STEP = "dont care which step"
 DONT_CARE_WORDS = "dont care what the model wrote for it"
+DONT_CARE_REASON = "dont care why"
+# Why a model did not answer, as the fault and the log say it.
+SOME_REASON = "the model declined to answer"
+# A chain long enough to be put in order: four steps, two of them free to move.
+SOME_STEPS_TO_ORDER = ["no checkout succeeded", "the payment call failed",
+                       "the flag turned the fallback off", "a flag was switched"]
 
 # A read of Argus's own that ruled something out, as the timeline carries it:
 # its kind mirroring the event's, and its lead mirroring narration's.
@@ -164,7 +189,7 @@ SOME_ITEM_TIMED_BY_IT = f"The {INVESTIGATOR} formed C1."
 SOME_WAIT = timedelta(seconds=45)
 AFTER_SOME_WAIT = f"{said_as_a_span(SOME_WAIT)} after the alert was raised"
 
-type Reading = tuple[SubmittedPostmortem, list[str]]
+type Reading = Answered
 
 
 @pytest.mark.unit
@@ -679,7 +704,8 @@ def test_a_model_that_answers_completely_is_asked_once() -> None:
         .then(
             all_of(
                 _was_asked(asks),
-                _found_no_fault()
+                _found_no_fault(),
+                _stopped_as(None)
             )
         )
 
@@ -1673,6 +1699,177 @@ def test_an_answer_asked_for_again_is_logged_as_a_warning(
         )
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize("failure", [ModelRefused(SOME_REASON),
+                                     AnswerTruncated(SOME_REASON),
+                                     TurnPaused(SOME_REASON)],
+                         ids=["refused", "truncated", "paused"])
+def test_a_model_that_does_not_answer_the_first_ask_leaves_no_answer_and_says_why(
+        failure: ModelDidNotAnswer, caplog: pytest.LogCaptureFixture) -> None:
+    # The incident is over: its record is worth more than the run a model that
+    # did not answer would cost, and what it would be asked again it would not
+    # answer again.
+    asks: Kept[Transcript] = Kept()
+
+    Scenario() \
+        .given(
+            a_model := _a_model_answering_then(failing_with=failure, recording_into=asks)
+        ) \
+        .when(
+            lambda: answer_worth_writing(a_model, an_evidence_bundle(), a_measured_incident())
+        ) \
+        .then(
+            all_of(
+                _was_asked(asks, times=1),
+                _kept_no_answer(),
+                _the_faults_were([]),
+                _stopped_as(AskingStopped.DID_NOT_ANSWER),
+                one_record_was_logged(caplog, THE_CONVERSATION_S_LOGGER, logging.WARNING,
+                                      "postmortem asking stopped", {"failure": SOME_REASON})
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_model_that_stops_answering_on_the_third_ask_leaves_the_second_answer(
+) -> None:
+    # The second answer passed the checks and was flagged by the judge, which
+    # it was never told of: asked a third time, the model did not answer. The
+    # second answer is the one read last, and nothing was wrong with it the
+    # checks could say.
+    asks: Kept[Transcript] = Kept()
+
+    Scenario() \
+        .given(
+            a_model := _a_model_answering_then(
+                an_answer_without(ROOT_CAUSE_FIELD),
+                an_answer(root_cause=A_ROOT_CAUSE_CLAIMING_IT),
+                failing_with=ModelRefused(SOME_REASON), recording_into=asks),
+            a_grounding := a_grounding_flagging([_a_flag_on(SOME_UNGROUNDED_CLAIM)])
+        ) \
+        .when(
+            lambda: answer_worth_writing(a_model, an_evidence_bundle(), a_measured_incident(),
+                                         grounding_for=a_grounding)
+        ) \
+        .then(
+            all_of(
+                _was_asked(asks, times=3),
+                _answered_with(ROOT_CAUSE_FIELD, A_ROOT_CAUSE_CLAIMING_IT),
+                _the_faults_were([]),
+                _stopped_as(AskingStopped.DID_NOT_ANSWER)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_stop_where_no_cause_was_asked_says_the_cause_was_not_determined() -> None:
+    # The cause fields are the document's own where the investigation named
+    # none, whether or not the model answered anything else.
+    Scenario() \
+        .given(
+            a_model := _a_model_answering_then(failing_with=ModelRefused(SOME_REASON))
+        ) \
+        .when(
+            lambda: answer_worth_writing(
+                a_model,
+                an_evidence_bundle(candidates=[
+                    a_candidate("no cause determined for HighErrorRate on io-shop",
+                                confidence=None).model_copy(update={"failure_mode": None})]),
+                a_measured_incident())
+        ) \
+        .then(
+            all_of(
+                _answered_with(ROOT_CAUSE_FIELD,
+                               "Not determined: the investigation named no cause."),
+                _answered_with(CAUSE_IN_PLAIN_WORDS_FIELD, "The cause is not known."),
+                _claims_no_cause_reached()
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_request_the_api_rejects_keeps_the_answer_read_before_it_with_the_api_s_words(
+        caplog: pytest.LogCaptureFixture) -> None:
+    # The first answer, faulty, is what there is: kept with its faults and the
+    # rejection, logged as an error, since it is a request built wrong or a
+    # recording that no longer matches. Its chain, long enough to order, is not:
+    # that would be a third request, to an API that just rejected one.
+    some_symptom = "Checkout failed for every customer."
+    some_rejection = "the model's API rejected the request: nothing queued"
+    asks: Kept[Transcript] = Kept()
+
+    Scenario() \
+        .given(
+            a_model := _a_model_answering_then(
+                an_answer(symptom=some_symptom,
+                          root_cause=f"It cost {SOME_INVENTED_FIGURE}.",
+                          causal_chain=[{STEP_FIELD: step, CITES_FIELD: [THE_FIRST_ROW]}
+                                        for step in SOME_STEPS_TO_ORDER]),
+                failing_with=RequestRejected(some_rejection), recording_into=asks)
+        ) \
+        .when(
+            lambda: answer_worth_writing(a_model, an_evidence_bundle(), a_measured_incident())
+        ) \
+        .then(
+            all_of(
+                _was_asked(asks, times=2),
+                _answered_with(SYMPTOM_FIELD, some_symptom),
+                _the_steps_were(SOME_STEPS_TO_ORDER),
+                _kept_faults(at_least=1),
+                _stopped_as(AskingStopped.REJECTED),
+                one_record_was_logged(caplog, THE_CONVERSATION_S_LOGGER, logging.ERROR,
+                                      "postmortem asking stopped",
+                                      {"failure": some_rejection})
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_model_out_of_reach_on_the_run_s_last_try_leaves_no_answer_and_says_why(
+        caplog: pytest.LogCaptureFixture) -> None:
+    # No later try is coming to write it up: the outage ends the asking as a
+    # refusal does, and the record says why it holds no answer.
+    asks: Kept[Transcript] = Kept()
+
+    Scenario() \
+        .given(
+            a_model := _a_model_answering_then(failing_with=ModelUnavailable(SOME_REASON),
+                                               recording_into=asks)
+        ) \
+        .when(
+            lambda: answer_worth_writing(a_model, an_evidence_bundle(), a_measured_incident(),
+                                         outage_ends_it=True)
+        ) \
+        .then(
+            all_of(
+                _was_asked(asks, times=1),
+                _kept_no_answer(),
+                _the_faults_were([]),
+                _stopped_as(AskingStopped.OUT_OF_REACH),
+                one_record_was_logged(caplog, THE_CONVERSATION_S_LOGGER, logging.WARNING,
+                                      "postmortem asking stopped", {"failure": SOME_REASON})
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_model_that_cannot_be_reached_for_now_reaches_the_caller() -> None:
+    # The run is tried again from the write-up, which an outage can outlast.
+    some_outage = ModelUnavailable(DONT_CARE_REASON)
+
+    Scenario() \
+        .given(
+            a_model := _a_model_answering_then(failing_with=some_outage)
+        ) \
+        .when(
+            attempting(lambda: answer_worth_writing(a_model, an_evidence_bundle(),
+                                                    a_measured_incident()))
+        ) \
+        .then(
+            the_same_error_reached_the_caller(some_outage)
+        )
+
+
 def _was_asked(asks: Kept[Transcript], times: int = 1) -> Assertion[Reading]:
     """How many times the model was put the question.
 
@@ -1724,7 +1921,7 @@ def _claims_no_cause_reached() -> Assertion[Reading]:
     """Neither a chain that reaches a cause nor one resting on a reading nothing
     ran - so nothing on the page claims a cause the root cause denies."""
     def assertion(reading: Reading) -> bool:
-        answer, _ = reading
+        answer = reading.answer
 
         if answer.reaches_a_cause or answer.cause_rests_on_an_unrun_reading is not False:
             raise AssertionError(
@@ -1739,7 +1936,7 @@ def _claims_no_cause_reached() -> Assertion[Reading]:
 
 def _answered_with(field: str, expected: str) -> Assertion[Reading]:
     def assertion(reading: Reading) -> bool:
-        answer, _ = reading
+        answer = reading.answer
 
         if getattr(answer, field) != expected:
             raise AssertionError(
@@ -1752,7 +1949,7 @@ def _answered_with(field: str, expected: str) -> Assertion[Reading]:
 
 def _what_went_well_read(expected: list[str]) -> Assertion[Reading]:
     def assertion(reading: Reading) -> bool:
-        answer, _ = reading
+        answer = reading.answer
         read = answer.lessons.went_well if answer.lessons is not None else None
 
         if read != expected:
@@ -1770,7 +1967,7 @@ def _answered_nothing() -> Assertion[Reading]:
     it writes is a document that says on its face that it is partial.
     """
     def assertion(reading: Reading) -> bool:
-        answer, _ = reading
+        answer = reading.answer
 
         if answer != SubmittedPostmortem():
             raise AssertionError(
@@ -1784,7 +1981,7 @@ def _answered_nothing() -> Assertion[Reading]:
 
 def _found_no_fault() -> Assertion[Reading]:
     def assertion(reading: Reading) -> bool:
-        _, faults = reading
+        faults = reading.faults
 
         if faults:
             raise AssertionError(
@@ -1797,7 +1994,7 @@ def _found_no_fault() -> Assertion[Reading]:
 
 def _found_a_fault() -> Assertion[Reading]:
     def assertion(reading: Reading) -> bool:
-        _, faults = reading
+        faults = reading.faults
 
         if not faults:
             raise AssertionError(
@@ -2406,7 +2603,7 @@ def _its_record_was_what_the_writer_was_asked(grounding: AGrounding,
 
 def _its_rule_out_said_by_the_record() -> Assertion[Reading]:
     def assertion(reading: Reading) -> bool:
-        answer, _ = reading
+        answer = reading.answer
         ruled_out = answer.causal_chain[0].ruled_out if answer.causal_chain else []
 
         if [entry.by_the_record for entry in ruled_out] != [True]:
@@ -2421,3 +2618,92 @@ def _its_rule_out_said_by_the_record() -> Assertion[Reading]:
 def _lowered(line: str) -> str:
     """A line as it goes on mid-sentence: its opening lowered, the rest as written."""
     return line[:1].lower() + line[1:]
+
+
+def _a_model_answering_then(*answers: dict[str, Any],
+                            failing_with: Exception,
+                            recording_into: Kept[Transcript] | None = None) -> LLMClient:
+    """Answers each call from `answers` in turn, keeping what it was asked,
+    and raises `failing_with` on the call after the last."""
+    class AnsweringThenFailing:
+        def __init__(self) -> None:
+            self._remaining = list(answers)
+
+        def converse(self,
+                     transcript: Transcript,
+                     tools: list[ToolDefinition],
+                     max_tokens: int | None = None) -> Turn:
+            if recording_into is not None:
+                recording_into.take(transcript)
+
+            if not self._remaining:
+                raise failing_with
+
+            return a_submission_of(self._remaining.pop(0), tools[0].name)
+
+    return AnsweringThenFailing()
+
+
+def _kept_no_answer() -> Assertion[Reading]:
+    """That the answer kept is the one no turn wrote."""
+    def assertion(reading: Reading) -> bool:
+        answer = reading.answer
+
+        if answer != SubmittedPostmortem():
+            raise AssertionError(f"Expected no answer kept, got [{answer}].")
+
+        return True
+
+    return assertion
+
+
+def _the_faults_were(expected: list[str]) -> Assertion[Reading]:
+    def assertion(reading: Reading) -> bool:
+        faults = reading.faults
+
+        if faults != expected:
+            raise AssertionError(f"Expected the faults {expected}, got {faults}.")
+
+        return True
+
+    return assertion
+
+
+def _kept_faults(*, at_least: int) -> Assertion[Reading]:
+    """That the answer kept carries at least `at_least` faults of its own."""
+    def assertion(reading: Reading) -> bool:
+        if len(reading.faults) < at_least:
+            raise AssertionError(
+                f"Expected at least {at_least} fault(s) kept, got {reading.faults}.")
+
+        return True
+
+    return assertion
+
+
+def _stopped_as(expected: AskingStopped | None) -> Assertion[Reading]:
+    """Why the asking stopped, as the review is told it - `None` where it ended
+    on an answer read through."""
+    def assertion(reading: Reading) -> bool:
+        if reading.stopped != expected:
+            raise AssertionError(
+                f"Expected the asking to have stopped as [{expected}], got "
+                f"[{reading.stopped}].")
+
+        return True
+
+    return assertion
+
+
+def _the_steps_were(expected: list[str]) -> Assertion[Reading]:
+    """That the causal chain's steps are `expected`, in that order."""
+    def assertion(reading: Reading) -> bool:
+        answer = reading.answer
+        steps = [step.step for step in answer.causal_chain or []]
+
+        if steps != expected:
+            raise AssertionError(f"Expected the steps {expected}, in order, got {steps}.")
+
+        return True
+
+    return assertion

@@ -110,6 +110,31 @@ def test_a_run_is_held_only_for_as_long_as_it_is_walked() -> None:
 
 
 @pytest.mark.unit
+def test_a_run_s_last_try_is_known_only_for_as_long_as_it_is_walked() -> None:
+    # What the walk writes on a run's last try has no later try to wait for;
+    # said after it, the next run would be taken for its last.
+    some_fence = Fence(run_id="6f1c1d2e-0000-4000-8000-000000000001", epoch=3)
+    holding = Holding()
+    seen: list[bool] = []
+
+    def walked_on_its_last_try_until_it_fails() -> None:
+        with holding.of(some_fence, last_try=True):
+            seen.append(holding.on_its_last_try())
+
+            raise RuntimeError("dont care")
+
+    Scenario() \
+        .given(
+            calling(lambda: seen.append(holding.on_its_last_try()))
+        ) \
+        .when(attempting(walked_on_its_last_try_until_it_fails)) \
+        .then(
+            lambda _: _last_try_in_turn(seen + [holding.on_its_last_try()],
+                                        [False, True, False])
+        )
+
+
+@pytest.mark.unit
 def test_an_action_is_acted_for_only_for_as_long_as_it_is_being_taken() -> None:
     # Whatever the write tier is asked while it is taken carries its id, and
     # nothing asked after it does - however the taking ended. An action left
@@ -251,6 +276,16 @@ def _held_in_turn(seen: list[Fence | None], expected: list[Fence | None]) -> boo
     if seen != expected:
         raise AssertionError(
             f"Expected nothing held before the walk, its run during it and nothing "
+            f"after, {expected}; got {seen}."
+        )
+
+    return True
+
+
+def _last_try_in_turn(seen: list[bool], expected: list[bool]) -> bool:
+    if seen != expected:
+        raise AssertionError(
+            f"Expected no last try before the walk, its run's during it and none "
             f"after, {expected}; got {seen}."
         )
 

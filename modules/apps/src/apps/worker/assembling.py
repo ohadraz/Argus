@@ -403,7 +403,11 @@ def against(connections: Connections,
                                          settings.postmortem_effort)
             ),
             judge_for=judging,
-            recorder=recorder),
+            recorder=recorder,
+            # Asked of the claim held, as `acting_for` is: on a run's last try
+            # a model that cannot be reached ends the write-up rather than the
+            # run, which no later try would write up.
+            last_try=holding.on_its_last_try),
         record_postmortem=records.postmortem,
         # The postmortem's model and effort - one short paragraph, every figure
         # already worded - under no brief of the postmortem's.
@@ -419,7 +423,9 @@ def against(connections: Connections,
             ),
             judge_for=judging,
             address_of=partial(_the_page_of, settings.argus_base_url),
-            recorder=recorder),
+            recorder=recorder,
+            # As the postmortem's: on a run's last try only.
+            last_try=holding.on_its_last_try),
         record_synopsis=records.synopsis,
         transition_incident=records.transition,
         publisher=events_into(connections),

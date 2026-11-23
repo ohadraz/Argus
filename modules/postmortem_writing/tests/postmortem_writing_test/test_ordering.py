@@ -11,9 +11,11 @@ cause, and both are said elsewhere in the document too.
 
 from __future__ import annotations
 
+import logging
+
 import pytest
-from argus_testkit import Assertion, Scenario, the_answer_was
-from core.llm import LLMClient, ModelRefused, ModelUnavailable
+from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged, the_answer_was
+from core.llm import LLMClient, ModelRefused, ModelUnavailable, RequestRejected
 from core.models import ToolDefinition, Transcript, Turn
 from postmortem_writing.answer import SubmittedStep
 from postmortem_writing.ordering import (
@@ -167,6 +169,31 @@ def test_a_model_that_gives_no_order_leaves_the_chain_as_written(failure: Except
         ) \
         .then(
             the_answer_was(SOME_CHAIN)
+        )
+
+
+@pytest.mark.unit
+def test_a_request_the_api_rejects_leaves_the_chain_as_written_and_is_logged_as_an_error(
+        caplog: pytest.LogCaptureFixture) -> None:
+    # The write-up is kept by then, and a rejected order is no reason to lose
+    # it - but a rejection is a request built wrong, or a recording that no
+    # longer matches, and is said as an error.
+    some_rejection = "the model's API rejected the request: nothing queued"
+
+    Scenario() \
+        .given(
+            a_model_failing := _a_model_failing_with(RequestRejected(some_rejection))
+        ) \
+        .when(
+            lambda: put_in_order(a_model_failing, SOME_CHAIN)
+        ) \
+        .then(
+            all_of(
+                the_answer_was(SOME_CHAIN),
+                one_record_was_logged(caplog, "postmortem_writing.ordering", logging.ERROR,
+                                      "causal chain left unordered",
+                                      {"failure": some_rejection})
+            )
         )
 
 

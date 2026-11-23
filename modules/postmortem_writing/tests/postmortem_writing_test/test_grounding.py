@@ -28,7 +28,14 @@ from argus_testkit import (
     one_record_was_logged,
     the_answer_was,
 )
-from core.llm import LLMClient, ModelRefused, ModelUnavailable, RequestRejected
+from core.llm import (
+    AnswerTruncated,
+    LLMClient,
+    ModelRefused,
+    ModelUnavailable,
+    RequestRejected,
+    TurnPaused,
+)
 from core.models import Ask, ModelPolicy, Reasoning, ToolDefinition, Transcript, Turn
 from postmortem_writing.answer import WENT_WRONG_FIELD
 from postmortem_writing.grounding import (
@@ -535,9 +542,11 @@ def test_a_judge_answering_in_prose_judges_nothing_and_says_so(
 
 @pytest.mark.unit
 @pytest.mark.parametrize("failure", [ModelRefused(DONT_CARE_REASON),
+                                     AnswerTruncated(DONT_CARE_REASON),
+                                     TurnPaused(DONT_CARE_REASON),
                                      ModelUnavailable(DONT_CARE_REASON),
                                      RequestRejected(DONT_CARE_REASON)],
-                         ids=["refused", "unavailable", "rejected"])
+                         ids=["refused", "truncated", "paused", "unavailable", "rejected"])
 def test_a_judge_that_cannot_be_had_judges_nothing_and_says_so(
     failure: Exception,
     caplog: pytest.LogCaptureFixture

@@ -62,7 +62,7 @@ from core.events import (
     StatusChanged,
     VerdictReached,
 )
-from core.llm import LLMClient
+from core.llm import LLMClient, ModelUnavailable
 from core.models import (
     CHAT_THREAD,
     DISCARD_CACHE_ENTRIES,
@@ -82,6 +82,7 @@ from core.models import (
     CodeUse,
     DeploymentComparison,
     DeploymentRollbackUndo,
+    ExecutiveSynopsisDocument,
     FailureMode,
     FileAsItRan,
     FirstTold,
@@ -3015,6 +3016,62 @@ def test_a_postmortem_is_written_from_the_sources_it_was_handed(
 
 
 @pytest.mark.component
+def test_a_postmortem_on_a_run_s_last_try_is_written_with_its_model_out_of_reach(
+    a_clean_database: None
+) -> None:
+    # No later try will write it up: the incident gets its record, saying it
+    # holds no answer, rather than a run failed with none.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: write_postmortem_for(
+                incident_id,
+                connections=connect_from_env,
+                sources=_sources_recording_into([]),
+                client_for=_a_model_out_of_reach(),
+                judge_for=_a_judge_reading_into([]),
+                last_try=lambda: True
+            )
+        ) \
+        .then(
+            _it_reports_the_root_cause(None)
+        )
+
+
+@pytest.mark.component
+def test_a_postmortem_with_tries_left_leaves_its_model_out_of_reach_to_the_run(
+    a_clean_database: None
+) -> None:
+    # A later try can outlast the outage and write it up whole: ended here, the
+    # write-up would be given up on the first try every outage reached.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            attempting(lambda: write_postmortem_for(
+                incident_id,
+                connections=connect_from_env,
+                sources=_sources_recording_into([]),
+                client_for=_a_model_out_of_reach(),
+                judge_for=_a_judge_reading_into([]),
+                last_try=lambda: False
+            ))
+        ) \
+        .then(
+            an_error_was_raised(ModelUnavailable)
+        )
+
+
+@pytest.mark.component
 def test_a_postmortem_counts_the_tokens_its_own_writing_spent(
     a_clean_database: None
 ) -> None:
@@ -3077,6 +3134,80 @@ def test_an_overview_is_judged_against_the_stored_postmortem_as_its_reader_reads
         .then(
             _the_judge_read(the_judge_read, [some_root_cause, NO_SUMMARY_WRITTEN])
         )
+
+
+@pytest.mark.component
+def test_an_overview_on_a_run_s_last_try_is_given_up_with_its_model_out_of_reach(
+    a_clean_database: None
+) -> None:
+    # No later try will write it: the synopsis is kept without one, saying why,
+    # rather than a run failed after its write-up.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+        postmortems.record(conn, incident_id, _a_postmortem_saying("dont care"),
+                           at=utc_now())
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: write_synopsis_for(
+                incident_id,
+                connections=connect_from_env,
+                sources=_sources_recording_into([]),
+                client_for=_a_model_out_of_reach(),
+                judge_for=_a_judge_reading_into([]),
+                address_of=_the_page_of,
+                last_try=lambda: True
+            )
+        ) \
+        .then(
+            _the_overview_withheld_saying("the model could not be reached")
+        )
+
+
+@pytest.mark.component
+def test_an_overview_with_tries_left_leaves_its_model_out_of_reach_to_the_run(
+    a_clean_database: None
+) -> None:
+    # A later try can outlast the outage and write it: given up here, every
+    # outage would leave the synopsis without an overview on the first try.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+        postmortems.record(conn, incident_id, _a_postmortem_saying("dont care"),
+                           at=utc_now())
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            attempting(lambda: write_synopsis_for(
+                incident_id,
+                connections=connect_from_env,
+                sources=_sources_recording_into([]),
+                client_for=_a_model_out_of_reach(),
+                judge_for=_a_judge_reading_into([]),
+                address_of=_the_page_of,
+                last_try=lambda: False
+            ))
+        ) \
+        .then(
+            an_error_was_raised(ModelUnavailable)
+        )
+
+
+def _the_overview_withheld_saying(expected: str) -> Assertion[ExecutiveSynopsisDocument]:
+    def assertion(synopsis: ExecutiveSynopsisDocument) -> bool:
+        if synopsis.overview is not None or expected not in (synopsis.withheld_because or ""):
+            raise AssertionError(
+                f"Expected no overview, withheld for a reason saying [{expected}], got "
+                f"[{synopsis.overview}] withheld because [{synopsis.withheld_because}].")
+
+        return True
+
+    return assertion
 
 
 def _sources_recording_into(
@@ -3163,7 +3294,23 @@ def _a_model_submitting(root_cause: str,
     return client_for
 
 
-def _it_reports_the_root_cause(expected: str) -> Assertion[PostmortemDocument]:
+def _a_model_out_of_reach() -> Callable[[Replay], LLMClient]:
+    """The factory the document asks for a client, handing back one no call
+    reaches."""
+    class OutOfReach:
+        def converse(self,
+                     transcript: Transcript,
+                     tools: list[ToolDefinition],
+                     max_tokens: int | None = None) -> Turn:
+            raise ModelUnavailable("the model could not be reached for now")
+
+    def client_for(dont_care_replay: Replay) -> LLMClient:
+        return OutOfReach()
+
+    return client_for
+
+
+def _it_reports_the_root_cause(expected: str | None) -> Assertion[PostmortemDocument]:
     def assertion(document: PostmortemDocument) -> bool:
         if document.root_cause != expected:
             raise AssertionError(

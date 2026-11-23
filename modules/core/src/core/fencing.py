@@ -73,7 +73,8 @@ class Fence:
 
 class Holding:
     """The run this process is walking, as the claim it holds - or none, between
-    runs.
+    runs - with what sits beside the claim for as long as it is held: whether
+    it is the run's last try, and the action a change is being made for.
 
     One per process rather than per thread: a walk is one run at a time, and its
     writes are made from threads it never sees - a checkpoint LangGraph saves in
@@ -82,22 +83,34 @@ class Holding:
 
     def __init__(self) -> None:
         self._held: Fence | None = None
+        self._last_try = False
         self._acting_for: str | None = None
 
     def current(self) -> Fence | None:
         """The claim held now, or `None`."""
         return self._held
 
+    def on_its_last_try(self) -> bool:
+        """Whether the claim held now is its run's last try - `False` between
+        runs.
+
+        Beside the claim because it is a fact about the claim: a run that fails
+        for want of a model now is tried again unless this is its last try, and
+        what is written on the last one has no later one to wait for."""
+        return self._held is not None and self._last_try
+
     @contextmanager
-    def of(self, held: Fence) -> Generator[None]:
+    def of(self, held: Fence, *, last_try: bool = False) -> Generator[None]:
         """`held` for as long as the block runs, and nothing after - however it
-        ends."""
+        ends; and whether it is its run's last try (`last_try`), the same way."""
         self._held = held
+        self._last_try = last_try
 
         try:
             yield
         finally:
             self._held = None
+            self._last_try = False
 
     def current_action(self) -> str | None:
         """The action a change is being made for now, by its row's id, or `None`."""

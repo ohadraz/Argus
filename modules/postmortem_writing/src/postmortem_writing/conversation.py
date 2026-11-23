@@ -14,9 +14,16 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from datetime import date
+from enum import StrEnum
 from typing import Final, NamedTuple
 
-from core.llm import LLMClient, the_call
+from core.llm import (
+    LLMClient,
+    ModelDidNotAnswer,
+    ModelUnavailable,
+    RequestRejected,
+    the_call,
+)
 from core.models import (
     Ask,
     ChangeKind,
@@ -123,14 +130,36 @@ _OUTSIDE_THE_TIMELINE: Final = frozenset({
     USES_OUTSIDE_PREFIX, CODE_READING_PREFIX, ACTION_PREFIX})
 
 
+class AskingStopped(StrEnum):
+    """Why the asking ended where it stood rather than on an answer read
+    through: none of them a fault the checks found, and the first of them
+    before any answer came back at all."""
+
+    DID_NOT_ANSWER = "did_not_answer"
+    OUT_OF_REACH = "out_of_reach"
+    REJECTED = "rejected"
+
+
+class Answered(NamedTuple):
+    """The answer kept, what the checks still found wrong with it, and why the
+    asking stopped where it stopped short - apart from the faults, since the
+    review says each in words of its own."""
+
+    answer: SubmittedPostmortem
+    faults: list[str]
+    stopped: AskingStopped | None = None
+
+
 def answer_worth_writing(llm: LLMClient,
                          evidence: IncidentEvidence,
                          measured: Measurements,
                          judge: LLMClient | None = None,
                          *,
-                         grounding_for: GroundingFor = Grounding
-                         ) -> tuple[SubmittedPostmortem, list[str]]:
-    """The model's answer, and whatever is still wrong with it.
+                         grounding_for: GroundingFor = Grounding,
+                         outage_ends_it: bool = False
+                         ) -> Answered:
+    """The model's answer, whatever is still wrong with it, and why the asking
+    stopped where it did not end on an answer read through.
 
     Two attempts, and a third only for what the second got wrong that the
     first was never told of (spec §7.6). The second is worth making because the
@@ -152,6 +181,19 @@ def answer_worth_writing(llm: LLMClient,
 
     `grounding_for` is how the judge is called on: a seam, so this module's suite
     holds what the judge is handed and when, and leaves the grounding to its own.
+
+    A model that does not answer - it refused, ran out of room, or paused - or
+    an API that rejects the request ends the asking rather than the walk: the
+    incident is over and its record is worth more than the run it would cost.
+    The answer read last is kept, with its faults - or none, where no turn came
+    back - and why the asking stopped, and is not asked again, since what was
+    refused or rejected once would be again. A rejection is logged as an
+    error all the same: it is a request built wrong, or in a replay a
+    recording that no longer matches. A model that cannot be reached for now
+    is not caught: the run is tried again from the write-up, which an outage
+    can outlast - unless `outage_ends_it`, on the run's last try, where there
+    is no later one, and it ends the asking as a refusal does. A run whose tries
+    ran out before its write-up has none: that is the walk's to say, not this.
     """
     asked = opening_ask(evidence, measured)
     # The tool for this incident, which asks what each lead changed only where
@@ -174,54 +216,96 @@ def answer_worth_writing(llm: LLMClient,
         "stops_the_harm_asked": STOPS_THE_HARM_FIELD in submit.required,
         "why_it_did_not_help_asked": WHY_IT_DID_NOT_HELP_FIELD in submit.required,
         "cause_asked": cause_asked})
-    submitted = llm.converse(asked, [submit])
     grounding = _the_grounding(grounding_for, judge, asked, given, evidence.incident_id)
+    # The answer read last and its faults, kept if the asking stops: none
+    # before the first turn comes back.
+    so_far: tuple[SubmittedPostmortem, list[str]] = (SubmittedPostmortem(), [])
 
-    first = _reading_of(submitted, evidence.leads, given, figures, off_the_page,
-                        evidence.pull_request)
-    told = first.faults or _the_faults_in(grounding, first.shown)
-    if not told:
-        return _finished(llm, (first.answer, []), cause_asked=cause_asked)
+    try:
+        submitted = llm.converse(asked, [submit])
+        first = _reading_of(submitted, evidence.leads, given, figures, off_the_page,
+                            evidence.pull_request)
+        so_far = (first.answer, _every_one_of(first.faults))
+        told = first.faults or _the_faults_in(grounding, first.shown)
+        if not told:
+            return _finished(llm, (first.answer, []), cause_asked=cause_asked)
 
-    faults = _every_one_of(told)
-    logger.warning("postmortem answer rejected", extra={"faults": faults})
+        faults = _every_one_of(told)
+        logger.warning("postmortem answer rejected", extra={"faults": faults})
 
-    asked_again = _asking_again(asked, submitted, faults)
-    resubmitted = llm.converse(asked_again, [submit])
-    second = _reading_of(resubmitted, evidence.leads, given, figures, off_the_page,
-                         evidence.pull_request)
-    # Judged only where the checks passed, and its flags sent back only where
-    # they never were: a claim told once and written again is kept, and said
-    # in the log.
-    if second.faults:
-        found = second.faults
-    elif _GROUNDING not in told:
-        found = _the_faults_in(grounding, second.shown)
-    else:
-        grounding.logged(second.shown)
-        found = {}
-    # Untold is what a check found that found nothing in the first answer: a
-    # fault quotes the answer, so one it was told of in other words is new
-    # text and the same fault.
-    untold = _every_one_of({check: said for check, said in found.items() if check not in told})
-    if not untold:
-        return _finished(llm, (second.answer, _every_one_of(second.faults)),
-                         cause_asked=cause_asked)
+        asked_again = _asking_again(asked, submitted, faults)
+        resubmitted = llm.converse(asked_again, [submit])
+        second = _reading_of(resubmitted, evidence.leads, given, figures, off_the_page,
+                             evidence.pull_request)
+        so_far = (second.answer, _every_one_of(second.faults))
+        # Judged only where the checks passed, and its flags sent back only
+        # where they never were: a claim told once and written again is kept,
+        # and said in the log.
+        if second.faults:
+            found = second.faults
+        elif _GROUNDING not in told:
+            found = _the_faults_in(grounding, second.shown)
+        else:
+            grounding.logged(second.shown)
+            found = {}
+        # Untold is what a check found that found nothing in the first answer:
+        # a fault quotes the answer, so one it was told of in other words is
+        # new text and the same fault.
+        untold = _every_one_of({check: said for check, said in found.items()
+                                if check not in told})
+        if not untold:
+            return _finished(llm, so_far, cause_asked=cause_asked)
 
-    logger.warning("postmortem answer rejected", extra={"faults": untold})
+        logger.warning("postmortem answer rejected", extra={"faults": untold})
 
-    # From the opening where the rewrite made no call: there is nothing in its
-    # turn to refuse, and following the first refusal would ask about an answer
-    # the model can no longer see. Starting over, it is told the first
-    # refusal's faults again, or it can write them again and have them kept.
-    asked_last = (rejecting(asked_again, resubmitted, untold) if resubmitted.tool_calls
-                  else opening_ask_again(asked, faults + untold))
-    third = _reading_of(llm.converse(asked_last, [submit]), evidence.leads, given, figures,
-                        off_the_page, evidence.pull_request)
+        # From the opening where the rewrite made no call: there is nothing in
+        # its turn to refuse, and following the first refusal would ask about
+        # an answer the model can no longer see. Starting over, it is told the
+        # first refusal's faults again, or it can write them again and have
+        # them kept.
+        asked_last = (rejecting(asked_again, resubmitted, untold) if resubmitted.tool_calls
+                      else opening_ask_again(asked, faults + untold))
+        third = _reading_of(llm.converse(asked_last, [submit]), evidence.leads, given,
+                            figures, off_the_page, evidence.pull_request)
+    except (ModelDidNotAnswer, RequestRejected) as stopped:
+        return _stopped(so_far, stopped, cause_asked=cause_asked)
+    except ModelUnavailable as unreachable:
+        if not outage_ends_it:
+            raise
+
+        return _stopped(so_far, unreachable, cause_asked=cause_asked)
+
     if not third.faults:
         grounding.logged(third.shown)
 
     return _finished(llm, (third.answer, _every_one_of(third.faults)), cause_asked=cause_asked)
+
+
+def _stopped(so_far: tuple[SubmittedPostmortem, list[str]],
+             stopped: ModelDidNotAnswer | RequestRejected | ModelUnavailable,
+             *,
+             cause_asked: bool) -> Answered:
+    """The answer read last, with its faults and why the asking stopped - in
+    the log in the failure's own words, and to the review as which of the
+    three it was.
+
+    Its chain is not put in order: that is one more request to a model that
+    has just not answered or could not be reached, or to an API that has just
+    rejected one, and a chain left as written is what an order not given
+    leaves anyway."""
+    answer, faults = so_far
+
+    if isinstance(stopped, RequestRejected):
+        logger.error("postmortem asking stopped", extra={"failure": str(stopped)})
+        why = AskingStopped.REJECTED
+    elif isinstance(stopped, ModelUnavailable):
+        logger.warning("postmortem asking stopped", extra={"failure": str(stopped)})
+        why = AskingStopped.OUT_OF_REACH
+    else:
+        logger.warning("postmortem asking stopped", extra={"failure": str(stopped)})
+        why = AskingStopped.DID_NOT_ANSWER
+
+    return Answered(answer if cause_asked else _with_no_cause_named(answer), faults, why)
 
 
 class _Reading(NamedTuple):
@@ -254,12 +338,12 @@ def _the_faults_in(grounding: Flagging, shown: dict[str, str]) -> dict[str, list
 def _finished(llm: LLMClient,
               reading: tuple[SubmittedPostmortem, list[str]],
               *,
-              cause_asked: bool) -> tuple[SubmittedPostmortem, list[str]]:
+              cause_asked: bool) -> Answered:
     """The answer kept: its chain in order, and - where the model was not asked
     what the cause was - the cause fields as the document writes them."""
     answer, faults = _with_its_chain_in_order(llm, reading)
 
-    return (answer if cause_asked else _with_no_cause_named(answer)), faults
+    return Answered(answer if cause_asked else _with_no_cause_named(answer), faults)
 
 
 def _with_no_cause_named(answer: SubmittedPostmortem) -> SubmittedPostmortem:

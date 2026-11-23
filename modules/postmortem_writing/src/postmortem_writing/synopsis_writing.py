@@ -46,7 +46,8 @@ class Overviewing(Protocol):
                  judge: LLMClient | None,
                  document: str,
                  labels: frozenset[str],
-                 incident_id: str) -> Overview:
+                 incident_id: str,
+                 outage_ends_it: bool = False) -> Overview:
         ...
 
 
@@ -62,6 +63,7 @@ def write_executive_synopsis(postmortem: PostmortemDocument,
                              sources: Sources,
                              llm: LLMClient,
                              judge: LLMClient | None,
+                             outage_ends_it: bool = False,
                              overview_of: Overviewing = the_overview
                              ) -> ExecutiveSynopsisDocument:
     """The synopsis of one written-up incident: its overview, or why there is
@@ -73,13 +75,16 @@ def write_executive_synopsis(postmortem: PostmortemDocument,
 
     `document` is the postmortem as its reader reads it, and `labels` every
     label its rows go by: what `judge` reads the overview against.
+    `outage_ends_it` is whether a model that cannot be reached gives the
+    overview up, as on a run's last try, rather than failing the run.
     """
     overview = overview_of(llm, service=service, symptom=postmortem.symptom,
                            cause=postmortem.cause_in_plain_words, figures=figures, said=said,
                            paging=paging_of(postmortem.paged, postmortem.responders),
                            disproven=postmortem.disproven_at is not None,
                            resolution=resolution, judge=judge, document=document,
-                           labels=labels, incident_id=incident_id)
+                           labels=labels, incident_id=incident_id,
+                           outage_ends_it=outage_ends_it)
     breakdown = _the_breakdown(postmortem, incident_id, sources)
 
     return ExecutiveSynopsisDocument(

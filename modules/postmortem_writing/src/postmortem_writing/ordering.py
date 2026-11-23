@@ -18,13 +18,16 @@ answer, and one that drops or repeats a step is not taken.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from typing import Final
 
-from core.llm import LLMClient, ModelDidNotAnswer, ModelUnavailable, the_call
+from core.llm import LLMClient, ModelDidNotAnswer, ModelUnavailable, RequestRejected, the_call
 from core.models import Ask, ToolDefinition, Transcript, Turn
 
 from postmortem_writing.answer import SubmittedStep
+
+logger = logging.getLogger(__name__)
 
 ORDER_TOOL_NAME: Final = "order_chain"
 ORDER_FIELD: Final = "order"
@@ -57,13 +60,13 @@ ORDER_CHAIN = ToolDefinition(
 def put_in_order(llm: LLMClient, chain: Sequence[SubmittedStep]) -> list[SubmittedStep]:
     """The chain in the order the model gives - or as written, where it is too
     short to have a step that could move, the order given is not the same
-    steps rearranged with both ends in place, or the model gave no answer or
-    could not be reached for now.
+    steps rearranged with both ends in place, the model gave no answer or
+    could not be reached for now, or the API rejected the request.
 
-    Those two are caught and nothing else is: the write-up is kept by then,
-    and an order not suggested is no reason to lose it. A request refused as
-    asked is neither - in a replay it is a recording that no longer matches,
-    which has to be loud rather than a chain quietly left unordered.
+    Those three are caught: the write-up is kept by then, and an order not
+    suggested is no reason to lose it. A rejection is logged as an error all
+    the same, as the write-up's own is: it is a request built wrong, or in a
+    replay a recording that no longer matches.
     """
     if len(chain) < _SHORTEST_TO_ORDER:
         return list(chain)
@@ -71,6 +74,9 @@ def put_in_order(llm: LLMClient, chain: Sequence[SubmittedStep]) -> list[Submitt
     try:
         answered = llm.converse(ordering_asked(chain), [ORDER_CHAIN])
     except (ModelDidNotAnswer, ModelUnavailable):
+        return list(chain)
+    except RequestRejected as rejected:
+        logger.error("causal chain left unordered", extra={"failure": str(rejected)})
         return list(chain)
 
     return in_its_order(chain, answered)

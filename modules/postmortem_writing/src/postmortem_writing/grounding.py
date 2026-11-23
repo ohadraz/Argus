@@ -37,7 +37,13 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Final, Protocol
 
-from core.llm import LLMClient, ModelRefused, ModelUnavailable, RequestRejected, the_call
+from core.llm import (
+    LLMClient,
+    ModelDidNotAnswer,
+    ModelUnavailable,
+    RequestRejected,
+    the_call,
+)
 from core.models import Ask, ModelPolicy, Reasoning, ToolDefinition, Transcript
 from pydantic import BaseModel, ValidationError
 
@@ -246,7 +252,7 @@ def flags_on(judge: LLMClient,
     """
     try:
         turn = judge.converse(_asked(record, answer, scope), [JUDGE_CLAIMS])
-    except (ModelRefused, ModelUnavailable, RequestRejected) as failure:
+    except (ModelDidNotAnswer, ModelUnavailable, RequestRejected) as failure:
         logger.warning(DID_NOT_ANSWER, extra={"failure": str(failure)})
         return []
 

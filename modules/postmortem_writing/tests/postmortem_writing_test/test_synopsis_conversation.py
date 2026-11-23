@@ -10,8 +10,22 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 import pytest
-from argus_testkit import Assertion, Kept, Scenario, all_of
-from core.llm import LLMClient, ModelRefused, ModelUnavailable, RequestRejected
+from argus_testkit import (
+    Assertion,
+    Kept,
+    Scenario,
+    all_of,
+    attempting,
+    the_same_error_reached_the_caller,
+)
+from core.llm import (
+    AnswerTruncated,
+    LLMClient,
+    ModelRefused,
+    ModelUnavailable,
+    RequestRejected,
+    TurnPaused,
+)
 from core.models import ToolDefinition, ToolResults, Transcript, Turn
 from postmortem_writing.grounding import Flag, Grounding, GroundingFor
 from postmortem_writing.synopsis_conversation import OVERVIEW_SCOPE, Overview, the_overview
@@ -34,6 +48,8 @@ SOME_FIGURES_SAID = {**SOME_FIGURES,
                      "duration": f"{SOME_MINUTES} minutes {SOME_SECONDS} seconds"}
 DONT_CARE_RESOLUTION = ("Argus: turned monthly-spend-feature off - recovered",)
 DONT_CARE_REASON = "dont care"
+# Why a model did not answer, as the reason the overview was given up says it.
+SOME_REASON = "the model declined to answer"
 
 # A number the model wrote in by itself, which no figure stands for.
 SOME_NUMBER_OF_ITS_OWN = 7
@@ -280,9 +296,10 @@ def test_an_overview_refused_twice_is_given_up_saying_why() -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("failure", [ModelRefused(DONT_CARE_REASON),
-                                     ModelUnavailable(DONT_CARE_REASON)],
-                         ids=["refused", "unavailable"])
+@pytest.mark.parametrize("failure", [ModelRefused(SOME_REASON),
+                                     AnswerTruncated(SOME_REASON),
+                                     TurnPaused(SOME_REASON)],
+                         ids=["refused", "truncated", "paused"])
 def test_a_model_that_does_not_answer_gives_the_overview_up(failure: Exception) -> None:
     # The incident is over and the postmortem written; an overview nobody could
     # get is no reason to fail the walk, and no reason to post anything either.
@@ -294,7 +311,40 @@ def test_a_model_that_does_not_answer_gives_the_overview_up(failure: Exception) 
             lambda: _the_overview_from(a_model)
         ) \
         .then(
-            _given_up_saying("the model")
+            _given_up_saying(f"the model did not answer: {SOME_REASON}")
+        )
+
+
+@pytest.mark.unit
+def test_a_model_out_of_reach_on_the_run_s_last_try_gives_the_overview_up() -> None:
+    # No later try is coming to write it: the walk goes on without one.
+    Scenario() \
+        .given(
+            a_model := _a_model_failing_with(ModelUnavailable(SOME_REASON))
+        ) \
+        .when(
+            lambda: _the_overview_from(a_model, outage_ends_it=True)
+        ) \
+        .then(
+            _given_up_saying(f"the model could not be reached: {SOME_REASON}")
+        )
+
+
+@pytest.mark.unit
+def test_a_model_out_of_reach_with_tries_left_reaches_the_caller() -> None:
+    # The run is tried again from the synopsis, which an outage can outlast:
+    # given up now, it would be given up for good.
+    some_outage = ModelUnavailable(DONT_CARE_REASON)
+
+    Scenario() \
+        .given(
+            a_model := _a_model_failing_with(some_outage)
+        ) \
+        .when(
+            attempting(lambda: _the_overview_from(a_model))
+        ) \
+        .then(
+            the_same_error_reached_the_caller(some_outage)
         )
 
 
@@ -319,13 +369,15 @@ def test_a_request_the_api_rejects_gives_the_overview_up_in_the_api_s_words() ->
 def _the_overview_from(llm: LLMClient,
                        said: Mapping[str, str] = SOME_FIGURES_SAID,
                        judge: LLMClient | None = None,
-                       grounding_for: GroundingFor = Grounding) -> Overview:
+                       grounding_for: GroundingFor = Grounding,
+                       outage_ends_it: bool = False) -> Overview:
     return the_overview(llm, service="io-shop", symptom="Checkout failed",
                         cause="A flag change turned off the path checkout relies on.",
                         figures=SOME_FIGURES, said=said, paging=Paging.ANSWERED,
                         disproven=False, resolution=DONT_CARE_RESOLUTION, judge=judge,
                         document=SOME_DOCUMENT, labels=SOME_LABELS,
-                        incident_id=SOME_INCIDENT_ID, grounding_for=grounding_for)
+                        incident_id=SOME_INCIDENT_ID, grounding_for=grounding_for,
+                        outage_ends_it=outage_ends_it)
 
 
 def _a_model_failing_with(failure: Exception) -> LLMClient:

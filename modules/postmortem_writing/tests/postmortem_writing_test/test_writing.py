@@ -69,7 +69,7 @@ from postmortem_writing.answer import (
     SubmittedStep,
 )
 from postmortem_writing.assumptions import assumptions_of
-from postmortem_writing.conversation import answer_worth_writing
+from postmortem_writing.conversation import Answered, AskingStopped, answer_worth_writing
 from postmortem_writing.detection_lesson import the_detection_lesson
 from postmortem_writing.estimate import DemandLevels, LatencyLevels, LoadLevels
 from postmortem_writing.log_groups import grouped
@@ -440,6 +440,36 @@ def test_the_review_is_of_the_document_as_written_with_the_faults_still_in_it() 
                 _publishes("the review", lambda document: document.review, some_review),
                 _reviewed_as_written(a_reviewer, some_faults)
             )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("stopped", list(AskingStopped))
+def test_why_the_asking_stopped_goes_to_the_review_apart_from_the_faults(
+        stopped: AskingStopped) -> None:
+    # A model that did not answer, or was out of reach, or a request the API
+    # rejected is no fault the checks found - and a first ask stopped short has
+    # no answer for them to find one in. The review says each in its own words.
+    some_review = [ReviewCriterion(criterion="some criterion", met=False)]
+    a_reviewer = _reviewing_that_returns(some_review)
+
+    Scenario() \
+        .given(
+            an_asking_stopped_short := _asking_that_answers(a_submitted_answer(),
+                                                            stopped=stopped)
+        ) \
+        .when(
+            lambda: write_postmortem(an_evidence_bundle(),
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     measure=_measuring_that_returns(
+                                         a_measured_incident()),
+                                     ask=an_asking_stopped_short,
+                                     disclose=_disclosing_that_returns([]),
+                                     review=a_reviewer)
+        ) \
+        .then(
+            _reviewed_as_written(a_reviewer, [], stopped)
         )
 
 
@@ -1881,6 +1911,28 @@ def test_the_answer_is_read_by_the_judge_the_document_was_handed() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("outage_ends_it", [True, False], ids=["last-try", "tries-left"])
+def test_the_answer_is_asked_for_saying_whether_an_outage_ends_it(outage_ends_it: bool) -> None:
+    # Whether this is the run's last try is the caller's to know; the asking
+    # is only told what it comes to.
+    an_asker = _asking_that_answers(a_submitted_answer())
+
+    Scenario() \
+        .when(
+            lambda: write_postmortem(an_evidence_bundle(),
+                                     some_sources(),
+                                     _dont_care_llm(),
+                                     outage_ends_it=outage_ends_it,
+                                     measure=_measuring_that_returns(a_measured_incident()),
+                                     ask=an_asker,
+                                     disclose=_disclosing_that_returns([]))
+        ) \
+        .then(
+            _asked_with_an_outage_ending_it(an_asker, outage_ends_it)
+        )
+
+
+@pytest.mark.unit
 def test_the_disclosures_are_written_from_what_was_measured_and_configured() -> None:
     # The disclosure module reads no source of its own, so everything it needs
     # has to arrive here: the incident as measured, and the working year the
@@ -2014,9 +2066,10 @@ def _reports_the_readings(deploys: ChannelReading, flags: ChannelReading,
 
 
 def _asking_that_answers(answer: SubmittedPostmortem,
-                         faults: list[str] | None = None) -> MagicMock:
+                         faults: list[str] | None = None,
+                         stopped: AskingStopped | None = None) -> MagicMock:
     asking = create_autospec(answer_worth_writing)
-    asking.return_value = (answer, faults if faults is not None else [])
+    asking.return_value = Answered(answer, faults if faults is not None else [], stopped)
 
     return cast(MagicMock, asking)
 
@@ -2102,11 +2155,13 @@ def _lists_exactly(expected: list[str]) -> Assertion[PostmortemDocument]:
 
 
 def _reviewed_as_written(reviewing: MagicMock,
-                         faults: list[str]) -> Assertion[PostmortemDocument]:
+                         faults: list[str],
+                         stopped: AskingStopped | None = None) -> Assertion[PostmortemDocument]:
     """The review was of this document - every section but the review itself -
-    and of the faults the answer still carried."""
+    of the faults the answer still carried, and of why the asking stopped."""
     def assertion(document: PostmortemDocument) -> bool:
         reviewed, reviewed_with = reviewing.call_args.args
+        stopped_as_reviewed = reviewing.call_args.kwargs.get("stopped")
         as_written = document.model_copy(update={"review": []})
 
         if reviewed != as_written:
@@ -2118,6 +2173,11 @@ def _reviewed_as_written(reviewing: MagicMock,
             raise AssertionError(
                 f"Expected the review to be given the faults {faults}, got "
                 f"{reviewed_with}.")
+
+        if stopped_as_reviewed != stopped:
+            raise AssertionError(
+                f"Expected the review to be told the asking stopped as [{stopped}], got "
+                f"[{stopped_as_reviewed}].")
 
         return True
 
@@ -2188,6 +2248,22 @@ def _judged_by(asking: MagicMock, judge: LLMClient) -> Assertion[PostmortemDocum
             raise AssertionError(
                 f"Expected the answer read by the judge the document was handed, "
                 f"got [{handed}].")
+
+        return True
+
+    return assertion
+
+
+def _asked_with_an_outage_ending_it(asking: MagicMock,
+                                    expected: bool) -> Assertion[PostmortemDocument]:
+    """The answer was asked for saying whether an outage ends the asking."""
+    def assertion(dont_care_document: PostmortemDocument) -> bool:
+        handed = asking.call_args.kwargs.get("outage_ends_it")
+
+        if handed is not expected:
+            raise AssertionError(
+                f"Expected the answer asked for with outage_ends_it [{expected}], got "
+                f"[{handed}].")
 
         return True
 

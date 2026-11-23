@@ -774,6 +774,50 @@ def test_a_walk_the_model_could_not_answer_for_now_is_requeued_to_try_again(
 
 
 @pytest.mark.component
+@pytest.mark.parametrize(("retries_before", "last_try"),
+                         [(0, False), (SOME_TRYING_AGAIN.attempts - 1, True)],
+                         ids=["tries-left", "last-try"])
+def test_a_walk_is_told_whether_it_is_its_run_s_last_try(
+    retries_before: int, last_try: bool, a_clean_database: None
+) -> None:
+    # Asked by the write-up, through the process's holding: on the last try a
+    # model out of reach ends the write-up, since no later try will write it.
+    dont_care_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    dont_care_worker = "a-worker"
+    holding = Holding()
+    told: list[bool] = []
+
+    def walk_asking_whether_it_is_the_last(dont_care_incident_id: str) -> None:
+        told.append(holding.on_its_last_try())
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, dont_care_alert, at=utc_now())
+        runs.enqueue(conn, incident_id)
+        _requeued_before(conn, incident_id, retries_before)
+
+        Scenario() \
+            .given(
+                incident_id
+            ) \
+            .when(
+                lambda: worker.take_one_run(
+                    conn,
+                    dont_care_worker,
+                    A_GENEROUS_LEASE,
+                    walk=walk_asking_whether_it_is_the_last,
+                    unwind=_an_unwind_recording_what_it_was_given([]),
+                    ended_by_a_person=ended_by_a_person_via(connect_from_env),
+                    trying_again=SOME_TRYING_AGAIN,
+                    connections=connect_from_env,
+                    holding=holding
+                )
+            ) \
+            .then(
+                lambda _: _told_in_turn(told, [last_try])
+            )
+
+
+@pytest.mark.component
 @pytest.mark.parametrize("retries_before", [0, 1])
 def test_a_run_requeued_waits_longer_each_time(
     retries_before: int, a_clean_database: None
@@ -2606,6 +2650,16 @@ def _a_walk_that_claims_an_action_and_fails(
         raise failing_with if failing_with is not None else RuntimeError("dont care")
 
     return walk
+
+
+def _told_in_turn(told: list[bool], expected: list[bool]) -> bool:
+    """That the walk was walked once, told each time whether it was the last."""
+    if told != expected:
+        raise AssertionError(
+            f"Expected the walk told whether it was its run's last try {expected}, got "
+            f"{told}.")
+
+    return True
 
 
 def _requeued_before(conn: psycopg.Connection, incident_id: str, retries: int) -> None:

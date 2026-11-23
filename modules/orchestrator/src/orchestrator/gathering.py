@@ -154,7 +154,9 @@ def write_postmortem_for(incident_id: str,
                          sources: Sources,
                          client_for: Callable[[Replay], LLMClient],
                          judge_for: Callable[[Replay], LLMClient],
-                         recorder: Recorder = records_nothing) -> PostmortemDocument:
+                         recorder: Recorder = records_nothing,
+                         last_try: Callable[[], bool] = lambda: False
+                         ) -> PostmortemDocument:
     """The real postmortem for one incident: gather, then write.
 
     `sources` and `client_for` arrive as arguments rather than being built
@@ -182,13 +184,19 @@ def write_postmortem_for(incident_id: str,
     `judge_for` builds the grounding judge's client the same way, filing its
     calls under the incident too: they are what the write-up cost as much as
     the writer's are.
+
+    `last_try` is asked once, before the writer is: whether this is the run's
+    last try, on which a model that cannot be reached ends the write-up rather
+    than the run - no later try is coming to write it up. Never, unless
+    whoever started the process says.
     """
     with connections() as conn:
         evidence = gather_evidence(conn, incident_id)
 
     document = write_postmortem(
         evidence, sources, client_for(Replay(incident_id, recorder)),
-        judge=judge_for(Replay(incident_id, recorder))
+        judge=judge_for(Replay(incident_id, recorder)),
+        outage_ends_it=last_try()
     )
 
     with connections() as conn:
@@ -203,7 +211,9 @@ def write_synopsis_for(incident_id: str,
                        client_for: Callable[[Replay], LLMClient],
                        judge_for: Callable[[Replay], LLMClient],
                        address_of: Callable[[str], str],
-                       recorder: Recorder = records_nothing) -> ExecutiveSynopsisDocument:
+                       recorder: Recorder = records_nothing,
+                       last_try: Callable[[], bool] = lambda: False
+                       ) -> ExecutiveSynopsisDocument:
     """The executive synopsis for one incident, from its stored postmortem.
 
     The figures and the resolution are worded here, as the postmortem's page
@@ -217,6 +227,10 @@ def write_synopsis_for(incident_id: str,
     go by, for the grounding judge (`judge_for`) to read the overview against:
     the document a reader of both would hold the overview to. `address_of`
     gives an incident's page by its id, as the page itself links one.
+
+    `last_try` is asked once, as the postmortem's is: on the run's last try a
+    model that cannot be reached gives the overview up rather than failing the
+    run.
     """
     with connections() as conn:
         incident = incidents.get(conn, incident_id)
@@ -240,7 +254,8 @@ def write_synopsis_for(incident_id: str,
         labels=rendered.labels,
         sources=sources,
         llm=client_for(Replay(incident_id, recorder)),
-        judge=judge_for(Replay(incident_id, recorder)))
+        judge=judge_for(Replay(incident_id, recorder)),
+        outage_ends_it=last_try())
 
 
 def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvidence:

@@ -20,7 +20,7 @@ from typing import Final
 
 from core.llm import (
     LLMClient,
-    ModelRefused,
+    ModelDidNotAnswer,
     ModelUnavailable,
     RequestRejected,
     sent_back,
@@ -74,14 +74,17 @@ def the_overview(llm: LLMClient,
                  document: str,
                  labels: frozenset[str],
                  incident_id: str,
-                 grounding_for: GroundingFor = Grounding) -> Overview:
+                 grounding_for: GroundingFor = Grounding,
+                 outage_ends_it: bool = False) -> Overview:
     """The overview for the finished incident, asked of the model at most twice.
 
-    A model that refuses or cannot be reached, or an API that rejects the
-    request, gives the overview up rather than failing the walk: the incident
-    is over and its postmortem written either way. A rejection is logged as an
-    error all the same: it is a request built wrong, or in a replay a recording
-    that no longer matches.
+    A model that does not answer - it refused, ran out of room, or paused - or
+    an API that rejects the request gives the overview up rather than failing
+    the walk: the incident is over and its postmortem written either way. A
+    rejection is logged as an error all the same: it is a request built wrong,
+    or in a replay a recording that no longer matches. A model that cannot be
+    reached gives it up only where `outage_ends_it`, on the run's last try; on
+    any other the run is tried again from here, which an outage can outlast.
 
     An overview the checks pass is read by `judge`, where there is one, against
     the postmortem it was written from (`document`, whose rows go by `labels`)
@@ -107,8 +110,14 @@ def the_overview(llm: LLMClient,
         logger.warning("executive overview rejected", extra={"faults": faults})
         resubmitted = llm.converse(_asking_again(asked, submitted, faults),
                                    [SUBMIT_EXECUTIVE_OVERVIEW])
-    except (ModelRefused, ModelUnavailable) as failure:
+    except ModelDidNotAnswer as failure:
         return Overview(text=None, withheld_because=f"the model did not answer: {failure}")
+    except ModelUnavailable as unreachable:
+        if not outage_ends_it:
+            raise
+
+        return Overview(text=None,
+                        withheld_because=f"the model could not be reached: {unreachable}")
     except RequestRejected as rejected:
         # The overview is the walk's last word on an incident already written
         # up, so it is given up with the API's own reason rather than failing a

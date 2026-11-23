@@ -23,6 +23,7 @@ from core.models import (
     why_it_was_refused,
 )
 
+from postmortem_writing.conversation import AskingStopped
 from postmortem_writing.labels import is_a_code_reading
 from postmortem_writing.sections import was_never_tried
 
@@ -32,17 +33,31 @@ ANALYSIS_COMPLETE: Final = "Root-cause analysis complete"
 ITEMS_OWNED_AND_DATED: Final = "Every action item owned and dated"
 REVIEWED_AND_SHARED: Final = "Reviewed and shared"
 
+# What the checks still found, said of the answer kept.
+CHECK_FAULTS_LEFT: Final = "the answer still had faults the checks found"
+
+# Why the asking stopped, each said as what it was: none is a fault the checks
+# found, and a model that never answered left no answer to find one in.
+ASKING_STOPPED: Final = {
+    AskingStopped.DID_NOT_ANSWER: "the model did not answer, so the asking stopped",
+    AskingStopped.OUT_OF_REACH: "the model could not be reached, so the asking stopped",
+    AskingStopped.REJECTED: "the model's API rejected the request, so the asking stopped"
+}
+
 
 def review_of(document: PostmortemDocument,
               faults: list[str],
               *,
               reaches_a_cause: bool,
-              rests_on_an_unrun_reading: bool | None = None) -> list[ReviewCriterion]:
+              rests_on_an_unrun_reading: bool | None = None,
+              stopped: AskingStopped | None = None) -> list[ReviewCriterion]:
     """The five criteria, in Google's order, judged against `document`.
 
-    `faults` are what the checks still found in the model's answer. They bear
-    on the analysis alone: the timeline and the figures are written by code,
-    and an answer that misspoke does not make them any less collected.
+    `faults` are what the checks still found in the model's answer, and
+    `stopped` why the asking stopped short of an answer read through, where it
+    did. They bear on the analysis alone: the timeline and the figures are
+    written by code, and an answer that misspoke - or never came - does not make
+    them any less collected.
 
     `reaches_a_cause` is the answer's own word on its chain - whether it says
     why the change that set the incident off broke the service. Nothing in the
@@ -67,7 +82,7 @@ def review_of(document: PostmortemDocument,
     document fell short where Argus could have done more, and here the next
     step is a person's - which is what each says.
     """
-    short = _what_the_analysis_lacks(document, faults, reaches_a_cause=reaches_a_cause)
+    short = _what_the_analysis_lacks(document, faults, stopped, reaches_a_cause=reaches_a_cause)
     unrun = (_the_readings_it_rests_on(document, rests_on_an_unrun_reading)
              if not short else [])
 
@@ -317,17 +332,19 @@ def _what_the_impact_lacks(document: PostmortemDocument) -> list[str]:
             *([unended] if not ended else [])]
 
 
-def _what_the_analysis_lacks(document: PostmortemDocument, faults: list[str], *,
+def _what_the_analysis_lacks(document: PostmortemDocument, faults: list[str],
+                             stopped: AskingStopped | None, *,
                              reaches_a_cause: bool) -> list[str]:
-    """Nothing left wrong with the answer, more than one step, a cause
-    confirmed, and a chain reaching past the change that set it off - in that
-    order. One step is the symptom restated; the analysis is the steps below
-    it. A chain ending on a cause nothing confirmed is a document saying,
-    rightly, that the cause is not confirmed, and a ticked box beside it would
-    say the opposite."""
+    """Nothing left wrong with the answer, an asking that did not stop short,
+    more than one step, a cause confirmed, and a chain reaching past the change
+    that set it off - in that order. One step is the symptom restated; the
+    analysis is the steps below it. A chain ending on a cause nothing confirmed
+    is a document saying, rightly, that the cause is not confirmed, and a
+    ticked box beside it would say the opposite."""
     results = [hypothesis.result for hypothesis in document.hypotheses]
 
-    return [*(["the answer still had faults the checks found"] if faults else []),
+    return [*([CHECK_FAULTS_LEFT] if faults else []),
+            *([ASKING_STOPPED[stopped]] if stopped is not None else []),
             *(["the causal chain stops at the symptom"] if len(document.causal_chain) <= 1
               else []),
             *([_why_nothing_was_confirmed(results)] if Verdict.CONFIRMED not in results else []),
