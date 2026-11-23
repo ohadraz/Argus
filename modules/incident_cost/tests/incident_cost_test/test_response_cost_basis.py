@@ -13,22 +13,17 @@ from decimal import Decimal
 
 import pytest
 from argus_testkit import Assertion, Scenario, all_of
-from postmortem_writing import (
+from incident_cost.responder_cost import ResponderCost
+from incident_cost.response_cost_basis import (
     PAY_BAND_ASSUMPTION_LABEL,
     PAY_BANDS_UNAVAILABLE_ASSUMPTION,
     UNPRICED_TITLE_ASSUMPTION_LABEL,
     WORKING_YEAR_ASSUMPTION_LABEL,
+    response_cost_basis,
 )
-from postmortem_writing.responder_cost import ResponderCost
-from postmortem_writing.response_cost_basis import response_cost_basis
-from postmortem_writing.sources import EngagedResponder, PayBand
+from incident_cost.sources import EngagedResponder, PayBand
 
-from postmortem_writing_test.framework.builders import (
-    DONT_CARE_WORKING_YEAR,
-    SOME_CURRENCY,
-    a_measured_incident,
-    an_engagement_of,
-)
+from incident_cost_test.framework.builders import DONT_CARE_WORKING_YEAR, SOME_CURRENCY
 
 SOME_TITLE = "Senior Kuki"
 SOME_TITLE_NO_BAND_COVERS = "Principal Buki"
@@ -61,13 +56,12 @@ def test_a_published_cost_discloses_the_working_year_and_the_bands_it_used() -> 
 
     Scenario() \
         .given(
-            an_incident_whose_response_was_priced := a_measured_incident(
-                engaged=an_engagement_of([a_responder]),
-                bands={SOME_TITLE: SOME_BAND},
-                cost=DONT_CARE_PUBLISHED_COST)
+            a_response_priced := [a_responder]
         ) \
         .when(
-            lambda: response_cost_basis(an_incident_whose_response_was_priced,
+            lambda: response_cost_basis(a_response_priced,
+                                        {SOME_TITLE: SOME_BAND},
+                                        DONT_CARE_PUBLISHED_COST,
                                         SOME_WORKING_YEAR_IN_HOURS)
         ) \
         .then(
@@ -87,13 +81,12 @@ def test_a_published_cost_names_no_figure_of_the_band_it_used() -> None:
 
     Scenario() \
         .given(
-            an_incident_whose_response_was_priced := a_measured_incident(
-                engaged=an_engagement_of([a_responder]),
-                bands={SOME_TITLE: SOME_BAND},
-                cost=DONT_CARE_PUBLISHED_COST)
+            a_response_priced := [a_responder]
         ) \
         .when(
-            lambda: response_cost_basis(an_incident_whose_response_was_priced,
+            lambda: response_cost_basis(a_response_priced,
+                                        {SOME_TITLE: SOME_BAND},
+                                        DONT_CARE_PUBLISHED_COST,
                                         SOME_WORKING_YEAR_IN_HOURS)
         ) \
         .then(
@@ -118,13 +111,12 @@ def test_a_title_two_people_held_is_disclosed_once() -> None:
 
     Scenario() \
         .given(
-            an_incident_two_people_of_one_title_responded_to := a_measured_incident(
-                engaged=an_engagement_of(two_responders_holding_one_title),
-                bands={SOME_TITLE: SOME_BAND},
-                cost=DONT_CARE_PUBLISHED_COST)
+            two_responders_holding_one_title
         ) \
         .when(
-            lambda: response_cost_basis(an_incident_two_people_of_one_title_responded_to,
+            lambda: response_cost_basis(two_responders_holding_one_title,
+                                        {SOME_TITLE: SOME_BAND},
+                                        DONT_CARE_PUBLISHED_COST,
                                         DONT_CARE_WORKING_YEAR)
         ) \
         .then(
@@ -142,13 +134,13 @@ def test_an_unpriced_title_is_named_where_no_cost_could_be_published() -> None:
 
     Scenario() \
         .given(
-            an_incident_nobody_could_price := a_measured_incident(
-                engaged=an_engagement_of([a_responder_no_band_covers]),
-                bands={SOME_TITLE: SOME_BAND},
-                cost=None)
+            a_response_nobody_could_price := [a_responder_no_band_covers]
         ) \
         .when(
-            lambda: response_cost_basis(an_incident_nobody_could_price, DONT_CARE_WORKING_YEAR)
+            lambda: response_cost_basis(a_response_nobody_could_price,
+                                        {SOME_TITLE: SOME_BAND},
+                                        None,
+                                        DONT_CARE_WORKING_YEAR)
         ) \
         .then(
             _names_a_line_mentioning(UNPRICED_TITLE_ASSUMPTION_LABEL,
@@ -164,13 +156,13 @@ def test_a_responder_with_no_title_is_said_to_have_none() -> None:
 
     Scenario() \
         .given(
-            an_incident_nobody_could_price := a_measured_incident(
-                engaged=an_engagement_of([a_responder_with_no_title]),
-                bands={SOME_TITLE: SOME_BAND},
-                cost=None)
+            a_response_nobody_could_price := [a_responder_with_no_title]
         ) \
         .when(
-            lambda: response_cost_basis(an_incident_nobody_could_price, DONT_CARE_WORKING_YEAR)
+            lambda: response_cost_basis(a_response_nobody_could_price,
+                                        {SOME_TITLE: SOME_BAND},
+                                        None,
+                                        DONT_CARE_WORKING_YEAR)
         ) \
         .then(
             _names_a_line_mentioning(UNPRICED_TITLE_ASSUMPTION_LABEL,
@@ -187,13 +179,12 @@ def test_bands_that_could_not_be_read_are_disclosed_where_somebody_responded() -
 
     Scenario() \
         .given(
-            an_incident_whose_responders_could_not_be_priced := a_measured_incident(
-                engaged=an_engagement_of([a_responder]),
-                bands=None,
-                cost=None)
+            a_response_no_band_could_be_read_for := [a_responder]
         ) \
         .when(
-            lambda: response_cost_basis(an_incident_whose_responders_could_not_be_priced,
+            lambda: response_cost_basis(a_response_no_band_could_be_read_for,
+                                        None,
+                                        None,
                                         DONT_CARE_WORKING_YEAR)
         ) \
         .then(

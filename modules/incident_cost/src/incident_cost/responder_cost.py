@@ -18,7 +18,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel
 
-from postmortem_writing.sources import EngagedResponder, PayBand
+from incident_cost.sources import EngagedResponder, PayBand
 
 # What an annual band is divided by, once the working year is in minutes.
 _MINUTES_AN_HOUR = Decimal(60)

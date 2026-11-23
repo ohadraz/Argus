@@ -121,6 +121,7 @@ from core.models import (
 )
 from core.replay import CallType, Replay
 from executive_synopsis import OVERVIEW_FIELD
+from incident_cost import MoneySources
 from incident_record import calls_into
 from incident_record.repository import (
     conversation,
@@ -3228,14 +3229,14 @@ def _sources_recording_into(
         return None
 
     return Sources(
-        revenue=revenue,
-        rates=lambda: None,
+        money=MoneySources(revenue=revenue,
+                           rates=lambda: None,
+                           bands=lambda: None,
+                           working_hours_a_year=DONT_CARE_WORKING_YEAR,
+                           reporting_currency="USD"),
         engagement=lambda dont_care_incident_id: None,
-        bands=lambda: None,
         metrics=lambda dont_care_start, dont_care_end, dont_care_rule: [],
         thresholds=DONT_CARE_THRESHOLDS,
-        working_hours_a_year=DONT_CARE_WORKING_YEAR,
-        reporting_currency="USD",
         metrics_reporting_lag_minutes=DONT_CARE_REPORTING_LAG_MINUTES,
         alert_rule=lambda dont_care_rule: None
     )

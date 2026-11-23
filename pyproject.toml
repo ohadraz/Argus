@@ -148,6 +148,7 @@ root_packages = [
     "executive_synopsis",
     "flag_provider",
     "http_applying",
+    "incident_cost",
     "incident_memory",
     "incident_record",
     "investigation_agent",
@@ -199,6 +200,19 @@ name = "http_applying depends on nothing in this workspace"
 type = "forbidden"
 source_modules = ["http_applying"]
 forbidden_modules = ["*"]
+
+[[tool.importlinter.contracts]]
+name = "incident_cost depends on nothing in this workspace"
+type = "forbidden"
+source_modules = ["incident_cost"]
+forbidden_modules = ["*"]
+# What an incident cost is money and arithmetic, and whoever writes about it -
+# the postmortem, the walk that gathers its sources - takes this. A cost that
+# reached an agent or the incident record would install it wherever money is
+# counted, and the reads it costs from arrive as ports for the same reason. The
+# kernel is the one package it may come to need, and today it names none of
+# it: the day it does, the allowance is a line written here, as the
+# `incident_record` contract below writes its own.
 
 [[tool.importlinter.contracts]]
 name = "incident_record knows only the kernel and the database"
@@ -338,11 +352,13 @@ unmatched_ignore_imports_alerting = "warn"
 name = "the walk writes to no store the fence cannot reach"
 type = "forbidden"
 # The packages that walk an incident: the Orchestrator and the four agents it
-# delegates to inside a walk, and the worker's root, which builds what they
-# are handed. Every write they make is made for the run their
-# process holds, and the fence refuses it once a newer claim holds that run - but
-# only the database has a fence. A store outside it takes a write from a walk
-# whose run was taken back as readily as from the one that holds it.
+# delegates to inside a walk, the executive synopsis written from the
+# postmortem, the costing the postmortem reads its money through, and the
+# worker's root, which builds what they are handed. Every write they make is
+# made for the run their process holds, and the fence refuses it once a newer
+# claim holds that run - but only the database has a fence. A store outside it
+# takes a write from a walk whose run was taken back as readily as from the
+# one that holds it.
 #
 # So the walk writes long-term memory as a row, and the deliverer fills the
 # store from the rows; it tells people through the event log the relay reads,
@@ -356,6 +372,7 @@ source_modules = [
     "apps.worker",
     "codefix_agent",
     "executive_synopsis",
+    "incident_cost",
     "investigation_agent",
     "mitigation",
     "orchestrator",

@@ -32,6 +32,7 @@ worker = [
     "argus-codefix_agent",
     "argus-postmortem_writing",
     "argus-executive_synopsis",
+    "argus-incident_cost",
     "argus-oncall_source",
     "argus-pay_band_source",
     "argus-revenue_source",
@@ -116,6 +117,7 @@ argus-mitigation = { workspace = true }
 argus-codefix_agent = { workspace = true }
 argus-postmortem_writing = { workspace = true }
 argus-executive_synopsis = { workspace = true }
+argus-incident_cost = { workspace = true }
 argus-oncall_source = { workspace = true }
 argus-pay_band_source = { workspace = true }
 argus-revenue_source = { workspace = true }

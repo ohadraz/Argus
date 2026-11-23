@@ -25,7 +25,8 @@ from core.models import (
 from executive_synopsis.synopsis_conversation import Overview
 from executive_synopsis.synopsis_prompting import Paging
 from executive_synopsis.synopsis_writing import Overviewing, write_executive_synopsis
-from postmortem_writing import SHARED_PAGE_ASSUMPTION_LABEL, EngagedResponder, NotPaged, PayBand
+from incident_cost import EngagedResponder, PayBand
+from postmortem_writing import SHARED_PAGE_ASSUMPTION_LABEL, NotPaged
 
 from executive_synopsis_test.framework.builders import (
     a_band_source_pricing,

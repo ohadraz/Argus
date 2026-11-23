@@ -37,19 +37,13 @@ from core.models import (
     MetricBucket,
     Reference,
 )
+from incident_cost import EngagedResponder, MoneySources, PayBand, RateTable
 from incident_record.repository import exchange_rates, incidents, references
 from oncall_source import OnCallUnavailable, engagement_with
 from oncall_source.platform import OnCallPlatform
 from pay_band_source import PayBandsRead, PayBandsUnavailable
 from postgres import Connections
-from postmortem_writing import (
-    EngagedResponder,
-    EngagementAnswer,
-    NotPaged,
-    PayBand,
-    RateTable,
-    Sources,
-)
+from postmortem_writing import EngagementAnswer, NotPaged, Sources
 from read_mcp_client import ReadTier
 from revenue_source import Charges, taken_between
 
@@ -99,18 +93,20 @@ def the_real_sources(settings: Settings,
     """
     return Sources(
         thresholds=thresholds,
-        revenue=partial(_the_services_takings, charges=charges),
-        rates=partial(_todays_rates,
-                      connections,
-                      base=settings.reporting_currency,
-                      published=published),
+        money=MoneySources(
+            revenue=partial(_the_services_takings, charges=charges),
+            rates=partial(_todays_rates,
+                          connections,
+                          base=settings.reporting_currency,
+                          published=published),
+            bands=partial(_what_a_title_is_worth, read=bands),
+            working_hours_a_year=settings.working_hours_a_year,
+            reporting_currency=settings.reporting_currency
+        ),
         engagement=partial(_who_responded, platform=oncall, connections=connections),
-        bands=partial(_what_a_title_is_worth, read=bands),
         metrics=partial(_metrics_between, read=read,
                         served=timedelta(minutes=settings.metrics_window_minutes)),
         alert_rule=partial(_the_alert_rule, read=read),
-        working_hours_a_year=settings.working_hours_a_year,
-        reporting_currency=settings.reporting_currency,
         metrics_reporting_lag_minutes=settings.metrics_reporting_lag_minutes
     )
 

@@ -173,7 +173,7 @@ def test_pay_bands_that_cannot_be_read_are_logged_as_a_warning(
 ) -> None:
     Scenario() \
         .given(sources := _the_sources_whose_bands_cannot_be_read()) \
-        .when(lambda: sources.bands()) \
+        .when(lambda: sources.money.bands()) \
         .then(
             one_record_was_logged(caplog, "orchestrator.sources", logging.WARNING,
                                   "pay bands could not be read",

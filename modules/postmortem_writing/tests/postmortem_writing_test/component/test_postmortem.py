@@ -27,23 +27,28 @@ from decimal import Decimal
 import pytest
 from argus_testkit import Scenario, all_of
 from core.models import Verdict
+from incident_cost import (
+    PAY_BAND_ASSUMPTION_LABEL,
+    PAY_BANDS_UNAVAILABLE_ASSUMPTION,
+    UNPRICED_TITLE_ASSUMPTION_LABEL,
+    WORKING_YEAR_ASSUMPTION_LABEL,
+    EngagedResponder,
+    PayBand,
+    Revenue,
+)
 from postmortem_writing import (
     ENGAGEMENT_UNAVAILABLE_ASSUMPTION,
     EXCHANGE_RATE_ASSUMPTION_LABEL,
     NOT_PAGED_ASSUMPTION,
     ONSET_UNKNOWN_ASSUMPTION,
-    PAY_BAND_ASSUMPTION_LABEL,
-    PAY_BANDS_UNAVAILABLE_ASSUMPTION,
     REVENUE_UNAVAILABLE_ASSUMPTION,
-    UNPRICED_TITLE_ASSUMPTION_LABEL,
-    WORKING_YEAR_ASSUMPTION_LABEL,
 )
 from postmortem_writing.answer import (
     CITES_FIELD,
     ROOT_CAUSE_FIELD,
     STEP_FIELD,
 )
-from postmortem_writing.sources import EngagedResponder, NotPaged, PayBand, Revenue
+from postmortem_writing.sources import NotPaged
 
 from postmortem_writing_test.framework.assertions import (
     discloses_an_assumption_naming,

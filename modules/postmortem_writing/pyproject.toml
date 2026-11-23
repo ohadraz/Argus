@@ -7,6 +7,8 @@ dependencies = [
     # Not `llm_anthropic`: the writer talks through the port and is handed its
     # client, so the model vendor's SDK is the worker's to install.
     "argus-core",
+    # What the incident cost: the money's ports and the arithmetic on them.
+    "argus-incident_cost",
     "argus-narration",
 ]
 
@@ -21,6 +23,7 @@ dev = [
 
 [tool.uv.sources]
 argus-core = { workspace = true }
+argus-incident_cost = { workspace = true }
 argus-narration = { workspace = true }
 argus-argus_testkit = { workspace = true }
 

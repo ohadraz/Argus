@@ -1,9 +1,8 @@
-"""What the incident cost the business, term by term.
+"""What the service's metrics did over an incident, level by level.
 
-Two quantities, measured separately and never multiplied: the loss itself,
-which is a subtraction between two sums a payment provider reported, and the
-rise in errors, which no figure rests on and which exists to tell the model
-what happened.
+The rise in errors, the rule's own series, the latency and the load: no figure
+rests on any of them, and they exist to tell the model what happened. What the
+incident cost is money, and `incident_cost`'s.
 
 Every case here is arithmetic. Nothing asks a model anything - a figure a
 model could be talked out of is not a measurement.
@@ -12,7 +11,6 @@ model could be talked out of is not a measurement.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
 from math import isclose
 
 import pytest
@@ -27,7 +25,6 @@ from postmortem_writing.estimate import (
     RuleSeriesSpan,
     Unmeasured,
     a_line_was_read,
-    beyond_the_variation,
     calm_to_read_for,
     demand_over,
     error_rates_over,
@@ -863,57 +860,6 @@ def test_a_rules_series_with_no_calm_reading_measures_none() -> None:
 
 
 @pytest.mark.unit
-def test_a_shop_that_took_more_than_before_lost_nothing_rather_than_less_than_nothing() -> None:
-    # A quiet stretch before a busy incident. The subtraction goes negative and
-    # the answer does not: a negative loss is not a small loss, it is a
-    # category error, and zero here is a measurement rather than an absence.
-    some_busier_incident_s_shortfall = Decimal("-800")
-    some_shop_that_never_varies = Decimal(0)
-
-    Scenario() \
-        .when(
-            lambda: beyond_the_variation(some_busier_incident_s_shortfall,
-                                         some_shop_that_never_varies)
-        ) \
-        .then(
-            _estimates(Decimal(0))
-        )
-
-
-@pytest.mark.unit
-def test_a_shortfall_no_larger_than_the_shop_s_own_variation_is_no_loss() -> None:
-    # Two calm stretches back to back differ by some amount on their own. A
-    # shortfall inside that is the shop being the shop - and scaled out over a
-    # week it became six figures nobody lost.
-    some_variation = Decimal("300")
-    some_shortfall_within_it = Decimal("250")
-
-    Scenario() \
-        .when(
-            lambda: beyond_the_variation(some_shortfall_within_it, some_variation)
-        ) \
-        .then(
-            _estimates(Decimal(0))
-        )
-
-
-@pytest.mark.unit
-def test_a_shortfall_beyond_the_shop_s_own_variation_is_lost_in_full() -> None:
-    # Not less the variation: the variation says whether anything was lost,
-    # and the shortfall says how much.
-    some_variation = Decimal("300")
-    some_shortfall_beyond_it = Decimal("4500")
-
-    Scenario() \
-        .when(
-            lambda: beyond_the_variation(some_shortfall_beyond_it, some_variation)
-        ) \
-        .then(
-            _estimates(some_shortfall_beyond_it)
-        )
-
-
-@pytest.mark.unit
 def test_a_rule_held_before_the_onset_where_each_minute_of_its_wait_was_past_its_line() -> None:
     # An alert three minutes after the onset of a rule that waits five says its
     # condition held for the two minutes before - which the series either
@@ -1398,16 +1344,6 @@ def _the_demand_was(expected: DemandLevels) -> Assertion[DemandLevels | None]:
                 or not same(measured.requests, expected.requests)
                 or not same(measured.cpu_share, expected.cpu_share)):
             raise AssertionError(f"Expected the demand at {expected}, got [{measured}].")
-
-        return True
-
-    return assertion
-
-
-def _estimates(expected: Decimal) -> Assertion[Decimal]:
-    def assertion(estimate: Decimal) -> bool:
-        if estimate != expected:
-            raise AssertionError(f"Expected a loss of [{expected}], got [{estimate}].")
 
         return True
 

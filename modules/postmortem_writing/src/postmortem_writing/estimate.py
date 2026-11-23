@@ -1,38 +1,23 @@
-"""What the incident cost the business, and the arithmetic behind it.
+"""What the service's metrics did over an incident, at the levels worth
+reporting.
 
-    shortfall = what the shop took over the incident's own hours whole weeks
-                earlier - what actually came in
-    loss      = the shortfall, where it is larger than the shop varies on its own
-
-Every term is money the payment provider reported, over windows as long as the
-incident (spec §21.3): the incident itself, the same hours whole weeks earlier,
-and the same hours as far back again, whose difference from the second is how
-much the shop varies over those hours anyway. A provider cannot say how many people were
-affected - a guest checkout is attached to no customer at all - and does not
-have to, because it can say what the shop took. The one thing it cannot report
-is the sale that never happened, which is exactly the shortfall.
+The error rate, the paging rule's own series, the latency at each quantile and
+the load - each measured over the stretch the service was broken against the
+calm before it, to tell the model what happened. No figure rests on any of
+them: what the incident cost is money, measured by the party that took it, and
+is `incident_cost`'s.
 
 Every window here is bounded by the signal and never by the workflow. The
 caller supplies both ends, and both are read off the metrics: an incident's
 length is its onset to its recovery, not to the moment the walk closed it -
 those differ by the whole of the verification wait, the code-fix attempt and
 the write-up, and a window running to the close is mostly healthy minutes.
-
-Nothing here is a judgement, and no term is a proxy for another: every figure
-is money over a window, measured by the party that took it.
-
-The error rate is measured too, but only to tell the model what happened. No
-figure rests on it. So is the paging rule's own series, where the window carries
-one, and the latency at each quantile, for the same reason and with the same
-three levels.
 """
 
 from __future__ import annotations
 
-import math
 from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta
-from decimal import Decimal
 from enum import StrEnum
 from statistics import median, quantiles
 from typing import Final, NamedTuple
@@ -41,8 +26,6 @@ from core import parse_iso
 from core.anomaly import is_within_its_own_noise
 from core.models import MetricBucket, Quantile, WorseWhen
 from pydantic import BaseModel
-
-from postmortem_writing.sources import RateTable
 
 # The hour before the incident the calm level of the error rate and the rule's
 # series is measured over - how far back the metrics are read is
@@ -663,66 +646,6 @@ def a_line_was_read(buckets: list[MetricBucket],
                and bucket.rule_reading.line is not None
                and onset_at <= parse_iso(bucket.bucket_id) < alerted_at
                for bucket in buckets)
-
-
-def in_the_reporting_currency(taken: Mapping[str, Decimal],
-                              rates: RateTable) -> tuple[Decimal, list[str]]:
-    """One figure out of several, and whatever could not be converted.
-
-    The rates say how many units of a currency one unit of the base buys, so
-    money taken abroad is divided by its rate rather than multiplied - the
-    direction that turns eighty euros into a hundred dollars rather than
-    sixty-four.
-
-    A currency the table has no rate for is returned as excluded rather than
-    dropped silently or counted at par. Both of those publish a figure that
-    looks measured and is not; naming it lets the document say what is missing
-    from the total it reports.
-    """
-    total = Decimal(0)
-    excluded: list[str] = []
-
-    for currency, amount in taken.items():
-        if currency == rates.base:
-            total += amount
-        elif currency in rates.per_unit:
-            total += amount / rates.per_unit[currency]
-        else:
-            excluded.append(currency)
-
-    return total, excluded
-
-
-def weeks_back_for(span: timedelta) -> timedelta:
-    """How far back the takings an incident of `span` is compared with lie.
-
-    Whole weeks, so the comparison falls on the same hours of the same weekday
-    and a shop's daily and weekly rhythm cancels out: an incident one morning
-    against the night before it is a loss the morning rush invented. As few
-    weeks as clear the incident, so the stretch compared never overlaps it.
-    """
-    return _A_WEEK * max(1, math.ceil(span / _A_WEEK))
-
-
-def beyond_the_variation(shortfall: Decimal, variation: Decimal) -> Decimal:
-    """The shortfall, where it is larger than the shop varies on its own, and
-    nothing where it is not.
-
-    `variation` is how far two calm stretches the incident's length apart
-    differ from each other. A shortfall inside that is the shop being the shop,
-    and reported as a loss it is noise given a currency. Zero rather than
-    nothing: the takings were read, and showed no loss anyone can tell from
-    an ordinary day. In full where it is larger - the variation decides whether
-    anything was lost, and the shortfall says how much.
-
-    Never negative. A shop that took more while it was broken lost nothing
-    measurable - a busier afternoon, or a promotion that began with the outage -
-    and a negative loss is not a smaller loss, it is a category error.
-
-    Deliberately not rounded to a currency's smallest unit: presentation is
-    the reader's, and the reader is a page.
-    """
-    return shortfall if shortfall > variation else Decimal(0)
 
 
 def _mean(values: list[float]) -> float:

@@ -26,7 +26,7 @@ from collections.abc import Callable
 from datetime import date
 
 from core.models import PublishedRates, RatesUnavailable
-from postmortem_writing import RateTable
+from incident_cost import RateTable
 
 logger = logging.getLogger(__name__)
 

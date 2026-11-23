@@ -10,8 +10,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from core.models import TitleMinutes
-
-from postmortem_writing.sources import EngagedResponder
+from incident_cost import EngagedResponder
 
 
 def minutes_by_title(engaged: Sequence[EngagedResponder]) -> list[TitleMinutes]:

@@ -25,6 +25,7 @@ members = [
     "argus-flag-provider",
     "argus-github-double",
     "argus-http-applying",
+    "argus-incident-cost",
     "argus-incident-memory",
     "argus-incident-record",
     "argus-investigation-agent",
@@ -244,6 +245,7 @@ worker = [
     { name = "argus-embedding-fastembed" },
     { name = "argus-exchange-rate-source" },
     { name = "argus-executive-synopsis" },
+    { name = "argus-incident-cost" },
     { name = "argus-incident-memory" },
     { name = "argus-incident-record" },
     { name = "argus-investigation-agent" },
@@ -295,6 +297,7 @@ requires-dist = [
     { name = "argus-executive-synopsis", marker = "extra == 'worker'", editable = "modules/executive_synopsis" },
     { name = "argus-flag-provider", marker = "extra == 'read-mcp'", editable = "modules/flag_provider" },
     { name = "argus-flag-provider", marker = "extra == 'write-mcp'", editable = "modules/flag_provider" },
+    { name = "argus-incident-cost", marker = "extra == 'worker'", editable = "modules/incident_cost" },
     { name = "argus-incident-memory", marker = "extra == 'deliverer'", editable = "modules/incident_memory" },
     { name = "argus-incident-memory", marker = "extra == 'worker'", editable = "modules/incident_memory" },
     { name = "argus-incident-record", marker = "extra == 'relay'", editable = "modules/incident_record" },
@@ -582,6 +585,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "argus-argus-testkit" },
+    { name = "argus-incident-cost" },
 ]
 
 [package.metadata]
@@ -592,7 +596,10 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
+dev = [
+    { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
+    { name = "argus-incident-cost", editable = "modules/incident_cost" },
+]
 
 [[package]]
 name = "argus-flag-provider"
@@ -651,6 +658,25 @@ dev = [
 
 [package.metadata]
 requires-dist = [{ name = "httpx2" }]
+
+[package.metadata.requires-dev]
+dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
+
+[[package]]
+name = "argus-incident-cost"
+version = "0.1.0"
+source = { editable = "modules/incident_cost" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "argus-argus-testkit" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pydantic", specifier = ">=2.0" }]
 
 [package.metadata.requires-dev]
 dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
@@ -933,6 +959,7 @@ dependencies = [
     { name = "argus-codefix-agent" },
     { name = "argus-core" },
     { name = "argus-executive-synopsis" },
+    { name = "argus-incident-cost" },
     { name = "argus-incident-memory" },
     { name = "argus-incident-record" },
     { name = "argus-investigation-agent" },
@@ -966,6 +993,7 @@ requires-dist = [
     { name = "argus-codefix-agent", editable = "modules/codefix_agent" },
     { name = "argus-core", editable = "modules/core" },
     { name = "argus-executive-synopsis", editable = "modules/executive_synopsis" },
+    { name = "argus-incident-cost", editable = "modules/incident_cost" },
     { name = "argus-incident-memory", editable = "modules/incident_memory" },
     { name = "argus-incident-record", editable = "modules/incident_record" },
     { name = "argus-investigation-agent", editable = "modules/investigation_agent" },
@@ -1107,6 +1135,7 @@ version = "0.1.0"
 source = { editable = "modules/postmortem_writing" }
 dependencies = [
     { name = "argus-core" },
+    { name = "argus-incident-cost" },
     { name = "argus-narration" },
 ]
 
@@ -1118,6 +1147,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "argus-core", editable = "modules/core" },
+    { name = "argus-incident-cost", editable = "modules/incident_cost" },
     { name = "argus-narration", editable = "modules/narration" },
 ]
 

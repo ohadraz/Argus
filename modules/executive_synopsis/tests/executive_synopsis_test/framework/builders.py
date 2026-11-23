@@ -17,17 +17,8 @@ from argus_testkit import Kept
 from core.anomaly import AnomalyThresholds
 from core.llm import LLMClient
 from core.models import AlertRuleStanding, MetricBucket, ToolCall, ToolDefinition, Transcript, Turn
-from postmortem_writing import (
-    EngagedResponder,
-    Engagement,
-    EngagementAnswer,
-    Flag,
-    Flagging,
-    PayBand,
-    PayBands,
-    RateTable,
-    Sources,
-)
+from incident_cost import EngagedResponder, MoneySources, PayBand, PayBands, RateTable
+from postmortem_writing import Engagement, EngagementAnswer, Flag, Flagging, Sources
 
 # Where these cases draw the algorithm's lines - the same numbers the
 # environment carries by default. The synopsis never measures, so nothing here
@@ -70,17 +61,19 @@ def some_sources(engagement: Engagement | None = None,
         return None
 
     return Sources(
-        revenue=no_revenue,
-        rates=no_rates,
+        money=MoneySources(
+            revenue=no_revenue,
+            rates=no_rates,
+            bands=bands if bands is not None else a_band_source_pricing({}),
+            working_hours_a_year=working_hours_a_year,
+            reporting_currency=SOME_CURRENCY
+        ),
         engagement=engagement if engagement is not None
                    else an_engagement_source_reporting(
                        minutes=DONT_CARE_ENGAGED_MINUTES,
                        responders=DONT_CARE_RESPONDERS),
-        bands=bands if bands is not None else a_band_source_pricing({}),
         metrics=no_metrics,
         thresholds=SOME_THRESHOLDS,
-        working_hours_a_year=working_hours_a_year,
-        reporting_currency=SOME_CURRENCY,
         metrics_reporting_lag_minutes=DONT_CARE_REPORTING_LAG_MINUTES,
         alert_rule=no_rule
     )

@@ -8,15 +8,17 @@ divided by, the band each title was priced at, the title nothing could price.
 Those steps are said here, one line each, for whoever is shown the figure - and
 nowhere in the postmortem's own assumptions.
 
-The wording is here too, as a constant per line, for the reason `assumptions`
-keeps its own: whatever reads a line back has to agree on how it was said.
+The wording is here too, as a constant per line, for the reason the
+postmortem's assumptions keep their own: whatever reads a line back has to
+agree on how it was said.
 """
 
 from __future__ import annotations
 
-from postmortem_writing.measuring import Measurements
-from postmortem_writing.responder_cost import unpriced_titles
-from postmortem_writing.sources import EngagementAnswer
+from collections.abc import Mapping, Sequence
+
+from incident_cost.responder_cost import ResponderCost, unpriced_titles
+from incident_cost.sources import EngagedResponder, PayBand
 
 # How the divisor behind the response cost announces itself. An annual band
 # becomes a per-minute rate only by being divided by a working year, and that
@@ -40,8 +42,15 @@ PAY_BANDS_UNAVAILABLE_ASSUMPTION = (
 )
 
 
-def response_cost_basis(measured: Measurements, working_hours_a_year: float) -> list[str]:
+def response_cost_basis(engaged: Sequence[EngagedResponder] | None,
+                        bands: Mapping[str, PayBand] | None,
+                        cost: ResponderCost | None,
+                        working_hours_a_year: float) -> list[str]:
     """How the response cost was arrived at, or why there is none.
+
+    `engaged` is each responder's own share of the response, and `None` where
+    there was no response to price - nobody paged, or nobody could say who
+    responded. `cost` is what pricing it came to, `None` where it could not.
 
     A published figure says both things that are not measurements: the working
     year the annual bands were divided by, and the band each title was priced
@@ -50,22 +59,21 @@ def response_cost_basis(measured: Measurements, working_hours_a_year: float) -> 
     the gap reads as what it is rather than as a fault in Argus. Nothing where
     nobody was engaged, since there is no response to price.
     """
-    engaged, bands = measured.engaged, measured.bands
-    if not isinstance(engaged, EngagementAnswer):
+    if engaged is None:
         return []
 
     if bands is None:
         return [PAY_BANDS_UNAVAILABLE_ASSUMPTION]
 
-    if measured.cost is None:
+    if cost is None:
         # A responder with no title is said as one: naming a placeholder in
         # brackets blames a band for a title nobody recorded.
-        held = {responder.job_title for responder in engaged.engaged}
+        held = {responder.job_title for responder in engaged}
 
         return [
             *(f"{UNPRICED_TITLE_ASSUMPTION_LABEL}: no responder cost, because no "
               f"pay band covers [{title}]"
-              for title in unpriced_titles(engaged.engaged, bands) if title in held),
+              for title in unpriced_titles(engaged, bands) if title in held),
             *([f"{UNPRICED_TITLE_ASSUMPTION_LABEL}: no responder cost, because no title "
                f"was recorded for a responder, so no pay band could price them"]
               if None in held else [])
@@ -80,7 +88,7 @@ def response_cost_basis(measured: Measurements, working_hours_a_year: float) -> 
     ]
 
 
-def _the_titles_priced(engaged: EngagementAnswer) -> list[str]:
+def _the_titles_priced(engaged: Sequence[EngagedResponder]) -> list[str]:
     """What the responders held, each named once, in the order they responded.
 
     Once, because two people holding one title are priced at one band and the
@@ -89,6 +97,6 @@ def _the_titles_priced(engaged: EngagementAnswer) -> list[str]:
     """
     return list(dict.fromkeys(
         responder.job_title
-        for responder in engaged.engaged
+        for responder in engaged
         if responder.job_title is not None
     ))

@@ -50,12 +50,6 @@ from postmortem_writing.grounding import (
     judge_policy,
 )
 from postmortem_writing.pull_requests import the_pull_request_named
-from postmortem_writing.response_cost_basis import (
-    PAY_BAND_ASSUMPTION_LABEL,
-    PAY_BANDS_UNAVAILABLE_ASSUMPTION,
-    UNPRICED_TITLE_ASSUMPTION_LABEL,
-    WORKING_YEAR_ASSUMPTION_LABEL,
-)
 from postmortem_writing.reviewing import (
     ANALYSIS_COMPLETE,
     IMPACT_ASSESSED,
@@ -63,16 +57,7 @@ from postmortem_writing.reviewing import (
     KEY_DATA_COLLECTED,
     REVIEWED_AND_SHARED,
 )
-from postmortem_writing.sources import (
-    EngagedResponder,
-    Engagement,
-    EngagementAnswer,
-    NotPaged,
-    PayBand,
-    PayBands,
-    RateTable,
-    Sources,
-)
+from postmortem_writing.sources import Engagement, EngagementAnswer, NotPaged, Sources
 from postmortem_writing.summary import said_off_the_page
 from postmortem_writing.writing import write_postmortem
 
@@ -90,19 +75,14 @@ __all__ = [
     "NOT_PAGED_ASSUMPTION",
     "NOTHING_READ_ASSUMPTION",
     "ONSET_UNKNOWN_ASSUMPTION",
-    "PAY_BANDS_UNAVAILABLE_ASSUMPTION",
-    "PAY_BAND_ASSUMPTION_LABEL",
     "RATES_UNAVAILABLE_REASON",
     "REVENUE_UNAVAILABLE_ASSUMPTION",
     "SHARED_PAGE_ASSUMPTION_LABEL",
     "STANDING_BRIEF",
-    "UNPRICED_TITLE_ASSUMPTION_LABEL",
-    "WORKING_YEAR_ASSUMPTION_LABEL",
     "WRITE_UP_TOOLS",
     "ActionRecord",
     "CandidateRecord",
     "DeploymentChangesRecord",
-    "EngagedResponder",
     "Engagement",
     "EngagementAnswer",
     "Figure",
@@ -112,9 +92,6 @@ __all__ = [
     "GroundingFor",
     "IncidentEvidence",
     "NotPaged",
-    "PayBand",
-    "PayBands",
-    "RateTable",
     "RefusalRecord",
     "ResolutionRecord",
     "Sources",

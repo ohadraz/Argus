@@ -34,6 +34,7 @@ from core.models import (
     RuledOut,
     labelled,
 )
+from incident_cost import response_cost_basis
 
 from postmortem_writing.answer import SubmittedPostmortem
 from postmortem_writing.assumptions import assumptions_of
@@ -54,7 +55,6 @@ from postmortem_writing.figures import the_day_it_began, the_latency_told
 from postmortem_writing.labels import action_item_number
 from postmortem_writing.log_groups import grouped
 from postmortem_writing.measuring import Measurements, measure
-from postmortem_writing.response_cost_basis import response_cost_basis
 from postmortem_writing.reviewing import review_of
 from postmortem_writing.sections import (
     detection_of,
@@ -215,10 +215,14 @@ def write_postmortem(evidence: IncidentEvidence,
                            effect=answer.lead_effects.get(label))
             for label, lead in labelled(evidence.leads)
         ],
-        assumptions=disclose(answer, measured, sources.working_hours_a_year),
+        assumptions=disclose(answer, measured, sources.money.working_hours_a_year),
         # Beside the cost it explains, never among the assumptions: the
         # document says nothing of pay.
-        response_cost_basis=response_cost_basis(measured, sources.working_hours_a_year),
+        response_cost_basis=response_cost_basis(
+            measured.engaged.engaged if isinstance(measured.engaged, EngagementAnswer) else None,
+            measured.bands,
+            measured.cost,
+            sources.money.working_hours_a_year),
         # Written by code from the record - and, of how the service did where
         # the metrics stopped, from the model's yes or no, never its prose.
         impact=impact_of(measured,

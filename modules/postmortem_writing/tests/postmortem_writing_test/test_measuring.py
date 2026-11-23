@@ -27,6 +27,7 @@ from math import isclose
 import pytest
 from argus_testkit import Assertion, Kept, Scenario, all_of, the_answer_was
 from core.models import MetricBucket, RuleLine, RuleReading, SeriesQuery, Unit, Verdict
+from incident_cost import EngagedResponder, PayBand, Revenue
 from postmortem_writing import IncidentEvidence
 from postmortem_writing.estimate import (
     DemandLevels,
@@ -38,14 +39,7 @@ from postmortem_writing.estimate import (
     calm_to_read_for,
 )
 from postmortem_writing.measuring import Measurements, measure
-from postmortem_writing.sources import (
-    AlertRule,
-    EngagedResponder,
-    EngagementAnswer,
-    Metrics,
-    PayBand,
-    Revenue,
-)
+from postmortem_writing.sources import AlertRule, EngagementAnswer, Metrics
 
 from postmortem_writing_test.framework.builders import (
     ENDED_AT,
@@ -53,14 +47,11 @@ from postmortem_writing_test.framework.builders import (
     RECORDED_RECOVERY_AT,
     RECOVERED_AT,
     SOME_CURRENCY,
-    SOME_OTHER_CURRENCY,
-    SOME_UNPRICED_CURRENCY,
     STARTED_AT,
     a_band_source_pricing,
     a_band_source_that_cannot_answer,
     a_bucket,
     a_resolution,
-    a_revenue_source_that_cannot_answer,
     an_action,
     an_alert_rule,
     an_engagement_source_reporting_each,
@@ -74,14 +65,8 @@ from postmortem_writing_test.framework.builders import (
     metrics_that_recovered,
     metrics_that_stop_at_the_onset,
     metrics_whose_rule_series_went,
-    rates_published,
-    rates_that_cannot_be_read,
-    revenue_that_was,
     some_sources,
 )
-
-SOME_CALM_HOURLY_REVENUE = 1_200
-SOME_REVENUE_DURING_THE_INCIDENT = Decimal("100.00")
 
 SOME_TITLE = "Senior Kuki"
 SOME_TITLE_NO_BAND_COVERS = "Principal Buki"
@@ -129,80 +114,6 @@ def test_the_incident_is_measured_from_its_onset_rather_than_from_the_alert() ->
         ) \
         .then(
             _ran_for(an_incident_dated_from_its_onset)
-        )
-
-
-@pytest.mark.unit
-def test_the_loss_is_what_the_calm_hour_predicted_less_what_came_in() -> None:
-    # The whole estimate, and the only arithmetic in it: the rate the shop was
-    # trading at before the onset, scaled to the length of the incident, less
-    # what it actually took while it was broken. Both terms are money the
-    # payment provider reported.
-    expected_loss = (
-        Decimal(SOME_CALM_HOURLY_REVENUE)
-        * Decimal(str(hours_between(ONSET, ENDED_AT)))
-        - SOME_REVENUE_DURING_THE_INCIDENT
-    )
-
-    Scenario() \
-        .given(
-            evidence := an_evidence_bundle()
-        ) \
-        .when(
-            lambda: measure(
-                evidence,
-                some_sources(revenue=revenue_that_was(
-                    per_hour={SOME_CURRENCY: SOME_CALM_HOURLY_REVENUE},
-                    until=ONSET,
-                    and_then={SOME_CURRENCY: SOME_REVENUE_DURING_THE_INCIDENT})))
-        ) \
-        .then(
-            all_of(
-                _the_loss_was(expected_loss),
-                _the_figure_is_in(SOME_CURRENCY)
-            )
-        )
-
-
-@pytest.mark.unit
-def test_a_shortfall_within_what_the_shop_varies_by_on_its_own_is_no_loss() -> None:
-    # Like with like: the incident against as long a stretch just before its
-    # onset, and that stretch against the one before it. Here the two calm
-    # stretches differ by more than the incident fell short.
-    Scenario() \
-        .given(
-            evidence := an_evidence_bundle()
-        ) \
-        .when(
-            lambda: measure(
-                evidence,
-                some_sources(revenue=_a_shop_taking(earlier=Decimal("1000.00"),
-                                                    just_before=Decimal("1300.00"),
-                                                    during=Decimal("1100.00"))))
-        ) \
-        .then(
-            all_of(
-                _the_loss_was(Decimal(0)),
-                _the_shop_varies_by(Decimal("300.00"))
-            )
-        )
-
-
-@pytest.mark.unit
-def test_a_shortfall_beyond_what_the_shop_varies_by_is_the_loss() -> None:
-    Scenario() \
-        .given(
-            evidence := an_evidence_bundle()
-        ) \
-        .when(
-            lambda: measure(
-                evidence,
-                some_sources(revenue=_a_shop_taking(earlier=Decimal("1000.00"),
-                                                    just_before=Decimal("1100.00"),
-                                                    during=Decimal("100.00"))))
-        ) \
-        .then(
-            _the_loss_was(Decimal("1000.00"))
         )
 
 
@@ -286,28 +197,6 @@ def test_an_incident_with_no_onset_runs_from_its_sender_s_alert_not_its_opening(
 
 
 @pytest.mark.unit
-def test_an_incident_with_no_onset_reads_no_takings() -> None:
-    # No loss is counted from the alert, so there is nothing to read the takings
-    # or the rates for - and takings read for nothing were disclosed as
-    # converted at a rate no figure was converted at.
-    windows_asked_for: Kept[tuple[datetime, datetime]] = Kept()
-
-    Scenario() \
-        .given(
-            evidence := an_evidence_bundle(onset_at=None)
-        ) \
-        .when(
-            lambda: measure(evidence,
-                            some_sources(revenue=_revenue_recording_the_windows_into(
-                                windows_asked_for)))
-        ) \
-        .then(all_of(
-            _asked_for_the_takings_over([], windows_asked_for),
-            _read_no_rates()
-        ))
-
-
-@pytest.mark.unit
 def test_a_disproven_alarm_is_measured_over_the_minutes_its_rule_looked_at_before_firing(
 ) -> None:
     # The grounds of the disproof, in figures: the alarm claims its condition
@@ -362,163 +251,6 @@ def test_an_alarm_not_disproven_is_not_measured_before_its_alert() -> None:
         ) \
         .then(
             the_answer_was(None)
-        )
-
-
-@pytest.mark.unit
-def test_a_revenue_source_that_cannot_be_read_costs_nothing_rather_than_zero() -> None:
-    # Zero here would become a postmortem telling an executive the outage cost
-    # them nothing, on the strength of a service Argus failed to reach. Both
-    # windows are needed, because a loss is the difference between them - one
-    # alone is half a subtraction.
-    Scenario() \
-        .given(
-            evidence := an_evidence_bundle()
-        ) \
-        .when(
-            lambda: measure(
-                evidence,
-                some_sources(revenue=a_revenue_source_that_cannot_answer()))
-        ) \
-        .then(
-            all_of(
-                _nothing_was_costed(),
-                _read_no_baseline()
-            )
-        )
-
-
-@pytest.mark.unit
-def test_takings_abroad_are_converted_at_the_published_rate() -> None:
-    # The shop sells abroad, so the baseline hour is partly money that is not
-    # in the currency the estimate is reported in. The rates say how many units
-    # of a currency one unit of the base buys, so money taken abroad is divided
-    # by its rate rather than multiplied - the direction that turns eighty
-    # euros into a hundred dollars rather than sixty-four.
-    some_calm_hourly_revenue_abroad = 800
-    some_revenue_abroad_during_the_incident = Decimal("200.00")
-    some_rate = Decimal("0.80")
-    expected_loss = (
-        Decimal(some_calm_hourly_revenue_abroad) / some_rate
-        * Decimal(str(hours_between(ONSET, ENDED_AT)))
-        - some_revenue_abroad_during_the_incident / some_rate
-    )
-
-    Scenario() \
-        .given(
-            evidence := an_evidence_bundle()
-        ) \
-        .when(
-            lambda: measure(
-                evidence,
-                some_sources(
-                    revenue=revenue_that_was(
-                        per_hour={
-                            SOME_OTHER_CURRENCY: some_calm_hourly_revenue_abroad
-                        },
-                        until=ONSET,
-                        and_then={
-                            SOME_OTHER_CURRENCY: some_revenue_abroad_during_the_incident
-                        }),
-                    rates=rates_published(on=ONSET.date(),
-                                          per_unit={SOME_OTHER_CURRENCY: some_rate},
-                                          base=SOME_CURRENCY)))
-        ) \
-        .then(
-            all_of(
-                _the_loss_was(expected_loss),
-                _the_figure_is_in(SOME_CURRENCY)
-            )
-        )
-
-
-@pytest.mark.unit
-def test_a_currency_the_table_has_no_rate_for_is_left_out_and_named() -> None:
-    # The rate provider publishes thirty-odd currencies and a shop may take one
-    # it does not cover. Losing the whole figure over the part that cannot be
-    # converted would throw away the part that can - and silently dropping it
-    # would publish a figure that looks like all the money and is not. So the
-    # figure covers what could be converted, and the currency that stopped it
-    # is named for whoever writes the disclosure.
-    some_calm_hourly_revenue = 1_000
-    dont_care_hourly_revenue_that_cannot_be_priced = 400
-    dont_care_revenue_that_cannot_be_priced = Decimal("50.00")
-    expected_loss = (
-        Decimal(some_calm_hourly_revenue)
-        * Decimal(str(hours_between(ONSET, ENDED_AT)))
-        - SOME_REVENUE_DURING_THE_INCIDENT
-    )
-
-    Scenario() \
-        .given(
-            evidence := an_evidence_bundle()
-        ) \
-        .when(
-            lambda: measure(
-                evidence,
-                some_sources(revenue=revenue_that_was(
-                    per_hour={
-                        SOME_CURRENCY: some_calm_hourly_revenue,
-                        SOME_UNPRICED_CURRENCY:
-                            dont_care_hourly_revenue_that_cannot_be_priced
-                    },
-                    until=ONSET,
-                    and_then={
-                        SOME_CURRENCY: SOME_REVENUE_DURING_THE_INCIDENT,
-                        SOME_UNPRICED_CURRENCY: dont_care_revenue_that_cannot_be_priced
-                    })))
-        ) \
-        .then(
-            all_of(
-                _the_loss_was(expected_loss),
-                _left_out(SOME_UNPRICED_CURRENCY)
-            )
-        )
-
-
-@pytest.mark.unit
-def test_rates_that_cannot_be_read_still_leave_the_takings_that_needed_no_rate() -> None:
-    # A table nobody could read is a table with no rates in it, and the currency
-    # the document reports in is configured rather than derived from one. So the
-    # figure covers the money that needed no conversion and names every currency
-    # that did - the same answer the arithmetic already gives for a single
-    # currency the table does not cover. Losing the whole estimate over the part
-    # that cannot be converted throws away the part that can.
-    some_calm_hourly_revenue = 1_000
-    dont_care_hourly_revenue_abroad = 400
-    dont_care_revenue_abroad = Decimal("50.00")
-    expected_loss = (
-        Decimal(some_calm_hourly_revenue)
-        * Decimal(str(hours_between(ONSET, ENDED_AT)))
-        - SOME_REVENUE_DURING_THE_INCIDENT
-    )
-
-    Scenario() \
-        .given(
-            evidence := an_evidence_bundle()
-        ) \
-        .when(
-            lambda: measure(
-                evidence,
-                some_sources(
-                    revenue=revenue_that_was(
-                        per_hour={
-                            SOME_CURRENCY: some_calm_hourly_revenue,
-                            SOME_OTHER_CURRENCY: dont_care_hourly_revenue_abroad
-                        },
-                        until=ONSET,
-                        and_then={
-                            SOME_CURRENCY: SOME_REVENUE_DURING_THE_INCIDENT,
-                            SOME_OTHER_CURRENCY: dont_care_revenue_abroad
-                        }),
-                    rates=rates_that_cannot_be_read()))
-        ) \
-        .then(
-            all_of(
-                _the_loss_was(expected_loss),
-                _the_figure_is_in(SOME_CURRENCY),
-                _left_out(SOME_OTHER_CURRENCY)
-            )
         )
 
 
@@ -1861,17 +1593,6 @@ def _ran_for(expected: float) -> Assertion[Measurements]:
     return assertion
 
 
-def _the_loss_was(expected: Decimal) -> Assertion[Measurements]:
-    def assertion(measured: Measurements) -> bool:
-        if measured.loss != expected:
-            raise AssertionError(
-                f"Expected a loss of [{expected}], got [{measured.loss}].")
-
-        return True
-
-    return assertion
-
-
 def _nothing_was_costed() -> Assertion[Measurements]:
     def assertion(measured: Measurements) -> bool:
         if measured.loss is not None:
@@ -1890,18 +1611,6 @@ def _something_was_costed() -> Assertion[Measurements]:
             raise AssertionError(
                 "Expected a loss: both windows were readable, and no figure rests "
                 "on the metrics.")
-
-        return True
-
-    return assertion
-
-
-def _read_no_baseline() -> Assertion[Measurements]:
-    def assertion(measured: Measurements) -> bool:
-        if measured.baseline_revenue is not None:
-            raise AssertionError(
-                f"Expected no baseline where the source could not answer, got "
-                f"[{measured.baseline_revenue}].")
 
         return True
 
@@ -1940,41 +1649,6 @@ def _the_rules_series_reading(readings: Mapping[datetime, float]) -> Metrics:
                 for at, value in readings.items()]
 
     return metrics_between
-
-
-def _read_no_rates() -> Assertion[Measurements]:
-    def assertion(measured: Measurements) -> bool:
-        if measured.rates is not None:
-            raise AssertionError(
-                f"Expected no rate table read where no loss is counted, got "
-                f"[{measured.rates}].")
-
-        return True
-
-    return assertion
-
-
-def _the_figure_is_in(expected: str | None) -> Assertion[Measurements]:
-    def assertion(measured: Measurements) -> bool:
-        if measured.currency != expected:
-            raise AssertionError(
-                f"Expected a figure in [{expected}], got [{measured.currency}].")
-
-        return True
-
-    return assertion
-
-
-def _left_out(expected: str) -> Assertion[Measurements]:
-    def assertion(measured: Measurements) -> bool:
-        if expected not in measured.currencies_left_out:
-            raise AssertionError(
-                f"Expected [{expected}] to be named as left out of the figure, got "
-                f"{measured.currencies_left_out}.")
-
-        return True
-
-    return assertion
 
 
 def _the_rise_was(expected: float) -> Assertion[Measurements]:
@@ -2361,32 +2035,6 @@ def _asked_metrics_from(window_start: datetime,
         if asked_from != window_start:
             raise AssertionError(
                 f"Expected the metrics read from [{window_start}], got [{asked_from}].")
-
-        return True
-
-    return assertion
-
-
-def _a_shop_taking(earlier: Decimal, just_before: Decimal, during: Decimal) -> Revenue:
-    """Three stretches as long as an incident shorter than a week: the incident
-    itself, the same hours a week before it, and the same hours a week before
-    that - told apart by where each window starts."""
-    def revenue_between(window_start: datetime,
-                        dont_care_end: datetime) -> Mapping[str, Decimal] | None:
-        if window_start >= ONSET:
-            return {SOME_CURRENCY: during}
-
-        return {SOME_CURRENCY: just_before if window_start >= ONSET - A_WEEK else earlier}
-
-    return revenue_between
-
-
-def _the_shop_varies_by(expected: Decimal) -> Assertion[Measurements]:
-    def assertion(measured: Measurements) -> bool:
-        if measured.variation != expected:
-            raise AssertionError(
-                f"Expected the two calm stretches to differ by [{expected}], got "
-                f"[{measured.variation}].")
 
         return True
 

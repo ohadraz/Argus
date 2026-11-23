@@ -18,6 +18,9 @@ dependencies = [
 [dependency-groups]
 dev = [
     "argus-argus_testkit",
+    # The money types a suite builds the writer's sources from. Never a
+    # runtime dependency - the synopsis reads the money through `Sources`.
+    "argus-incident_cost",
 ]
 
 
@@ -25,6 +28,7 @@ dev = [
 argus-core = { workspace = true }
 argus-postmortem_writing = { workspace = true }
 argus-argus_testkit = { workspace = true }
+argus-incident_cost = { workspace = true }
 
 
 [build-system]

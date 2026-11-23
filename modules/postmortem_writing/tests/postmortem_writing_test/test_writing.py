@@ -61,6 +61,7 @@ from core.models import (
     Verdict,
     Weighing,
 )
+from incident_cost import EngagedResponder, ResponderCost
 from postmortem_writing import DeploymentChangesRecord, write_postmortem
 from postmortem_writing.answer import (
     SubmittedFactor,
@@ -80,7 +81,6 @@ from postmortem_writing.detection_lesson import the_detection_lesson
 from postmortem_writing.estimate import DemandLevels, LatencyLevels, LoadLevels
 from postmortem_writing.log_groups import grouped
 from postmortem_writing.measuring import Measurements, measure
-from postmortem_writing.responder_cost import ResponderCost
 from postmortem_writing.reviewing import review_of
 from postmortem_writing.sections import (
     detection_of,
@@ -93,7 +93,7 @@ from postmortem_writing.sections import (
     trigger_of,
     why_no_trigger,
 )
-from postmortem_writing.sources import EngagedResponder, NotPaged
+from postmortem_writing.sources import NotPaged
 from postmortem_writing.summary import the_executive_summary
 
 from postmortem_writing_test.framework.assertions import (

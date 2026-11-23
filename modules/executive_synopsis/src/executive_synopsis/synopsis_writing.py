@@ -117,7 +117,7 @@ def _the_breakdown(postmortem: PostmortemDocument,
     """The response read again, by title, where it agrees with the postmortem's
     totals - or `None` where it could not be read again or does not agree."""
     engaged = sources.engagement(incident_id)
-    bands = sources.bands()
+    bands = sources.money.bands()
     if not isinstance(engaged, EngagementAnswer) or bands is None:
         return None
 
@@ -126,5 +126,6 @@ def _the_breakdown(postmortem: PostmortemDocument,
     # One currency or none: rows in two have no total, and agree with nothing.
     currency = next(iter(used)) if len(used) == 1 else None
 
-    return agreeing_breakdown(cost_by_title(engaged.engaged, bands, sources.working_hours_a_year),
-                              currency, postmortem)
+    return agreeing_breakdown(
+        cost_by_title(engaged.engaged, bands, sources.money.working_hours_a_year),
+        currency, postmortem)

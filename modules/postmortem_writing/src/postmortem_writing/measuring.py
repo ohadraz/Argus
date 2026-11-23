@@ -46,6 +46,7 @@ from typing import NamedTuple
 from core import parse_iso, to_iso
 from core.anomaly import AnomalyThresholds, find_back_to_normal, find_recovery
 from core.models import MetricBucket, SeriesQuery, Unit
+from incident_cost import PayBand, RateTable, ResponderCost, estimate_loss, responder_cost
 from pydantic import BaseModel, Field
 
 from postmortem_writing.estimate import (
@@ -57,29 +58,19 @@ from postmortem_writing.estimate import (
     RuleSeriesSpan,
     Unmeasured,
     a_line_was_read,
-    beyond_the_variation,
     calm_to_read_for,
     demand_over,
     duration_in_hours,
     error_rates_over,
     first_minute_past_its_line,
-    in_the_reporting_currency,
     latency_over,
     rule_held_before_the_onset,
     rule_series_before,
     rule_series_over,
-    weeks_back_for,
     why_no_error_rates,
 )
 from postmortem_writing.evidence import IncidentEvidence
-from postmortem_writing.responder_cost import ResponderCost, responder_cost
-from postmortem_writing.sources import (
-    EngagementAnswer,
-    NotPaged,
-    PayBand,
-    RateTable,
-    Sources,
-)
+from postmortem_writing.sources import EngagementAnswer, NotPaged, Sources
 
 
 class Measurements(BaseModel):
@@ -301,33 +292,11 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
         # the mark: absent, and every figure below is a lower bound.
         measured_until = back_to_normal_at or evidence.ended_at
     duration = duration_in_hours(began, measured_until)
-    # Like with like: the incident against its own clock hours whole weeks
-    # earlier, so a shop's day and week cancel out - and those against the same
-    # hours as far back again, for how much the shop varies on its own.
-    #
-    # Nothing is read without an onset, since no loss is counted from the alert:
-    # takings read for nothing were disclosed as converted at a rate no figure
-    # was converted at.
-    dated = evidence.onset_at is not None
-    rates = sources.rates() if dated else None
-    back = weeks_back_for(measured_until - began)
-    taken_earlier = (sources.revenue(began - 2 * back, measured_until - 2 * back)
-                     if dated else None)
-    taken_before = sources.revenue(began - back, measured_until - back) if dated else None
-    taken_during = sources.revenue(began, measured_until) if dated else None
-    earlier_revenue, _ = _as_one_figure(
-        taken_earlier, rates, sources.reporting_currency)
-    baseline_revenue, left_out = _as_one_figure(
-        taken_before, rates, sources.reporting_currency)
-    revenue_during, _ = _as_one_figure(
-        taken_during, rates, sources.reporting_currency)
-    variation = (abs(baseline_revenue - earlier_revenue)
-                 if baseline_revenue is not None and earlier_revenue is not None else None)
-    shortfall = (baseline_revenue - revenue_during
-                 if baseline_revenue is not None and revenue_during is not None else None)
-    loss = _loss(shortfall, variation) if dated else None
+    # Over the same stretch, from the onset alone: no loss is counted from the
+    # alert, so an incident with none reads no takings at all.
+    lost = estimate_loss(evidence.onset_at, measured_until, sources.money)
     engaged = sources.engagement(evidence.incident_id)
-    bands = sources.bands()
+    bands = sources.money.bands()
     alert_rule = sources.alert_rule(evidence.rule) if evidence.rule is not None else None
     waits = alert_rule.pending_seconds if alert_rule is not None else None
 
@@ -353,17 +322,17 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
         # broken - a healthy minute inside the stretch, pulling it towards the
         # baseline.
         error_rates=error_rates_over(metrics, began, found_back),
-        loss=loss,
-        currency=sources.reporting_currency if loss is not None else None,
-        baseline_revenue=baseline_revenue,
-        baseline_takings=taken_before,
-        variation=variation,
-        shortfall=shortfall,
-        rates=rates,
-        currencies_left_out=left_out,
+        loss=lost.loss,
+        currency=lost.currency,
+        baseline_revenue=lost.baseline_revenue,
+        baseline_takings=lost.baseline_takings,
+        variation=lost.variation,
+        shortfall=lost.shortfall,
+        rates=lost.rates,
+        currencies_left_out=lost.currencies_left_out,
         onset_at=evidence.onset_at,
         engaged=engaged,
-        cost=_what_the_response_cost(engaged, bands, sources.working_hours_a_year),
+        cost=_what_the_response_cost(engaged, bands, sources.money.working_hours_a_year),
         bands=bands,
         metrics_stopped_at=sight.stopped_at if sight is not None else None,
         metrics_resumed_at=resumed.at if resumed is not None else None,
@@ -481,61 +450,6 @@ def _the_minute_starting_at_or_after(instant: datetime) -> datetime:
     minute = instant.replace(second=0, microsecond=0)
 
     return minute if minute == instant else minute + timedelta(minutes=1)
-
-
-def _as_one_figure(taken: Mapping[str, Decimal] | None,
-                   rates: RateTable | None,
-                   reporting_currency: str) -> tuple[Decimal | None, list[str]]:
-    """What the service took, stated in the one currency the document reports
-    in, and whatever could not be stated there at all.
-
-    A quiet window took nothing, and nothing is a measurement: an empty mapping
-    is zero rather than an unanswered question. Only an unread provider leaves
-    no figure, because only it leaves no takings to state.
-
-    A table nobody could read is a table with no rates in it, which the
-    arithmetic already knows how to answer: whatever needed no conversion is in
-    the figure, and every currency that did is named as missing from it. The
-    currency this is reported in comes from the configuration either way - it is
-    what the table was asked to quote against - so it is not a guess, and losing
-    the money that needed no rate at all would be the worse answer.
-    """
-    if taken is None:
-        return None, []
-
-    if rates is None:
-        return _only_the_money_needing_no_rate(taken, reporting_currency)
-
-    return in_the_reporting_currency(taken, rates)
-
-
-def _only_the_money_needing_no_rate(
-        taken: Mapping[str, Decimal],
-        reporting_currency: str) -> tuple[Decimal, list[str]]:
-    """The takings already in the reporting currency, and every other currency.
-
-    The same shape `in_the_reporting_currency` returns for a currency the table
-    does not cover, because it is the same finding: money that was taken, and
-    no rate to state it with.
-    """
-    return (
-        taken.get(reporting_currency, Decimal(0)),
-        [currency for currency in taken if currency != reporting_currency]
-    )
-
-
-def _loss(shortfall: Decimal | None, variation: Decimal | None) -> Decimal | None:
-    """The estimate, or nothing when any window went unread.
-
-    Nothing, never zero: an unreadable revenue source and a service that lost
-    no money are different findings, and only one of them is a measurement.
-    Every window is needed - a loss is the difference between two of them, and
-    whether that difference is a loss at all is what the third says.
-    """
-    if shortfall is None or variation is None:
-        return None
-
-    return beyond_the_variation(shortfall, variation)
 
 
 def _when_the_service_came_back(recorded: datetime | None,

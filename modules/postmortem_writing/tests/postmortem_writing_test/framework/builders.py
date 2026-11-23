@@ -45,6 +45,16 @@ from core.models import (
     WorseWhen,
     a_chat_message,
 )
+from incident_cost import (
+    EngagedResponder,
+    MoneySources,
+    PayBand,
+    PayBands,
+    Rates,
+    RateTable,
+    ResponderCost,
+    Revenue,
+)
 from postmortem_writing import (
     ActionRecord,
     CandidateRecord,
@@ -84,18 +94,11 @@ from postmortem_writing.estimate import (
 )
 from postmortem_writing.grounding import Flag, Flagging
 from postmortem_writing.measuring import Measurements
-from postmortem_writing.responder_cost import ResponderCost
 from postmortem_writing.sources import (
     AlertRule,
-    EngagedResponder,
     Engagement,
     EngagementAnswer,
     Metrics,
-    PayBand,
-    PayBands,
-    Rates,
-    RateTable,
-    Revenue,
     Sources,
 )
 
@@ -469,21 +472,23 @@ def some_sources(revenue: Revenue | None = None,
     named.
     """
     return Sources(
-        revenue=revenue if revenue is not None
-                else revenue_that_was(
-                    per_hour={SOME_CURRENCY: DONT_CARE_HOURLY_REVENUE},
-                    until=ONSET,
-                    and_then={SOME_CURRENCY: DONT_CARE_REVENUE_DURING_THE_INCIDENT}),
-        rates=rates if rates is not None else rates_in(SOME_CURRENCY),
+        money=MoneySources(
+            revenue=revenue if revenue is not None
+                    else revenue_that_was(
+                        per_hour={SOME_CURRENCY: DONT_CARE_HOURLY_REVENUE},
+                        until=ONSET,
+                        and_then={SOME_CURRENCY: DONT_CARE_REVENUE_DURING_THE_INCIDENT}),
+            rates=rates if rates is not None else rates_in(SOME_CURRENCY),
+            bands=bands if bands is not None else a_band_source_pricing_nobody(),
+            working_hours_a_year=working_hours_a_year,
+            reporting_currency=reporting_currency
+        ),
         engagement=engagement if engagement is not None
                    else an_engagement_source_reporting(
                        minutes=DONT_CARE_ENGAGED_MINUTES,
                        responders=DONT_CARE_RESPONDERS),
-        bands=bands if bands is not None else a_band_source_pricing_nobody(),
         metrics=metrics if metrics is not None else metrics_showing_a_rise(),
         thresholds=thresholds,
-        working_hours_a_year=working_hours_a_year,
-        reporting_currency=reporting_currency,
         metrics_reporting_lag_minutes=metrics_reporting_lag_minutes,
         alert_rule=alert_rule if alert_rule is not None else an_alert_rule(300)
     )

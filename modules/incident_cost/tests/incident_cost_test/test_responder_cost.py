@@ -18,8 +18,8 @@ from decimal import Decimal
 
 import pytest
 from argus_testkit import Assertion, Scenario, all_of
-from postmortem_writing.responder_cost import ResponderCost, responder_cost, unpriced_titles
-from postmortem_writing.sources import EngagedResponder, PayBand
+from incident_cost.responder_cost import ResponderCost, responder_cost, unpriced_titles
+from incident_cost.sources import EngagedResponder, PayBand
 
 MINUTES_PER_HOUR = 60
 SOME_WORKING_YEAR_IN_HOURS = 2000.0

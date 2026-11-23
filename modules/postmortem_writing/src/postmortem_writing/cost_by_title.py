@@ -15,8 +15,7 @@ from collections.abc import Mapping, Sequence
 from decimal import Decimal
 
 from core.models import TitleCost
-
-from postmortem_writing.sources import EngagedResponder, PayBand
+from incident_cost import EngagedResponder, PayBand
 
 # What an annual band is divided by, once the working year is in minutes.
 _MINUTES_AN_HOUR = Decimal(60)

@@ -28,6 +28,16 @@ from decimal import Decimal
 
 import pytest
 from argus_testkit import Assertion, Scenario, all_of
+from incident_cost import (
+    PAY_BAND_ASSUMPTION_LABEL,
+    PAY_BANDS_UNAVAILABLE_ASSUMPTION,
+    UNPRICED_TITLE_ASSUMPTION_LABEL,
+    WORKING_YEAR_ASSUMPTION_LABEL,
+    EngagedResponder,
+    PayBand,
+    RateTable,
+    ResponderCost,
+)
 from postmortem_writing import (
     ENGAGEMENT_UNAVAILABLE_ASSUMPTION,
     EXCHANGE_RATE_ASSUMPTION_LABEL,
@@ -36,20 +46,15 @@ from postmortem_writing import (
     NORMAL_VARIATION_ASSUMPTION_LABEL,
     NOTHING_READ_ASSUMPTION,
     ONSET_UNKNOWN_ASSUMPTION,
-    PAY_BAND_ASSUMPTION_LABEL,
-    PAY_BANDS_UNAVAILABLE_ASSUMPTION,
     RATES_UNAVAILABLE_REASON,
     REVENUE_UNAVAILABLE_ASSUMPTION,
     SHARED_PAGE_ASSUMPTION_LABEL,
-    UNPRICED_TITLE_ASSUMPTION_LABEL,
-    WORKING_YEAR_ASSUMPTION_LABEL,
 )
 from postmortem_writing.answer import SubmittedPostmortem
 from postmortem_writing.assumptions import assumptions_of
 from postmortem_writing.estimate import Unmeasured
 from postmortem_writing.measuring import Measurements
-from postmortem_writing.responder_cost import ResponderCost
-from postmortem_writing.sources import EngagedResponder, NotPaged, PayBand, RateTable
+from postmortem_writing.sources import NotPaged
 
 from postmortem_writing_test.framework.builders import (
     DONT_CARE_BASELINE_REVENUE,

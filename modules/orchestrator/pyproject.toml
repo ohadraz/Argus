@@ -10,6 +10,8 @@ dependencies = [
     "argus-postgres",
     "argus-mcp_transport",
     "argus-incident_record",
+    # The money a postmortem is costed from, which the walk's sources build.
+    "argus-incident_cost",
     "argus-narration",
     # Without the store: the walk files a record and composes the one it
     # files, and searching for one is recall's, which the worker's root builds
@@ -59,6 +61,7 @@ argus-postgres = { workspace = true }
 argus-mcp_transport = { workspace = true }
 argus-incident_memory = { workspace = true }
 argus-incident_record = { workspace = true }
+argus-incident_cost = { workspace = true }
 argus-narration = { workspace = true }
 argus-oncall_source = { workspace = true }
 argus-pay_band_source = { workspace = true }
