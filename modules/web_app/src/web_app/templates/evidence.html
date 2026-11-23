@@ -33,7 +33,7 @@
           data-elevated="{{ 'true' if bucket.elevated else 'false' }}">
         <td>{{ bucket.when }}</td>
         <td class="{{ 'bad' if bucket.elevated else '' }}">
-          {{ "%.1f%%"|format(bucket.error_rate * 100) }}
+          {{ bucket.error_rate|share }}
         </td>
         <td>{{ bucket.p50_ms }}</td>
         <td>{{ bucket.p95_ms }}</td>

@@ -300,8 +300,10 @@ def measure(evidence: IncidentEvidence, sources: Sources) -> Measurements:
     return Measurements(
         duration_in_hours=duration,
         back_to_normal_at=back_to_normal_at,
+        # Only where the report is what ended it: metrics that resumed end the
+        # stretch themselves, whatever a person reported at the same instant.
         reported_by=(evidence.resolution.by
-                     if evidence.resolution is not None
+                     if resumed is None and evidence.resolution is not None
                      and back_to_normal_at == evidence.resolution.at else None),
         back_before_the_action=back_before_the_action,
         # From the incident's opening rather than from the onset or the

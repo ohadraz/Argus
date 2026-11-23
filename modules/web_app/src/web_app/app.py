@@ -32,7 +32,7 @@ from incident_record import (
     withdraw_incident,
 )
 from incident_record.repository import conversation, references
-from narration import said_as_a_time
+from narration import said_as_a_confidence, said_as_a_share, said_as_a_time
 from oncall_source import OnCallUnavailable
 from oncall_source.platform import OnCallDeliveryUnverified, OnCallPlatform
 from opentelemetry import propagate, trace
@@ -265,6 +265,9 @@ templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 templates.env.filters["utc"] = in_utc
 templates.env.filters["clock"] = on_the_clock
 templates.env.filters["time"] = said_as_a_time
+# A share and a ranking's confidence too, said as the postmortem says them.
+templates.env.filters["share"] = said_as_a_share
+templates.env.filters["confidence"] = said_as_a_confidence
 templates.env.filters["references"] = with_references
 templates.env.filters["marked_up"] = marked_up
 templates.env.filters["from_markdown"] = from_markdown

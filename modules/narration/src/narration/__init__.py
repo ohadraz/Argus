@@ -25,7 +25,14 @@ from narration.flags import (
     on_or_off,
     said_as_a_state,
 )
-from narration.levels import level_given_in, level_said_in, said_as_a_level, said_as_a_share
+from narration.levels import (
+    NOT_TOLD_APART,
+    level_given_in,
+    level_said_in,
+    said_as_a_confidence,
+    said_as_a_level,
+    said_as_a_share,
+)
 from narration.logs import LogLine, a_log_line, the_minutes_logged
 from narration.metrics import BucketRow, a_bucket_row
 from narration.money import said_as_money
@@ -76,6 +83,7 @@ __all__ = [
     "FlagToggleRow",
     "InstantInProse",
     "LogLine",
+    "NOT_TOLD_APART",
     "NarrationLine",
     "ShownRevision",
     "THE_CLAIM_WAS_NOT_IN_THE_WINDOW",
@@ -101,6 +109,7 @@ __all__ = [
     "no_logs_listed",
     "on_or_off",
     "pointed_at",
+    "said_as_a_confidence",
     "said_as_a_day",
     "said_as_a_level",
     "said_as_a_share",

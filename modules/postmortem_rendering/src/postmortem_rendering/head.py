@@ -151,10 +151,16 @@ def _the_incident_s_window(postmortem: Postmortem) -> Line:
     they resumed, from there to then, said as missing until then.
 
     With no onset, the alert's moment after it: every moment of that day is
-    said below by its time alone, so the head is where the day is said. And
+    said below by its time alone, so the head is where the day is said - and
+    where the metrics stopped, that too, since no marker places it there. And
     of a disproven alarm, the alert and when Argus closed it: there was no
-    onset to be unknown."""
-    stopped = _the_marker(postmortem, TimelineMarker.METRICS_STOP)
+    onset to be unknown.
+
+    Metrics that resumed without showing the service back end the window they
+    were missing for at the resume, where the impact's duration ends: said
+    as still missing from the start, they would deny the minutes they came
+    back for."""
+    stopped = postmortem.the_metrics_stopped()
     began = _when_it_began(postmortem)
     if began is None:
         detection = postmortem.detection
@@ -170,19 +176,30 @@ def _the_incident_s_window(postmortem: Postmortem) -> Line:
             return Line(runs=(Run(text="onset unknown"),))
 
         return Line(runs=(Run(text="onset unknown, alerted "),
-                          Run.a_moment(detection.alerted_at)))
+                          Run.a_moment(detection.alerted_at),
+                          *((Run(text=", metrics missing from then"),) if stopped else ())))
 
     impact = postmortem.impact
     ended = _the_marker(postmortem, TimelineMarker.IMPACT_ENDS)
     if ended is not None:
         window = Run(text=f"{on_the_day_and_clock(began)} to {_the_end_said(began, ended)} UTC",
                      role=Role.MOMENT, at=began, until=ended)
-        resumed = impact is not None and impact.extent is ImpactExtent.METRICS_RESUMED
-        return Line(runs=(window, Run(text=", metrics missing until then")) if resumed
+        # Until then only of metrics that came back then: an end a person
+        # reported while they were still missing is not where they came back.
+        came_back = impact is not None and impact.extent is ImpactExtent.METRICS_RESUMED
+        return Line(runs=(window, Run(text=", metrics missing until then")) if came_back
+                    else (window, Run(text=", metrics missing throughout")) if stopped
                     else (window,))
 
+    if impact is not None and impact.extent is ImpactExtent.METRICS_RESUMED:
+        resumed = began + impact.duration
+        return Line(runs=(Run(text=f"{on_the_day_and_clock(began)} to "
+                                   f"{_the_end_said(began, resumed)} UTC",
+                              role=Role.MOMENT, at=began, until=resumed),
+                          Run(text=", metrics missing until then, not seen back to normal")))
+
     since = Run.a_moment(began)
-    if stopped is not None:
+    if stopped:
         return Line(runs=(since, Run(text=", metrics missing from then")))
 
     if impact is None or impact.extent is not ImpactExtent.AT_LEAST:

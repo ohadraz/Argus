@@ -63,7 +63,7 @@
           <span class="moved"><s>{{ candidate.moved_from | references([], candidate.links) }}</s><span class="arrow">→</span><span class="now">{{ candidate.moved_to | references([], candidate.links) }}</span></span>
         {% endif %}
         {% if candidate.confidence is not none %}
-          <span class="confidence">{{ "%.0f%%"|format(candidate.confidence * 100) }}</span>
+          <span class="confidence">{{ candidate.confidence|confidence }}</span>
         {% endif %}
         {# Reached and held back is not never reached: the gate writes on the
            row why it declined the test, and without it a refusal reads as a

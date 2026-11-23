@@ -609,6 +609,31 @@ def test_metrics_that_resume_in_the_minute_argus_acted_in_end_the_gap_at_the_act
 
 
 @pytest.mark.unit
+def test_metrics_that_resume_as_a_person_reports_it_over_end_it_as_theirs_not_the_report() -> None:
+    # The metrics coming back end the stretch they did not cover, and a person's
+    # report landing at the same instant is no second end: said as their report,
+    # the page would tell a resume as a word nobody had to take.
+    the_action = STARTED_AT + timedelta(minutes=2, seconds=20)
+    dont_care_reporter = "Some Person"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(actions=[an_action("dont care", taken_at=the_action)],
+                                           resolution=a_resolution(the_action,
+                                                                   by=dont_care_reporter))
+        ) \
+        .when(
+            lambda: measure(evidence, some_sources(
+                metrics=_metrics_missing_until(the_action.replace(second=0))))
+        ) \
+        .then(all_of(
+            _the_metrics_resumed_at(the_action),
+            _it_was_back_to_normal_at(the_action),
+            _it_was_reported_by(None)
+        ))
+
+
+@pytest.mark.unit
 def test_metrics_back_in_the_minute_before_the_write_answered_end_the_gap_at_the_action() -> None:
     # What CI met, as the write-up reads it. The plan was read late in a minute,
     # the shop restored its rows from that minute, and the write's answer - which

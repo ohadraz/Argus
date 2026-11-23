@@ -35,11 +35,13 @@ from core.models.postmortem_sections import (
     DetectionLesson,
     HypothesisConsidered,
     Impact,
+    ImpactExtent,
     Lessons,
     NoTrigger,
     ResolutionStep,
     ReviewCriterion,
     TimelineEntry,
+    TimelineMarker,
     Trigger,
 )
 from core.models.pull_request import OpenedPullRequest
@@ -226,6 +228,36 @@ class PostmortemDocument(BaseModel):
     flags_reading: ChannelReading | None = None
     logs_reading: ChannelReading | None = None
     review: list[ReviewCriterion] = []
+
+    def the_metrics_stopped(self) -> bool:
+        """Whether the stretch was one the metrics did not cover, resumed or not
+        - read off the extent the writer decided, which knows it whether or not
+        an onset was measured to place a marker at."""
+        return self.impact is not None and self.impact.extent in (
+            ImpactExtent.METRICS_MISSING, ImpactExtent.METRICS_RESUMED)
+
+    def the_impact_ended(self) -> bool:
+        """Whether anything ended the impact - the metrics showing the service
+        back, or a person reporting it over.
+
+        The extent says it wherever the metrics held: back to normal and a
+        report are ends, and a service never seen back has none. Where they
+        stopped it cannot - metrics that never resumed can still have an end a
+        person reported, and metrics that resumed without showing the service
+        back have none - so there the timeline's end marker says it, as it does
+        for a document that measured no impact at all. Nothing ended a
+        disproven alarm, which had no stretch to end."""
+        marked = any(entry.marker is TimelineMarker.IMPACT_ENDS for entry in self.timeline)
+        if self.impact is None:
+            return marked
+
+        match self.impact.extent:
+            case ImpactExtent.MEASURED | ImpactExtent.REPORTED:
+                return True
+            case ImpactExtent.AT_LEAST | ImpactExtent.DISPROVEN:
+                return False
+            case ImpactExtent.METRICS_MISSING | ImpactExtent.METRICS_RESUMED:
+                return marked
 
 
 class Postmortem(PostmortemDocument):

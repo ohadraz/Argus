@@ -53,8 +53,10 @@ from core.models import (
 )
 from narration import (
     A_REVISION,
+    NOT_TOLD_APART,
     changes_not_listed,
     no_logs_listed,
+    short_form,
     shorter_than_the_rules_wait,
     the_detection_lesson_said,
     the_revision_named,
@@ -166,6 +168,7 @@ from postmortem_writing.labels import (
 )
 from postmortem_writing.log_groups import labels_reaching_into, the_groups_of
 from postmortem_writing.measuring import Measurements
+from postmortem_writing.revisions import revisions_of
 from postmortem_writing.sections import (
     WRITE_THE_FIX_AGAIN,
     inside_a_sentence,
@@ -1109,7 +1112,8 @@ def _what_it_read_as_it_ran(evidence: IncidentEvidence) -> str | None:
     those = "that file" if len(read) == 1 else "those files"
 
     return (f"[{reading}] names {', '.join(ran.path for ran in read)} on {branch} "
-            f"{as_it_was} at {read[0].revision[:7]}, which ran. What [{reading}] says of "
+            f"{as_it_was} at {short_form(read[0].revision, revisions_of(evidence))}, which "
+            f"ran. What [{reading}] says of "
             f"{those} holds for what ran; what it says of the rest of {branch} does not.")
 
 
@@ -1140,7 +1144,7 @@ def _what_the_uses_say_of_what_ran(evidence: IncidentEvidence) -> str | None:
         return None
 
     branch = evidence.fix_branch_read or "the branch it read"
-    revision = (compared[0].revision or "")[:7]
+    revision = short_form(compared[0].revision or "", revisions_of(evidence))
     holding = list(dict.fromkeys(use.path for use in compared if use.as_read))
     not_holding = [path for path in dict.fromkeys(use.path for use in compared)
                    if path not in holding]
@@ -1528,14 +1532,22 @@ def _until_they_resumed(measured: Measurements,
                         evidence: IncidentEvidence,
                         figures: Mapping[str, Figure]) -> str:
     """Where the metrics resumed, and whether the rows they resumed with
-    showed the service back to normal - or that they had not resumed by the
-    close.
+    showed the service back to normal - or, where they never did, the report
+    that ended the stretch, or that they had not resumed by the close.
 
     Dated by the action where they came back in its minute, and said so: that
     minute holds only the seconds after it, and a look on the walk dates the
     rows by their minute - two instants for one return, unless each is named
-    for what it is."""
+    for what it is.
+
+    A person's report while they were still missing ends the stretch, and
+    every figure runs to it: told it ran to the close instead, the model was
+    told of minutes nobody counted."""
     resumed = measured.metrics_resumed_at
+    if resumed is None and measured.reported_by is not None:
+        return (f"until {_shown(BACK_TO_NORMAL_FIGURE, figures)}, the metrics still not "
+                f"resumed then, {_where_it_ended(measured, evidence).removesuffix('.')}")
+
     if resumed is None:
         return (f"onwards: the metrics had still not resumed by "
                 f"{_shown(ARGUS_STOPPED_FIGURE, figures)}")
@@ -1722,11 +1734,6 @@ _NONE_UNTIL_THE_METRICS_RESUMED: Final = (
     "none were collected from when the metrics stopped until they resumed")
 
 
-# Said of a figure the calm before the incident was too short to hold up to
-# how far the rate goes on its own.
-_NOT_TOLD_APART: Final = "can't be told apart from its normal variation"
-
-
 def _what_the_error_rate_did(rates: ErrorRates | None,
                              unmeasured: Unmeasured | None,
                              metrics_stopped: bool,
@@ -1798,7 +1805,7 @@ def _the_peak_held_to(rates: ErrorRates) -> str:
         case False:
             return " - no higher than the worst minutes of stretches as long before it began"
         case None:
-            return f" - which {_NOT_TOLD_APART}"
+            return f" - which {NOT_TOLD_APART}"
         case True:
             return ""
 
@@ -1831,7 +1838,7 @@ def _the_rise(rates: ErrorRates, figures: Mapping[str, Figure]) -> str:
             return ("Rise above baseline: none beyond its normal variation - stretches as "
                     "long before it began averaged as high on their own.")
         case None:
-            return (f"Rise above baseline: {_NOT_TOLD_APART} - the calm before it began was "
+            return (f"Rise above baseline: {NOT_TOLD_APART} - the calm before it began was "
                     f"too short to say how high the rate goes on its own.")
         case True:
             return (f"Rise above baseline: {_shown(ERRORS_RISE_FIGURE, figures)} of traffic "

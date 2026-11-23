@@ -12,12 +12,21 @@ Each case is one postmortem, the response as priced, and the figures they give.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 from argus_testkit import Assertion, Scenario
-from core.models import Impact, ImpactExtent, Postmortem, PricedResponse, TitleCost
+from core.models import (
+    ErrorRateLevels,
+    Impact,
+    ImpactExtent,
+    Postmortem,
+    PricedResponse,
+    TimelineEntry,
+    TimelineMarker,
+    TitleCost,
+)
 from narration import said_as_money
 from postmortem_rendering.impact import the_impact
 from postmortem_rendering.synopsis_figures import (
@@ -25,7 +34,7 @@ from postmortem_rendering.synopsis_figures import (
     the_synopsis_figures_said,
 )
 
-from postmortem_rendering_test.framework.builders import a_postmortem, an_alert
+from postmortem_rendering_test.framework.builders import a_marker, a_postmortem, an_alert
 
 SOME_MINUTES = 7
 SOME_SECONDS = 12
@@ -37,6 +46,7 @@ SOME_CURRENCY = "usd"
 SOME_RESPONDERS = 3
 SOME_RESPONSE_MINUTES = 42
 SOME_TITLE = "Senior Kuki"
+DONT_CARE_END = datetime(2026, 10, 21, 19, 30, tzinfo=UTC)
 
 # The response priced in all - every title it held priced at its band.
 SOME_PRICE = PricedResponse(responder_cost_estimate=SOME_COST,
@@ -184,6 +194,29 @@ def test_what_was_not_measured_is_not_named() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("rose", [False, None], ids=["no-rise", "not-told-apart"])
+def test_a_peak_where_no_rise_was_measured_is_not_named(rose: bool | None) -> None:
+    # The page shows the error rate's levels on one card there, not its peak:
+    # named, the peak reads as a rise the page says nobody measured.
+    dont_care_before = 0.0105
+    dont_care_while_broken = 0.1832
+    some_postmortem = a_postmortem(
+        impact=SOME_IMPACT.model_copy(update={"error_rates": ErrorRateLevels(
+            before=dont_care_before, while_broken=dont_care_while_broken, rose=rose)}))
+
+    Scenario() \
+        .given(
+            some_postmortem
+        ) \
+        .when(
+            lambda: the_synopsis_figures(some_postmortem, an_alert(), NOTHING_PRICED)
+        ) \
+        .then(
+            _names_none_of(["peak_error_rate"])
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("responders, minutes", [(None, None), (0, 0)],
                          ids=["not-read", "nobody-paged"])
 def test_no_response_names_no_response(responders: int | None, minutes: int | None) -> None:
@@ -223,16 +256,24 @@ def test_prose_says_each_figure_the_tiles_name_and_no_other() -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("extent, said", [
-    (ImpactExtent.MEASURED, f"{SOME_MINUTES} minutes {SOME_SECONDS} seconds"),
-    (ImpactExtent.AT_LEAST, f"at least {SOME_MINUTES} minutes {SOME_SECONDS} seconds"),
-    (ImpactExtent.METRICS_MISSING, f"at least {SOME_MINUTES} minutes {SOME_SECONDS} seconds")
-], ids=["measured", "still-not-back", "metrics-missing"])
+@pytest.mark.parametrize("extent, ended, said", [
+    (ImpactExtent.MEASURED, True, f"{SOME_MINUTES} minutes {SOME_SECONDS} seconds"),
+    (ImpactExtent.AT_LEAST, False, f"at least {SOME_MINUTES} minutes {SOME_SECONDS} seconds"),
+    (ImpactExtent.METRICS_MISSING, False,
+     f"at least {SOME_MINUTES} minutes {SOME_SECONDS} seconds"),
+    (ImpactExtent.METRICS_MISSING, True, f"{SOME_MINUTES} minutes {SOME_SECONDS} seconds"),
+    (ImpactExtent.METRICS_RESUMED, False, f"{SOME_MINUTES} minutes {SOME_SECONDS} seconds")
+], ids=["measured", "still-not-back", "metrics-missing", "metrics-missing-reported-over",
+        "metrics-resumed-not-back"])
 def test_prose_says_the_duration_in_words_and_a_floor_as_a_floor(extent: ImpactExtent,
+                                                                 ended: bool,
                                                                  said: str) -> None:
     # "For 7m 12s" reads as a machine wrote it; "at least" is the figure
-    # wherever the tile says it.
-    some_postmortem = a_postmortem(impact=SOME_IMPACT.model_copy(update={"extent": extent}))
+    # wherever the tile says it - a stretch cut short with nothing ending it,
+    # never one a person's report ended, nor the whole stretch the metrics
+    # were missing for.
+    some_postmortem = a_postmortem(impact=SOME_IMPACT.model_copy(update={"extent": extent}),
+                                   timeline=_ended_at_its_close() if ended else [])
 
     Scenario() \
         .given(
@@ -288,15 +329,19 @@ def test_prose_says_no_minutes_as_none_and_says_nothing_of_a_page() -> None:
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("extent, said", [
-    (ImpactExtent.MEASURED, ""),
-    (ImpactExtent.AT_LEAST, " so far")
-], ids=["measured", "a-floor"])
-def test_prose_says_no_loss_as_an_amount(extent: ImpactExtent, said: str) -> None:
+@pytest.mark.parametrize("extent, ended, said", [
+    (ImpactExtent.MEASURED, True, ""),
+    (ImpactExtent.AT_LEAST, False, " so far"),
+    (ImpactExtent.METRICS_MISSING, True, ""),
+    (ImpactExtent.METRICS_RESUMED, False, " so far")
+], ids=["measured", "a-floor", "metrics-missing-reported-over", "metrics-resumed-not-back"])
+def test_prose_says_no_loss_as_an_amount(extent: ImpactExtent, ended: bool, said: str) -> None:
     # The tile's "none so far" written into an amount's slot read "the cost to
-    # the shop's takings at none so far".
+    # the shop's takings at none so far". "So far" wherever nothing ended the
+    # incident, the takings still counting where the read stopped.
     no_loss = Decimal(0)
     some_postmortem = a_postmortem(impact=SOME_IMPACT.model_copy(update={"extent": extent}),
+                                   timeline=_ended_at_its_close() if ended else [],
                                    customer_loss_estimate=no_loss,
                                    estimate_currency=SOME_CURRENCY)
 
@@ -328,6 +373,12 @@ def test_prose_says_every_other_figure_as_its_tile_does(name: str) -> None:
         .then(
             _names_as(name, the_synopsis_figures(some_postmortem, an_alert(), SOME_PRICE)[name])
         )
+
+
+def _ended_at_its_close() -> list[TimelineEntry]:
+    """A timeline marking the impact's end, as one is where the metrics or a
+    person's report ended it - its instant nothing here reads."""
+    return [a_marker(TimelineMarker.IMPACT_ENDS, DONT_CARE_END)]
 
 
 def _a_postmortem_with_every_figure() -> Postmortem:

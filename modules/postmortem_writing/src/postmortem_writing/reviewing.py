@@ -15,10 +15,10 @@ from __future__ import annotations
 from typing import Final
 
 from core.models import (
+    ImpactExtent,
     PostmortemDocument,
     Refusal,
     ReviewCriterion,
-    TimelineMarker,
     Verdict,
     why_it_was_refused,
 )
@@ -191,12 +191,17 @@ def _the_impact_assessed(document: PostmortemDocument) -> ReviewCriterion:
     if document.customer_loss_estimate is None or not lacks:
         return _a_criterion(IMPACT_ASSESSED, lacks)
 
-    stopped = any(entry.marker is TimelineMarker.METRICS_STOP for entry in document.timeline)
-    end = ("how long the metrics stay missing is known once they resume" if stopped
+    # Metrics that resumed ended the read, and nothing they showed ended the
+    # incident: the loss ran to the resume, and the end is a person's to report.
+    resumed = (document.impact is not None
+               and document.impact.extent is ImpactExtent.METRICS_RESUMED)
+    measured_to = "where the metrics resumed" if resumed else "the close"
+    end = ("how long the metrics stay missing is known once they resume"
+           if document.the_metrics_stopped() and not resumed
            else "when the service is back to normal is for a person to report")
 
     return ReviewCriterion(criterion=IMPACT_ASSESSED, met=None,
-                           because=f"the loss is measured to the close; {end}")
+                           because=f"the loss is measured to {measured_to}; {end}")
 
 
 def _a_criterion(criterion: str, lacks: list[str]) -> ReviewCriterion:
@@ -321,15 +326,17 @@ def _what_the_impact_lacks(document: PostmortemDocument) -> list[str]:
     if document.disproven_at is not None:
         return []
 
-    ended = any(entry.marker is TimelineMarker.IMPACT_ENDS for entry in document.timeline)
-    # Where the metrics stopped, the end is unknown because nothing measured
-    # it - not because the service was seen staying broken.
-    stopped = any(entry.marker is TimelineMarker.METRICS_STOP for entry in document.timeline)
+    # Where the metrics stopped and never came back, the end is unknown because
+    # nothing measured it - not because the service was seen staying broken.
+    # Metrics that resumed did measure it, and never saw it back.
+    resumed = (document.impact is not None
+               and document.impact.extent is ImpactExtent.METRICS_RESUMED)
     unended = ("the metrics stopped, so the service was never measured back to normal"
-               if stopped else "the service was never seen back to normal")
+               if document.the_metrics_stopped() and not resumed
+               else "the service was never seen back to normal")
 
     return [*(["no loss was estimated"] if document.customer_loss_estimate is None else []),
-            *([unended] if not ended else [])]
+            *([unended] if not document.the_impact_ended() else [])]
 
 
 def _what_the_analysis_lacks(document: PostmortemDocument, faults: list[str],

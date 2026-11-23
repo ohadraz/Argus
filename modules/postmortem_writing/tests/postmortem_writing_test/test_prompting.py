@@ -2921,6 +2921,32 @@ def test_metrics_that_resumed_without_the_service_back_to_normal_are_said_so() -
 
 
 @pytest.mark.unit
+def test_metrics_still_missing_when_a_person_reported_it_over_end_at_the_report() -> None:
+    # The report ended the stretch and every figure runs to it: told the
+    # metrics had still not resumed by the close, the model was told of minutes
+    # nobody counted.
+    the_report = ONSET + timedelta(minutes=20)
+    the_reporter = "Kuki Buki"
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(resolution=a_resolution(the_report,
+                                                                   by=the_reporter)),
+            measured := a_measured_incident(back_to_normal_at=the_report,
+                                            reported_by=the_reporter,
+                                            metrics_stopped_at=ONSET)
+        ) \
+        .when(
+            lambda: opening_ask(evidence, measured)
+        ) \
+        .then(all_of(
+            _says_on_one_line("the metrics still not resumed then",
+                              f"when {the_reporter} reported it resolved",
+                              f"{{{DURATION_FIGURE}}} the metrics did not cover"),
+            _does_not_say("had still not resumed")))
+
+
+@pytest.mark.unit
 def test_an_error_rate_the_metrics_missed_until_they_resumed_is_said_so() -> None:
     # "None were collected after the metrics stopped" says no minute came back
     # at all, of a read holding the minutes they resumed with.

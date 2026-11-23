@@ -14,7 +14,13 @@ from __future__ import annotations
 import pytest
 from argus_testkit import Scenario, the_answer_was
 from core.models import Unit
-from narration import level_given_in, level_said_in, said_as_a_level, said_as_a_share
+from narration import (
+    level_given_in,
+    level_said_in,
+    said_as_a_confidence,
+    said_as_a_level,
+    said_as_a_share,
+)
 
 
 @pytest.mark.unit
@@ -104,6 +110,25 @@ def test_a_share_of_requests_is_said_as_a_percentage_to_one_place(rate: float, s
     Scenario() \
         .when(
             lambda: said_as_a_share(rate)
+        ) \
+        .then(
+            the_answer_was(said)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("confidence", "said"), [
+    (0.88, "0.88"),
+    (0.876, "0.88"),
+    (0.9, "0.90")
+], ids=["two-places", "cut-to-two", "padded-to-two"])
+def test_a_confidence_is_said_to_two_places(confidence: float, said: str) -> None:
+    # The dashboard's walk said 88%, its timeline the bare float, and the
+    # postmortem's table 0.88: one ranking written three ways. Said one way,
+    # here.
+    Scenario() \
+        .when(
+            lambda: said_as_a_confidence(confidence)
         ) \
         .then(
             the_answer_was(said)

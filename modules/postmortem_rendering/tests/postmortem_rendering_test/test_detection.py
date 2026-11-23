@@ -16,16 +16,20 @@ from core.models import (
     Detection,
     DetectionLesson,
     DetectionMeasuredFrom,
-    TimelineMarker,
+    Impact,
+    ImpactExtent,
 )
 from postmortem_rendering.detection import DetectionSection, the_detection
 from postmortem_rendering.lines import Line, Role, Run
 from postmortem_rendering.supporting import EvidenceRow
 
-from postmortem_rendering_test.framework.builders import a_marker, a_postmortem, an_alert
+from postmortem_rendering_test.framework.builders import a_postmortem, an_alert
 
 SOME_ONSET = datetime(2026, 10, 11, 14, 3, tzinfo=UTC)
 SOME_ALERT = SOME_ONSET + timedelta(minutes=2, seconds=40)
+
+# How long a stretch lasted, wherever nothing reads it.
+DONT_CARE_DURATION = timedelta(minutes=6)
 
 
 @pytest.mark.unit
@@ -63,7 +67,8 @@ def test_an_onset_where_the_metrics_stopped_is_said_to_be_that() -> None:
                 detection=Detection(alerted_at=SOME_ALERT, rule="dont care",
                                     onset_at=SOME_ONSET,
                                     gap=timedelta(minutes=2, seconds=40)),
-                timeline=[a_marker(TimelineMarker.METRICS_STOP, SOME_ONSET)])
+                impact=Impact(duration=DONT_CARE_DURATION, extent=ImpactExtent.METRICS_MISSING,
+                              peak_error_rate=None))
         ) \
         .when(
             lambda: the_detection(some_postmortem, an_alert("HighErrorRate", "io-shop")).line

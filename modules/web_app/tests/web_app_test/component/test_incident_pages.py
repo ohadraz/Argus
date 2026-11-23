@@ -306,6 +306,31 @@ def test_an_incident_page_shows_every_candidate_by_its_number() -> None:
 
 
 @pytest.mark.component
+def test_an_incident_page_says_a_candidate_s_confidence_as_the_postmortem_does() -> None:
+    # To two places, as the postmortem's table says it: "90%" on the walk and
+    # "0.90" in the document it links to said one ranking two ways.
+    some_confidence = 0.9
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
+        hypotheses.record(conn, Hypothesis(
+            incident_id=incident_id, summary=DONT_CARE_WORDS,
+            failure_mode=FailureMode.FEATURE_FLAG_TOGGLE, confidence=some_confidence,
+            supporting_evidence=[], subject=DONT_CARE_SUBJECT, rank=1, number=1))
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: page_at(f"/incidents/{incident_id}")
+        ) \
+        .then(
+            the_page_says('<span class="confidence">0.90</span>')
+        )
+
+
+@pytest.mark.component
 def test_the_timeline_says_each_candidate_by_its_own_number() -> None:
     # Under the line that formed them, by the number each keeps for the whole
     # incident, read rather than counted: a list counting from one again would

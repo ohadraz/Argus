@@ -42,6 +42,9 @@ THE_CHAT_PLATFORM = "Slack"
 
 SOME_ONSET = datetime(2026, 10, 11, 14, 3, tzinfo=UTC)
 
+# How long a stretch lasted, wherever nothing reads it.
+DONT_CARE_DURATION = timedelta(minutes=6)
+
 
 @pytest.mark.unit
 def test_a_title_is_the_symptom_and_the_flag_change_it_began_with() -> None:
@@ -328,8 +331,10 @@ def test_an_incident_whose_metrics_stopped_is_dated_from_where_they_stopped() ->
     # may never have left normal.
     Scenario() \
         .given(
-            some_postmortem := a_postmortem(timeline=[
-                a_marker(TimelineMarker.METRICS_STOP, SOME_ONSET)])
+            some_postmortem := a_postmortem(
+                timeline=[a_marker(TimelineMarker.METRICS_STOP, SOME_ONSET)],
+                impact=Impact(duration=DONT_CARE_DURATION, extent=ImpactExtent.METRICS_MISSING,
+                              peak_error_rate=None))
         ) \
         .when(
             lambda: a_head(some_postmortem, an_alert(), resolution=None).date
@@ -339,28 +344,71 @@ def test_an_incident_whose_metrics_stopped_is_dated_from_where_they_stopped() ->
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(("extent", "said"), [
-    (ImpactExtent.METRICS_RESUMED, "Oct 11, 2026, 14:03 to 14:09 UTC, metrics missing until then"),
-    (ImpactExtent.METRICS_MISSING, "Oct 11, 2026, 14:03 to 14:09 UTC")
-], ids=["resumed", "never-resumed"])
-def test_an_incident_whose_metrics_resumed_is_dated_to_then_with_them_missing_until_then(
-        extent: ImpactExtent, said: str) -> None:
-    # A window alone reads as a stretch the service was broken through, of one
-    # nobody measured. Said only of metrics that resumed: an end marked beside
-    # metrics that never did was not where they came back.
+def test_metrics_that_resumed_without_the_service_back_are_missing_until_they_resumed() -> None:
+    # They came back where the duration ends: said as missing from the onset
+    # on, the head would deny the minutes they came back for, and still not say
+    # the service was seen back.
+    some_stretch = timedelta(minutes=6)
+
     Scenario() \
         .given(
             some_postmortem := a_postmortem(
-                timeline=[a_marker(TimelineMarker.METRICS_STOP, SOME_ONSET),
-                          a_marker(TimelineMarker.IMPACT_ENDS, SOME_ONSET + timedelta(minutes=6))],
-                impact=Impact(duration=timedelta(minutes=6), extent=extent,
+                timeline=[a_marker(TimelineMarker.METRICS_STOP, SOME_ONSET)],
+                impact=Impact(duration=some_stretch, extent=ImpactExtent.METRICS_RESUMED,
                               peak_error_rate=None))
         ) \
         .when(
             lambda: a_head(some_postmortem, an_alert(), resolution=None).date
         ) \
         .then(
-            _it_reads(said))
+            _it_reads(f"Oct 11, 2026, 14:03 to {SOME_ONSET + some_stretch:%H:%M} UTC, metrics "
+                      f"missing until then, not seen back to normal"))
+
+
+@pytest.mark.unit
+def test_an_incident_with_no_onset_whose_metrics_stopped_says_both() -> None:
+    # With no onset there is no marker where they stopped, and the head said
+    # nothing of the gap its own Impact card says.
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                detection=Detection(alerted_at=SOME_ONSET, rule="dont care", onset_at=None,
+                                    gap=None),
+                impact=Impact(duration=DONT_CARE_DURATION, extent=ImpactExtent.METRICS_MISSING,
+                              peak_error_rate=None))
+        ) \
+        .when(
+            lambda: a_head(some_postmortem, an_alert(), resolution=None).date
+        ) \
+        .then(
+            _it_reads("onset unknown, alerted Oct 11, 2026, 14:03 UTC, metrics missing from then"))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("extent", "missing"), [
+    (ImpactExtent.METRICS_RESUMED, "metrics missing until then"),
+    (ImpactExtent.METRICS_MISSING, "metrics missing throughout")
+], ids=["resumed", "never-resumed"])
+def test_an_incident_that_ended_with_its_metrics_missing_says_until_then_only_where_they_resumed(
+        extent: ImpactExtent, missing: str) -> None:
+    # A window alone reads as a stretch the service was broken through, of one
+    # nobody measured. "Until then" only of metrics that resumed: an end a
+    # person reported beside metrics that never did was not where they came
+    # back, so they are said to have been missing throughout.
+    some_stretch = timedelta(minutes=6)
+
+    Scenario() \
+        .given(
+            some_postmortem := a_postmortem(
+                timeline=[a_marker(TimelineMarker.METRICS_STOP, SOME_ONSET),
+                          a_marker(TimelineMarker.IMPACT_ENDS, SOME_ONSET + some_stretch)],
+                impact=Impact(duration=some_stretch, extent=extent, peak_error_rate=None))
+        ) \
+        .when(
+            lambda: a_head(some_postmortem, an_alert(), resolution=None).date
+        ) \
+        .then(
+            _it_reads(f"Oct 11, 2026, 14:03 to {SOME_ONSET + some_stretch:%H:%M} UTC, {missing}"))
 
 
 @pytest.mark.unit

@@ -179,6 +179,15 @@ def _when_and_for_how_long(measured: Measurements,
                     f"they resumed at {written(METRICS_RESUMED_AT_FIGURE)}, "
                     f"{written(DURATION_FIGURE)} later{showed}.",
                     _what_the_logs_show(read, written_if_any)]
+        # A person's report while they were still missing ended the stretch,
+        # and the duration runs to it, not to the close.
+        case ImpactExtent.METRICS_MISSING if measured.reported_by is not None:
+            return [*said,
+                    f"No metrics were collected from {written(METRICS_STOPPED_AT_FIGURE)} on, and "
+                    f"they had not resumed when {measured.reported_by} reported the incident "
+                    f"resolved at {written(BACK_TO_NORMAL_FIGURE)}, "
+                    f"{written(DURATION_FIGURE)} later.",
+                    _what_the_logs_show(read, written_if_any)]
         case ImpactExtent.METRICS_MISSING:
             return [*said,
                     f"No metrics were collected from {written(METRICS_STOPPED_AT_FIGURE)} on, and "
@@ -248,7 +257,9 @@ def _how_bad(measured: Measurements,
     its alert watched as the harm, which nobody using the service felt.
 
     Except where the series is the error rate itself: then it is the failed
-    requests already said, and only how bad its worst minute got is new."""
+    requests, said already where they rose, and only how bad its worst minute
+    got is new - and where no rise was measured, its going from one level to
+    another is no harm, and said as what the alert watches it reads as one."""
     said = []
 
     rates = measured.error_rates
@@ -261,8 +272,10 @@ def _how_bad(measured: Measurements,
         said.append(_how_much_longer_requests_took(latency_told, written))
 
     levels = measured.rule_series
-    if levels is not None and levels.got_worse and rose and measured.rule_series_is_the_error_rate:
-        said.append(f"At its worst, {written(ERRORS_AT_WORST_FIGURE)} failed.")
+    if (levels is not None and levels.got_worse and rates is not None
+            and measured.rule_series_is_the_error_rate):
+        if rose:
+            said.append(f"At its worst, {written(ERRORS_AT_WORST_FIGURE)} failed.")
     elif levels is not None and levels.got_worse:
         said.append(f"What its alert watches went from {written(SERIES_BEFORE_FIGURE)} before "
                     f"it began to {written(SERIES_AT_WORST_FIGURE)} at its worst.")

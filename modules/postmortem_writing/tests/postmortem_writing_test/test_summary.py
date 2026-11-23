@@ -174,6 +174,35 @@ def test_metrics_that_stopped_are_said_unseen_with_where_the_logs_reach_and_thei
 
 
 @pytest.mark.unit
+def test_metrics_still_missing_when_a_person_reported_it_over_are_said_unseen_until_the_report(
+) -> None:
+    # The report ended the stretch and the duration runs to it: "had not resumed
+    # by the close" would count minutes after the report that nobody did.
+    the_report = ONSET + timedelta(minutes=20)
+    the_reporter = "Kuki Buki"
+    dont_care_logged_at = ONSET + timedelta(minutes=4)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(
+                log_lines=[f"{to_iso(dont_care_logged_at)} WARN io-shop: dont care"],
+                log_reading_ended=the_report),
+            measured := a_measured_incident(back_to_normal_at=the_report,
+                                            reported_by=the_reporter,
+                                            metrics_stopped_at=ONSET,
+                                            duration_in_hours=(the_report - ONSET)
+                                            / timedelta(hours=1))
+        ) \
+        .when(
+            lambda: the_executive_summary(evidence, measured, SOME_CAUSE, "")
+        ) \
+        .then(
+            _says("No metrics were collected from 12:00 UTC on, and they had not resumed when "
+                  "Kuki Buki reported the incident resolved at 12:20 UTC, 20 minutes later.")
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(("back_to_normal", "said"), [
     (True, "No metrics were collected from 12:00 UTC until they resumed at 12:05:52 UTC, "
            "5 minutes 52 seconds later."),
@@ -363,6 +392,43 @@ def test_where_the_alert_watches_the_error_rate_its_worst_is_said_once_as_reques
             _says("30.0% of requests failed while it was broken, against 2.0% before it began. "
                   "At its worst, 40.0% failed."),
             _does_not_say("What its alert watches")
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("its_variation_was_read", [True, False],
+                         ids=["no-rise", "not-told-apart"])
+def test_where_the_alert_watches_the_error_rate_and_no_rise_was_measured_no_level_is_said(
+        its_variation_was_read: bool) -> None:
+    # The series is the error rate, and the rate went no higher than it goes
+    # on its own, or nobody can tell: its going from one level to another is no
+    # harm, and said as what the alert watches it reads as one. Read, how high
+    # it goes on its own is above where it went while broken.
+    some_baseline, some_while_broken, some_worst = 0.02, 0.3, 0.4
+    usual_ceiling = some_while_broken * 2 if its_variation_was_read else None
+    usual_worst = some_worst * 2 if its_variation_was_read else None
+    some_rates = ErrorRates(baseline=some_baseline, while_broken=some_while_broken,
+                            at_its_worst=some_worst, usual_ceiling=usual_ceiling,
+                            usual_worst=usual_worst)
+
+    Scenario() \
+        .given(
+            evidence := an_evidence_bundle(),
+            measured := a_measured_incident(
+                error_rates=some_rates,
+                # The series is the rate itself, so its levels are the rate's.
+                rule_series=RuleSeriesLevels(baseline=some_rates.baseline,
+                                             while_broken=some_rates.while_broken,
+                                             at_its_worst=some_rates.at_its_worst,
+                                             worse_when="above"),
+                rule_series_is_the_error_rate=True)
+        ) \
+        .when(
+            lambda: the_executive_summary(evidence, measured, SOME_CAUSE, "")
+        ) \
+        .then(all_of(
+            _does_not_say("What its alert watches"),
+            _does_not_say("At its worst")
         ))
 
 

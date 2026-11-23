@@ -892,7 +892,7 @@ def test_a_candidate_believed_not_at_all_says_so() -> None:
     Scenario() \
         .given(a_candidate_believed_not_at_all) \
         .when(lambda: build_narration([a_candidate_believed_not_at_all])) \
-        .then(_the_only_candidate_is_held_at("0%"))
+        .then(_the_only_candidate_is_held_at("0.00"))
 
 
 @pytest.mark.unit

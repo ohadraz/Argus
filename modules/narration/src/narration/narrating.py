@@ -100,6 +100,7 @@ from pydantic import BaseModel, Field
 from narration.clock import a_minute, a_moment, a_moment_with_its_day, a_window
 from narration.findings import Finding, a_finding
 from narration.flags import on_or_off, said_as_a_state
+from narration.levels import said_as_a_confidence
 from narration.logs import LogLine, a_log_line
 from narration.metrics import BucketRow, a_bucket_row
 from narration.prose import said_plainly
@@ -1068,7 +1069,7 @@ def a_candidate_line(event: HypothesisFormed) -> CandidateLine:
         number=event.number,
         summary=said_plainly(event.summary, beside=formed_at),
         subject=event.subject,
-        confidence=(_a_percentage(event.confidence) if event.confidence is not None
+        confidence=(said_as_a_confidence(event.confidence) if event.confidence is not None
                     else None),
         moved_from=said_as_a_state(event.from_state),
         moved_to=said_as_a_state(event.to_state),
@@ -1882,7 +1883,3 @@ def _a_pod_said(pod: PodPlacement) -> str:
         return f"{pod.pod}, with no accelerator reported"
 
     return f"{pod.pod} on {pod.accelerator}"
-
-
-def _a_percentage(confidence: float) -> str:
-    return f"{confidence * 100:.0f}%"

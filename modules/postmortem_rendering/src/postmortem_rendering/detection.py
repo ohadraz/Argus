@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from core.models import Alert, Detection, PostmortemDocument, TimelineMarker
+from core.models import Alert, Detection, PostmortemDocument
 from narration import said_as_a_span, shorter_than_the_rules_wait
 from pydantic import BaseModel, ConfigDict
 
@@ -38,9 +38,10 @@ def the_detection(postmortem: PostmortemDocument, alert: Alert) -> DetectionSect
     if detection is None:
         return DetectionSection(line=None, absent="How it was detected was not recorded.")
 
-    # Where the metrics stop at the onset, what it dates is their stopping, and
+    # Where the metrics stopped, what the onset dates is their stopping, and
     # the service may have gone on serving as before - as the timeline says.
-    stopped = any(entry.marker is TimelineMarker.METRICS_STOP for entry in postmortem.timeline)
+    # Read off the extent, as the head and the review read it.
+    stopped = postmortem.the_metrics_stopped()
     if detection.onset_at:
         runs = [Run(text="The metrics on " if stopped else "The incident on "),
                 Run(text=alert.service, role=Role.CODE),

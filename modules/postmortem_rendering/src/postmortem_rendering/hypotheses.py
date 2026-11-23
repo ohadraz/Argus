@@ -22,7 +22,13 @@ from datetime import date
 from typing import Final
 
 from core.models import HypothesisConsidered, PostmortemDocument
-from narration import as_shown, said_short, the_instants_in, the_short_forms
+from narration import (
+    as_shown,
+    said_as_a_confidence,
+    said_short,
+    the_instants_in,
+    the_short_forms,
+)
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.lines import Line, Role, Run
@@ -134,4 +140,4 @@ def _with_moments(run: Run, day: date | None) -> tuple[Run, ...]:
 
 def _to_two_places(confidence: float | None) -> str:
     """A ranking's confidence to two places, or `-` where it gave none."""
-    return f"{confidence:.2f}" if confidence is not None else "-"
+    return said_as_a_confidence(confidence) if confidence is not None else "-"

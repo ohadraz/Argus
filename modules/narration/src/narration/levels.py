@@ -38,6 +38,11 @@ _POSITIVE_INFINITY: Final = "+Inf"
 _NEGATIVE_INFINITY: Final = "-Inf"
 _NOT_A_NUMBER: Final = "NaN"
 
+# A level above the calm before it, where nobody can say how high it goes on
+# its own: said one way by the brief and the page, since "no rise" is a claim
+# and a figure of one reads as harm.
+NOT_TOLD_APART: Final = "can't be told apart from its normal variation"
+
 
 def said_as_a_level(level: float) -> str:
     """A level to three figures, the way a reader compares two levels - and
@@ -55,6 +60,13 @@ def said_as_a_share(rate: float) -> str:
         return f"{_plainly(exact)}{_PERCENT_SIGN}"
 
     return f"{rate:.1%}"
+
+
+def said_as_a_confidence(confidence: float) -> str:
+    """A ranking's confidence to two places, as the postmortem's table says it
+    - one form wherever a candidate's confidence is shown, so the dashboard
+    and the document it links to never say one ranking two ways."""
+    return f"{confidence:.2f}"
 
 
 def level_said_in(level: float, unit: Unit | None) -> str:

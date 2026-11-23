@@ -20,7 +20,13 @@ from core.models import (
     PostmortemDocument,
     Unit,
 )
-from narration import level_said_in, said_as_a_share, said_as_a_time, said_as_money
+from narration import (
+    NOT_TOLD_APART,
+    level_said_in,
+    said_as_a_share,
+    said_as_a_time,
+    said_as_money,
+)
 from pydantic import BaseModel, ConfigDict
 
 from postmortem_rendering.formatting import as_span
@@ -83,16 +89,18 @@ def the_impact(postmortem: PostmortemDocument, alert: Alert) -> ImpactSection:
     reads as a measurement of this incident: what it found is the series' own
     card, and its words are Detection's row of what the alert said.
 
-    "At least" where the incident never ended: the figures were counted up to
-    where the metrics stopped, with the incident still going there.
+    "At least" on the loss where the incident never ended: the takings were
+    counted up to where the read stopped, with the incident still going there -
+    whether the metrics showed it still broken, stopped, or resumed without
+    showing it back. The duration's own floor is its card's.
 
     Every stretch from the alert where no onset was measured, since that is
     where it was measured from.
     """
     impact = postmortem.impact
     start = _THE_ALERT if _no_onset_was_measured(postmortem) else _THE_ONSET
-    a_lower_bound = impact is not None and impact.extent in (ImpactExtent.AT_LEAST,
-                                                             ImpactExtent.METRICS_MISSING)
+    ended = postmortem.the_impact_ended()
+    a_lower_bound = impact is not None and not ended
     found = the_alert_s_own_finding(alert)
     said = postmortem.detection.said if postmortem.detection else None
     # Of a disproven alarm, that there was none, and the minutes its claim was
@@ -101,16 +109,17 @@ def the_impact(postmortem: PostmortemDocument, alert: Alert) -> ImpactSection:
     disproven = impact is not None and impact.extent is ImpactExtent.DISPROVEN
 
     return ImpactSection(
-        cards=((_the_duration(impact, start), *_the_rules_series_before_the_alert(impact))
+        cards=((_the_duration(impact, start, ended), *_the_rules_series_before_the_alert(impact))
                if disproven else
-               (_the_duration(impact, start),
+               (_the_duration(impact, start, ended),
                 *_the_errors(impact, start),
                 *_the_latency(impact, start),
                 *_the_rules_series(impact, start),
                 _the_loss(postmortem, a_lower_bound))),
         finding=f"What the alert found: {found}" if found else None,
         metrics_missing=(_the_metrics_missing(start,
-                                              resumed=impact.extent is ImpactExtent.METRICS_RESUMED)
+                                              resumed=impact.extent is ImpactExtent.METRICS_RESUMED,
+                                              ended=ended)
                          if impact and impact.extent in (ImpactExtent.METRICS_MISSING,
                                                          ImpactExtent.METRICS_RESUMED)
                          else None),
@@ -132,14 +141,16 @@ def _no_onset_was_measured(postmortem: PostmortemDocument) -> bool:
     return postmortem.detection is not None and postmortem.detection.onset_at is None
 
 
-def _the_metrics_missing(start: str, resumed: bool) -> str:
+def _the_metrics_missing(start: str, resumed: bool, ended: bool) -> str:
     """What a duration the metrics carry no minute of measures, said under it:
     what was missing is the metrics, not sight of the service - its logs and
     its takings may well cover the stretch, and the cause and the loss say what
-    they saw. How long they were missing where they `resumed`, and how long by
-    the close where they did not."""
+    they saw. How long they were missing where they `resumed`, until the report
+    that `ended` it where they never did, and how long by the close where
+    nothing ended it."""
     where = "the onset" if start == _THE_ONSET else start
     how_long = ("they were missing, until they resumed" if resumed
+                else "they were missing, until it was reported resolved" if ended
                 else "they had been missing by the close")
 
     return (f"The metrics stop at {where}, so the duration is how long {how_long} - not a "
@@ -152,15 +163,16 @@ def _before_and_while_broken(start: str) -> str:
     return f"before {start} and while broken on average"
 
 
-def _the_duration(impact: Impact | None, start: str) -> Card:
+def _the_duration(impact: Impact | None, start: str, ended: bool) -> Card:
     """How long, said by where it ends. Back to normal only where it got back:
     a failure still going when the metrics ran out, and metrics still missing
     when the incident closed, are each a floor - labelled as ending back
     to normal, they name an end the incident never had. And an end a person
     reported is said as their report: back to normal is what the metrics
-    showing it means, and they showed nothing of this end. Metrics that
-    resumed end the stretch they were missing for, which is no floor. Each
-    from `start`."""
+    showing it means, and they showed nothing of this end - which holds for
+    metrics still missing when a person reported it over, an end that
+    `ended` says the stretch had. Metrics that resumed end the stretch they
+    were missing for, which is no floor. Each from `start`."""
     until_back_to_normal = f"{start} until back to normal"
 
     if impact is None:
@@ -174,6 +186,8 @@ def _the_duration(impact: Impact | None, start: str) -> Card:
             return Card(value=span, label=f"{start} until reported resolved")
         case ImpactExtent.AT_LEAST:
             return Card(value=f"at least {span}", label=f"since {start}, still not back to normal")
+        case ImpactExtent.METRICS_MISSING if ended:
+            return Card(value=span, label=f"{start} until reported resolved, metrics missing")
         case ImpactExtent.METRICS_MISSING:
             return Card(value=f"at least {span}", label=f"since {start}, metrics missing")
         case ImpactExtent.METRICS_RESUMED:
@@ -183,29 +197,31 @@ def _the_duration(impact: Impact | None, start: str) -> Card:
 
 
 def _the_errors(impact: Impact | None, start: str) -> tuple[Card, ...]:
-    """The failed requests at their worst and in all - or, where they did not
-    rise, one card saying so. Not where nobody could say whether they rose:
-    the peak and the count are measured whatever the rate's own variation.
+    """The failed requests at their worst and in all where they rose - or, where
+    no rise was measured, one card saying whether they did not rise or nobody
+    can tell, as the brief says it.
 
     Failed requests that did not rise are no harm, and a count of them under
     Impact reads as one: the requests that failed at the rate they always do.
-    Left off instead, the rate reads as one nobody measured. A document
-    written before the levels were carried shows the two cards it always did.
-    Said as the series' card says its levels: the one before, then the one
-    while broken.
+    Nor are ones that rose by no more than nobody can tell from the rate's own
+    variation: a peak and a count there read as a rise the brief denies. Left
+    off instead, the rate reads as one nobody measured. A document written
+    before the levels were carried shows the two cards it always did. Said as
+    the series' card says its levels: the one before, then the one while
+    broken.
     """
     levels = impact.error_rates if impact else None
 
-    if levels is not None and levels.rose is False:
+    if levels is not None and levels.rose is not True:
         return (Card(value=(f"{said_as_a_share(levels.before)} to "
                             f"{said_as_a_share(levels.while_broken)}"),
                      label=f"error rate, {_before_and_while_broken(start)}",
-                     note="no rise"),)
+                     note="no rise" if levels.rose is False else NOT_TOLD_APART),)
 
     peak = impact.peak_error_rate if impact else None
     failed = impact.requests_failed if impact else None
 
-    return (Card(value=f"{peak * 100:.1f}%" if peak is not None else "not measured by the metrics",
+    return (Card(value=said_as_a_share(peak) if peak is not None else "not measured by the metrics",
                  label="peak error rate"),
             Card(value=f"{failed:,}" if failed is not None else "not counted by the metrics",
                  label="requests failed"))
@@ -320,11 +336,17 @@ def _the_rules_series(impact: Impact | None, start: str) -> tuple[Card, ...]:
     a reader bridge the two without the page guessing a unit.
 
     Without the worst minute where the series is the error rate itself: that is
-    the peak error rate, on its own card already.
+    the peak error rate, on its own card already. And no card at all there where
+    no rise was measured: the error rate's card says its levels already, and
+    beside it as "got worse" they read as the harm it says they were not.
     """
     harm = impact.rule_series_harm if impact else None
 
     if harm is None:
+        return ()
+
+    levels = impact.error_rates if impact else None
+    if harm.is_the_error_rate and levels is not None and levels.rose is not True:
         return ()
 
     def said(level: float) -> str:

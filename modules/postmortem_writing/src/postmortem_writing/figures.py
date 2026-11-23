@@ -626,7 +626,7 @@ def the_day_said_off_the_page(evidence: IncidentEvidence,
 def the_day_it_began(evidence: IncidentEvidence, measured: Measurements) -> date:
     """The day the incident began, which every instant written on it leaves
     unsaid - the page dates the incident once, in its head."""
-    return _the_instant_it_began(evidence, measured).astimezone(UTC).date()
+    return _the_day_of(_the_instant_it_began(evidence, measured))
 
 
 def _the_instant_it_began(evidence: IncidentEvidence, measured: Measurements) -> datetime:
@@ -634,6 +634,12 @@ def _the_instant_it_began(evidence: IncidentEvidence, measured: Measurements) ->
     where none was - the instant the incident is dated from either way, here,
     in the duration (`measuring`) and in the page's head."""
     return measured.onset_at or evidence.alerted_at
+
+
+def _the_day_of(instant: datetime) -> date:
+    """The day an instant falls on, as the page dates it: in UTC. One rule for
+    the day read off the evidence and the day read off the figures shown."""
+    return instant.astimezone(UTC).date()
 
 
 def _the_detection_parts_named(lesson: DetectionLesson) -> list[tuple[DetectionPart, timedelta]]:
@@ -1249,10 +1255,11 @@ def _worked_out(working: re.Match[str], figures: Mapping[str, Figure]) -> str | 
 def _the_day_shown(figures: Mapping[str, Figure]) -> date | None:
     """The day the incident began, as the model was shown the instant it is
     dated from - the alert's, where nothing began - or `None` where it was
-    shown none."""
+    shown neither, as an overview is not. The same instant `the_day_it_began`
+    dates from, since `figures_of` names the beginning by it."""
     began = figures.get(BEGAN_FIGURE, figures.get(ALERT_RAISED_FIGURE))
 
-    return parse_iso(began.given).astimezone(UTC).date() if began is not None else None
+    return _the_day_of(parse_iso(began.given)) if began is not None else None
 
 
 def _kind_of(name: str, figures: Mapping[str, Figure]) -> _Kind | None:

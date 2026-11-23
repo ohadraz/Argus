@@ -58,6 +58,9 @@ from postmortem_writing.sections import TRIED_NOT_JUDGED
 SOME_MOMENT = datetime(2026, 10, 11, 14, 3, tzinfo=UTC)
 SOME_FAULT = "the step [the divisor was zero] cites no evidence"
 
+# How long a stretch lasted, wherever nothing reads it.
+DONT_CARE_DURATION = timedelta(minutes=6)
+
 
 @pytest.mark.unit
 def test_a_document_with_everything_meets_all_three_and_leaves_two_to_people() -> None:
@@ -214,9 +217,10 @@ def test_impact_measured_where_the_metrics_stopped_is_left_for_a_person() -> Non
     # the metrics resume - which is a person's to see.
     Scenario() \
         .given(
-            a_document_whose_metrics_stopped := _a_document(timeline=[
-                _a_marker(TimelineMarker.METRICS_STOP)
-            ])
+            a_document_whose_metrics_stopped := _a_document(
+                timeline=[_a_marker(TimelineMarker.IMPACT_BEGINS)],
+                impact=Impact(duration=DONT_CARE_DURATION, extent=ImpactExtent.METRICS_MISSING,
+                              peak_error_rate=None))
         ) \
         .when(
             lambda: review_of(a_document_whose_metrics_stopped, faults=[],
@@ -226,6 +230,56 @@ def test_impact_measured_where_the_metrics_stopped_is_left_for_a_person() -> Non
             _says_because(IMPACT_ASSESSED, met=None,
                           because="the loss is measured to the close; how long the metrics "
                                   "stay missing is known once they resume")
+        )
+
+
+@pytest.mark.unit
+def test_impact_measured_to_metrics_that_resumed_not_showing_it_back_is_left_for_a_person(
+) -> None:
+    # The read ended where they resumed, and the loss with it; what is still
+    # unknown is when the service got back, which is a person's to report.
+    Scenario() \
+        .given(
+            a_document_whose_metrics_resumed := _a_document(
+                timeline=[_a_marker(TimelineMarker.IMPACT_BEGINS)],
+                impact=Impact(duration=DONT_CARE_DURATION, extent=ImpactExtent.METRICS_RESUMED,
+                              peak_error_rate=None))
+        ) \
+        .when(
+            lambda: review_of(a_document_whose_metrics_resumed, faults=[],
+                              reaches_a_cause=True)
+        ) \
+        .then(
+            _says_because(IMPACT_ASSESSED, met=None,
+                          because="the loss is measured to where the metrics resumed; when the "
+                                  "service is back to normal is for a person to report")
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("extent", "unended"), [
+    (ImpactExtent.METRICS_MISSING,
+     "the metrics stopped, so the service was never measured back to normal"),
+    (ImpactExtent.METRICS_RESUMED, "the service was never seen back to normal")
+], ids=["never-resumed", "resumed"])
+def test_impact_with_no_loss_where_the_metrics_stopped_says_whether_they_measured_the_end(
+        extent: ImpactExtent, unended: str) -> None:
+    # Metrics that never came back measured no end; metrics that came back
+    # without the service back saw it still broken. Said as unmeasured, the
+    # review frames one state two ways beside the line that leaves its end to a
+    # person. Read off the extent alone: no marker says where they stopped.
+    Scenario() \
+        .given(
+            a_document_with_no_loss := _a_document(
+                customer_loss_estimate=None,
+                timeline=[_a_marker(TimelineMarker.IMPACT_BEGINS)],
+                impact=Impact(duration=DONT_CARE_DURATION, extent=extent, peak_error_rate=None))
+        ) \
+        .when(
+            lambda: review_of(a_document_with_no_loss, faults=[], reaches_a_cause=True)
+        ) \
+        .then(
+            _says_because(IMPACT_ASSESSED, met=False, because=f"no loss was estimated; {unended}")
         )
 
 
