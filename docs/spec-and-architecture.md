@@ -786,7 +786,7 @@ Both corpora share one vector store, and so one pair of ports, split by side: `V
 
 ### 12.1 MCP server topology
 
-Tools are served by **two FastMCP servers, split by autonomy tier (§13)** - each a network-facing process of its own, started and supplied by its root (`apps.read_mcp`, `apps.write_mcp`; §20.1):
+Tools are served by **two MCP servers, built on the MCP SDK's `MCPServer` and split by autonomy tier (§13)** - each a network-facing process of its own, started and supplied by its root (`apps.read_mcp`, `apps.write_mcp`; §20.1):
 
 | Server | Exposes |
 |---|---|
@@ -1541,7 +1541,7 @@ flowchart TB
 - The **walk** span is opened around the graph rather than inside it, so that a failure before the first node is inside it too.
 - Every node of the graph is a **step** span, registered through one wrapper so that no node can be added without one. A step belonging to an agent is the GenAI conventions' `invoke_agent <agent>`; the orchestrator's own steps are named for the step, since several spans all called "the orchestrator" would tell a reader nothing. A step puts its agent's name in the baggage for as long as it runs, which is how a model client built once and handed around still says, on its span and its measurements, which agent made the call.
 - A **model call** follows the GenAI semantic conventions: the model, the token counts (input including cached tokens, with the cached share alongside), the finish reason, and the whole prompt and response.
-- A **tool call** is a client span in the caller and a server span in the MCP server. The caller writes W3C `traceparent` and `baggage` into the request's `_meta`, and the server continues both, so the server's work is a child of the call that asked for it rather than the root of a trace of its own - and knows whose incident it is serving. The servers are built on a `FastMCP` that does this for every tool, so no tool can be registered without it.
+- A **tool call** is a client span in the caller and a server span in the MCP server. The caller writes W3C `traceparent` and `baggage` into the request's `_meta`, and the server continues both, so the server's work is a child of the call that asked for it rather than the root of a trace of its own - and knows whose incident it is serving. The servers are built on an `MCPServer` that does this for every tool (`TracedMCPServer`), so no tool can be registered without it. The SDK's own spans for the request it sends and the one it serves sit inside the same trace, the client's under the call's span and the server's beside it.
 
 **Metrics** are the conventions' own wherever one exists - `gen_ai.client.operation.duration`, `gen_ai.client.token.usage`, `mcp.client.operation.duration` - plus `argus.incident.walks` and `argus.incident.walk.duration`, each told apart by how the incident ended.
 
@@ -1795,7 +1795,7 @@ Suggest running milestones 3-4 in parallel with 2 once basic Target Environment 
 
 | Decision | Call | Why |
 |---|---|---|
-| Tool integration | MCP via FastMCP, servers split by autonomy tier, ports-and-adapters for non-standardized integrations (§12) | Satisfies the tools/MCP requirement properly, with real enforcement, not just tidiness - the read/write split makes §13's guardrail structural rather than procedural |
+| Tool integration | MCP via the MCP SDK's `MCPServer`, servers split by autonomy tier, ports-and-adapters for non-standardized integrations (§12) | Satisfies the tools/MCP requirement properly, with real enforcement, not just tidiness - the read/write split makes §13's guardrail structural rather than procedural |
 | Orchestration | LangGraph `StateGraph` over the incident FSM (§7.1, §10) | Conditional edges map directly to the state machine; built-in checkpointing removes bespoke resume logic |
 | Web/API layer | Single Web Application module (`web_app`) owns all HTTP; everything else called in-process (§7.9, §4) | Keeps transport concerns out of domain logic |
 | Incident view stack | Jinja2/HTMX served by the Web Application itself - no second module, no JS build (§7.7) | One process to start and one HTTP surface; no extra tooling for a read-only UI |

@@ -1,0 +1,42 @@
+[
+ {
+  "name": "get_service_dependencies",
+  "description": "What this service calls, what each of those is for, and whether the organisation owns it. Worth reading whenever the time a request spends, or the failure it reports, points at something this service does not run - because the response depends entirely on whose that something is, and nothing else you can retrieve says. A host name will not tell you: an internal-looking name is internal-looking because somebody chose the spelling. Takes no arguments; it answers about the service this incident is about.",
+  "strict": true,
+  "input_schema": {
+   "type": "object",
+   "properties": {},
+   "required": [],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "get_what_a_deployment_changed",
+  "description": "What one deployment changed: the files that differ from the revision deployed before it, and the change made to each. Read this before saying which of two causes a deployment was - a deployment that shipped bad code and one that shipped a broken configuration value arrive identically, move the same signals, and are put right the same way, and the only thing that separates them is what was in the commit. Nothing else you can retrieve says: the path a deployment syncs from is where its manifests live, and is the same directory whatever the commit touched. Takes the deploy's own revision, exactly as get_changes reported it.",
+  "strict": true,
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "revision": {
+     "description": "The deployment's revision, copied from the change this asks about. What it is compared against is not yours to name - the revision deployed before it is in the deployment history, which you cannot see.",
+     "type": "string"
+    }
+   },
+   "required": [
+    "revision"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "get_rollout_state",
+  "description": "Whether the deployment this service is running has finished arriving: how many replicas are on the revision being rolled out, how many are still on the one before it, and whether the rolling update is paused. Read this before saying a deployment at the onset is the fault - a revision that is wrong and a revision that reached only half the fleet arrive identically in the change channel, and the second fails only the requests that cross between the two versions now serving. Nothing else you can retrieve says: a deploy history records syncs that finished, and a rollout that has not finished is not in it. A deployment that has converged is an answer worth having too - it rules the split out. Takes no arguments; it answers about the service this incident is about.",
+  "strict": true,
+  "input_schema": {
+   "type": "object",
+   "properties": {},
+   "required": [],
+   "additionalProperties": false
+  }
+ }
+]

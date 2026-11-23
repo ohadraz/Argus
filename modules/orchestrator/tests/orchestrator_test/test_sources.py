@@ -16,15 +16,14 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, NoReturn
 from unittest.mock import Mock, create_autospec
 
-import httpx
 import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, one_record_was_logged, the_answer_was
 from core import get_settings, to_iso
 from core.anomaly import AnomalyThresholds
 from core.models import AlertRuleStanding, MetricBucket, SeriesQuery
-from mcp.shared.exceptions import McpError
-from mcp.types import ErrorData
+from mcp.shared.exceptions import MCPError
+from mcp.types import REQUEST_TIMEOUT
 from mcp_transport import McpClient, McpToolError, McpUnreachable
 from orchestrator.sources import the_real_sources
 from pay_band_source import PayBandsByTitle, PayBandsUnavailable
@@ -121,8 +120,7 @@ def test_the_minute_two_windows_share_is_read_once() -> None:
 @pytest.mark.unit
 @pytest.mark.parametrize("failure", [McpToolError(SOME_FAILURE),
                                      McpUnreachable(SOME_FAILURE),
-                                     McpError(ErrorData(code=httpx.codes.REQUEST_TIMEOUT,
-                                                        message=SOME_FAILURE))],
+                                     MCPError(code=REQUEST_TIMEOUT, message=SOME_FAILURE)],
                          ids=["tool-failed", "unreachable", "timed-out"])
 def test_metrics_the_read_tier_cannot_read_are_answered_as_none_read(
     failure: Exception,
@@ -213,8 +211,7 @@ def test_the_paging_rule_is_asked_of_the_read_tier() -> None:
 @pytest.mark.unit
 @pytest.mark.parametrize("failure", [McpToolError(SOME_FAILURE),
                                      McpUnreachable(SOME_FAILURE),
-                                     McpError(ErrorData(code=httpx.codes.REQUEST_TIMEOUT,
-                                                        message=SOME_FAILURE))],
+                                     MCPError(code=REQUEST_TIMEOUT, message=SOME_FAILURE)],
                          ids=["tool-failed", "unreachable", "timed-out"])
 def test_a_rule_the_read_tier_cannot_read_is_answered_as_unread(
     failure: Exception,

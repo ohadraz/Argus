@@ -26,7 +26,7 @@ from core.models import CodeSearch, ToolDefinition
 from core.vector_store import VectorSearch
 from deployment_platform import DeploymentPlatformReads
 from flag_provider import FlagProviderReads
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from metrics_source import MetricsSource, SeriesClassifier
 from postgres import Connections
 from read_mcp_client import offered
@@ -58,7 +58,7 @@ def every_tool_the_read_tier_lists(mode: CodeSearch = SEARCHING_BY_GREP_ALONE) -
     return [tool.name for tool in asyncio.run(_a_read_tier(mode).list_tools())]
 
 
-def _a_read_tier(mode: CodeSearch) -> FastMCP:
+def _a_read_tier(mode: CodeSearch) -> MCPServer:
     """One deployment's read tier, reaching nothing."""
     return build_server(
         ReadMcpEndpoint(read_mcp_host="127.0.0.1",

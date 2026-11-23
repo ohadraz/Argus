@@ -11,7 +11,7 @@ session: an HTTP transport, an `initialize` handshake, and a server that can be
 taken away underneath one. Nothing smaller can be wrong in the way this exists
 to catch.
 
-It is also a traced one - a `TracedFastMCP`, with an SDK installed in its own
+It is also a traced one - a `TracedMCPServer`, with an SDK installed in its own
 process - because the other half of the transport is that a call arrives inside
 its caller's trace, and only a server on the far side of a real session can say
 which trace it found itself in.
@@ -39,12 +39,12 @@ import uvicorn
 from argus_testkit import a_free_port
 from core import Fence
 from core.models import DeploymentRollbackUndo
-from mcp.server.fastmcp import Context
+from mcp.server.mcpserver import Context
 from mcp.server.streamable_http import MCP_SESSION_ID_HEADER
 from mcp_transport import (
     ACTION_META_KEY,
     FENCE_META_KEY,
-    TracedFastMCP,
+    TracedMCPServer,
     a_change_made_since,
     a_lost_run,
     a_refusal_saying_what_it_left,
@@ -111,11 +111,14 @@ _sessions_forgotten: set[bytes] = set()
 # ASGI hands headers over: bytes.
 _SESSION_HEADER: Final = MCP_SESSION_ID_HEADER.encode()
 # What a server says to a request over a session it does not hold, in the SDK's
-# own words and code.
+# own words and code (mcp 2.3.0, `server/streamable_http_manager.py`,
+# `_error_response`: a JSON-RPC error with no request id).
 _SESSION_NOT_FOUND = (
-    b'{"jsonrpc":"2.0","id":"server-error",'
+    b'{"jsonrpc":"2.0","id":null,'
     b'"error":{"code":-32600,"message":"Session not found"}}'
 )
+# Where the double listens: this machine alone.
+_HOST: Final = "127.0.0.1"
 _A_PING: Final = "ping"
 # Where the double's own control routes are, beside `/mcp` and never reaching
 # the SDK: one that arms a hold (`hold_the_next`), and one that says what was
@@ -133,9 +136,9 @@ _A_SUSPENSION = DeploymentRollbackUndo(
 )
 
 
-def build_double(port: int) -> TracedFastMCP:
+def build_double(port: int) -> TracedMCPServer:
     """The server: one tool that answers, one that refuses, one that counts."""
-    server = TracedFastMCP("transport-double", host="127.0.0.1", port=port)
+    server = TracedMCPServer("transport-double", host=_HOST, port=port)
 
     @server.tool()
     def say_something() -> list[str]:
@@ -272,21 +275,21 @@ def build_double(port: int) -> TracedFastMCP:
         ))
 
     @server.tool()
-    def the_fence_i_was_sent(ctx: Context[Any, Any, Any]) -> dict[str, object]:
+    def the_fence_i_was_sent(ctx: Context[Any, Any]) -> dict[str, object]:
         """Which claim the call said it was made for, as the write tier hears it -
         or nothing, where it said none."""
         meta = ctx.request_context.meta
-        spoken = (meta.model_dump() if meta is not None else {}).get(FENCE_META_KEY)
+        spoken = (dict(meta) if meta is not None else {}).get(FENCE_META_KEY)
         heard = Fence.heard(spoken) if isinstance(spoken, str) else None
 
         return {} if heard is None else {"run_id": heard.run_id, "epoch": heard.epoch}
 
     @server.tool()
-    def the_action_i_was_sent(ctx: Context[Any, Any, Any]) -> dict[str, object]:
+    def the_action_i_was_sent(ctx: Context[Any, Any]) -> dict[str, object]:
         """Which action the call said it was made for, as the write tier hears
         it - or nothing, where it said none."""
         meta = ctx.request_context.meta
-        spoken = (meta.model_dump() if meta is not None else {}).get(ACTION_META_KEY)
+        spoken = (dict(meta) if meta is not None else {}).get(ACTION_META_KEY)
 
         return {"action_id": spoken} if isinstance(spoken, str) else {}
 
@@ -712,16 +715,19 @@ if __name__ == "__main__":
     # An SDK of the double's own, exporting nowhere: what makes the server's
     # span a real one with a parent to report, rather than the API's no-op.
     trace.set_tracer_provider(TracerProvider())
-    # Served as FastMCP serves itself over streamable HTTP, behind the doors
-    # that can hold a request and forget a session. Asked to stop, it gives a
-    # request it is still holding a moment and then cancels it: uvicorn would
-    # otherwise wait for every one with no limit at all.
+    # Served as `TracedMCPServer.serve` serves it, behind the doors that can
+    # hold a request and forget a session. Asked to stop, it gives a request it
+    # is still holding a moment and then cancels it: uvicorn would otherwise
+    # wait for every one with no limit at all.
     _token = sys.argv[2]
-    double = build_double(int(sys.argv[1]))
+    port = int(sys.argv[1])
+    double = build_double(port)
     uvicorn.run(_HoldingRequestsWhenTold(
-                    _ForgettingSessionsAfterAPing(double.streamable_http_app())
+                    _ForgettingSessionsAfterAPing(
+                        double.streamable_http_app(host=_HOST, session_idle_timeout=None)
+                    )
                 ),
                 timeout_graceful_shutdown=GRACEFUL_SHUTDOWN_SECONDS,
-                host=double.settings.host,
-                port=double.settings.port,
+                host=_HOST,
+                port=port,
                 log_level=double.settings.log_level.lower())

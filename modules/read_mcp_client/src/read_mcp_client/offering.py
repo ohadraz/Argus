@@ -51,7 +51,7 @@ def offered(holds: Mapping[str, Collection[str]],
 
     return [
         ToolDefinition.from_input_schema(
-            name, served[name].description, served[name].inputSchema
+            name, served[name].description, served[name].input_schema
         ).without(*bound)
         for name, bound in holds.items()
     ]

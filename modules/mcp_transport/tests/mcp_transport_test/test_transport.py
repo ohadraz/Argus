@@ -24,10 +24,10 @@ import time
 from collections.abc import Callable, Iterator
 from contextlib import suppress
 from queue import Empty
-from typing import Any, NamedTuple
+from typing import Any, Final, NamedTuple
 from unittest.mock import create_autospec
 
-import httpx
+import httpx2
 import pytest
 import uvicorn
 from argus_testkit.assertions import (
@@ -47,8 +47,16 @@ from core.telemetry import (
     MCP_CLIENT_OPERATION_DURATION,
     MCP_METHOD_NAME,
 )
-from mcp.shared.exceptions import McpError
-from mcp.types import ListToolsResult, Tool
+from mcp.client import Client
+from mcp.server.mcpserver import Context
+from mcp.shared.exceptions import MCPError
+from mcp.types import (
+    REQUEST_TIMEOUT,
+    CallToolResult,
+    InputRequiredResult,
+    ListToolsResult,
+    Tool,
+)
 from mcp_transport import (
     LEFT_BEHIND_KNOWN_MARKER,
     LEFT_BEHIND_MARKER,
@@ -62,7 +70,7 @@ from mcp_transport import (
     McpToolError,
     McpUnreachable,
     PlatformUnreachable,
-    TracedFastMCP,
+    TracedMCPServer,
     WhichAsking,
     a_refusal_saying_what_it_left,
     an_http_client_waiting,
@@ -127,6 +135,19 @@ AN_ACTION_HEARD = TypeAdapter(dict[str, object])
 
 NOTHING_IS_LISTENING_HERE = "http://127.0.0.1:8199/mcp"
 DONT_CARE_TOOL = "say_something"
+# Where a server built here and never served would be served.
+DONT_CARE_HOST = "127.0.0.1"
+DONT_CARE_PORT = 8123
+# A tool that, once begun, stays open until a second call has arrived - and how
+# long it waits for one before it ends without it: a guard against a hang, never
+# waited out by a case that passes, since the second call arrives in
+# milliseconds.
+A_TOOL_HELD_OPEN = "held_open"
+LONG_PAST_ANY_ARRIVAL_SECONDS = 30.0
+# How the SDK's client is told to open a session by the `initialize` handshake,
+# as `McpClient` opens one - its default speaks to a server in the same process
+# without one.
+LEGACY_HANDSHAKE: Final = "legacy"
 # The double's tools a case names in what it asserts, as well as asks: one that
 # counts every asking; one that stalls at every asking; four that stall at the
 # first and, at every later one, refuse saying they left nothing, refuse as
@@ -233,7 +254,7 @@ def test_a_list_of_tools_in_pages_is_read_to_its_last_page() -> None:
     # the server serves.
     some_pages = {
         None: ListToolsResult(tools=[_a_listed_tool("first"), _a_listed_tool("second")],
-                              nextCursor="after-second"),
+                              next_cursor="after-second"),
         "after-second": ListToolsResult(tools=[_a_listed_tool("third")])
     }
 
@@ -1647,6 +1668,26 @@ def test_a_call_arriving_with_baggage_is_served_with_it() -> None:
 
 
 @pytest.mark.unit
+def test_a_server_answers_one_call_at_a_time() -> None:
+    # As every Argus server always has: no tool here was written to share its
+    # state with another running beside it, and the SDK runs each one on a
+    # worker thread of its own. A second call, sent while the first is still
+    # being answered, begins once the first has ended.
+    answered: list[str] = []
+
+    Scenario() \
+        .given(
+            server := _a_server_held_open_until_a_second_call(answered)
+        ) \
+        .when(
+            lambda: _two_calls_at_once(server, A_TOOL_HELD_OPEN)
+        ) \
+        .then(
+            _happened_in_order(answered, ["began", "ended"] * 2)
+        )
+
+
+@pytest.mark.unit
 def test_a_server_is_served_with_its_logging_left_to_the_root() -> None:
     # uvicorn's own logging config gives its loggers handlers of their own and
     # stops them propagating, so nothing it said reached the root - nor, since
@@ -1654,7 +1695,7 @@ def test_a_server_is_served_with_its_logging_left_to_the_root() -> None:
     # without it, its records go wherever every other record goes.
     Scenario() \
         .given(
-            a_server := TracedFastMCP("some-server", host="127.0.0.1", port=8123),
+            a_server := TracedMCPServer("some-server", host="127.0.0.1", port=8123),
             run := create_autospec(uvicorn.run)
         ) \
         .when(
@@ -1723,9 +1764,68 @@ def test_a_tool_that_raised_is_logged_as_a_warning_by_the_server(
         )
 
 
+class _CountingArrivals(TracedMCPServer):
+    """A server that counts each call as it arrives - before it waits its turn
+    - and says when a second has."""
+
+    def __init__(self) -> None:
+        super().__init__("some-server", host=DONT_CARE_HOST, port=DONT_CARE_PORT)
+        self.a_second_arrived = threading.Event()
+        self._arrived = 0
+
+    async def call_tool(self,
+                        name: str,
+                        arguments: dict[str, Any],
+                        context: Context[Any, Any] | None = None
+                        ) -> CallToolResult | InputRequiredResult:
+        self._arrived += 1
+
+        if self._arrived == 2:
+            self.a_second_arrived.set()
+
+        return await super().call_tool(name, arguments, context)
+
+
+def _a_server_held_open_until_a_second_call(answered: list[str]) -> TracedMCPServer:
+    """A server with one tool that, once begun, stays open until a second call
+    has arrived - and says when it began and ended into `answered`."""
+    server = _CountingArrivals()
+
+    @server.tool(name=A_TOOL_HELD_OPEN)
+    def held_open() -> list[str]:
+        answered.append("began")
+        server.a_second_arrived.wait(LONG_PAST_ANY_ARRIVAL_SECONDS)
+        answered.append("ended")
+
+        return ["answered"]
+
+    return server
+
+
+def _two_calls_at_once(server: TracedMCPServer, tool: str) -> list[CallToolResult]:
+    """`tool` asked twice at once over one session held in memory - the second
+    sent while the first is still being answered."""
+    async def over_a_session() -> list[CallToolResult]:
+        async with Client(server, mode=LEGACY_HANDSHAKE) as session:
+            return list(await asyncio.gather(session.call_tool(tool, {}),
+                                             session.call_tool(tool, {})))
+
+    return asyncio.run(over_a_session())
+
+
+def _happened_in_order(happened: list[str], expected: list[str]) -> Assertion[object]:
+    def assertion(_answer: object) -> bool:
+        if happened != expected:
+            raise AssertionError(f"Expected {expected} in that order, got {happened}.")
+
+        return True
+
+    return assertion
+
+
 def _a_listed_tool(name: str) -> Tool:
     return Tool(name=name, description="dont care what it does",
-                inputSchema={"type": "object", "properties": {}})
+                input_schema={"type": "object", "properties": {}})
 
 
 def _the_tools_listed_are(expected: list[str]) -> Assertion[list[Tool]]:
@@ -1743,7 +1843,7 @@ def _the_tools_listed_are(expected: list[str]) -> Assertion[list[Tool]]:
 
 def _the_tool_listed_requires(name: str, required: list[str]) -> Assertion[list[Tool]]:
     def assertion(listed: list[Tool]) -> bool:
-        declared = _the_tool_named(listed, name).inputSchema.get("required")
+        declared = _the_tool_named(listed, name).input_schema.get("required")
 
         if declared != required:
             raise AssertionError(
@@ -2269,8 +2369,8 @@ def _asking_once_only_after_the_server_stopped(
     return both_askings
 
 
-def _it_waits_to_read_for(seconds: float) -> Assertion[httpx.AsyncClient]:
-    def assertion(http_client: httpx.AsyncClient) -> bool:
+def _it_waits_to_read_for(seconds: float) -> Assertion[httpx2.AsyncClient]:
+    def assertion(http_client: httpx2.AsyncClient) -> bool:
         waits = http_client.timeout.read
 
         if waits != seconds:
@@ -2290,10 +2390,10 @@ class _HttpClientsOpened:
 
     def __init__(self) -> None:
         self.waiting: list[float] = []
-        self.clients: list[httpx.AsyncClient] = []
+        self.clients: list[httpx2.AsyncClient] = []
         self.carried: list[str] = []
 
-    def __call__(self, answered_within: float) -> httpx.AsyncClient:
+    def __call__(self, answered_within: float) -> httpx2.AsyncClient:
         self.waiting.append(answered_within)
         http_client = an_http_client_waiting(answered_within)
         http_client.event_hooks = {"request": [self._carrying], "response": []}
@@ -2301,7 +2401,7 @@ class _HttpClientsOpened:
 
         return http_client
 
-    async def _carrying(self, request: httpx.Request) -> None:
+    async def _carrying(self, request: httpx2.Request) -> None:
         self.carried.append(str(request.url))
 
 
@@ -2447,16 +2547,16 @@ def _what_was_raised_was(expected: type[BaseException]) -> Assertion[_Attempt]:
 
 
 def _what_was_raised_was_the_sdk_s_timeout() -> Assertion[_Attempt]:
-    """The SDK's own failure for an answer not come back in time: an `McpError`
-    whose code is HTTP's request timeout (`mcp/shared/session.py`,
+    """The SDK's own failure for an answer not come back in time: an `MCPError`
+    whose code is MCP's request timeout (`mcp/shared/jsonrpc_dispatcher.py`,
     `send_request`)."""
     def assertion(attempt: _Attempt) -> bool:
         raised = attempt.raised
 
-        if not isinstance(raised, McpError) or raised.error.code != httpx.codes.REQUEST_TIMEOUT:
+        if not isinstance(raised, MCPError) or raised.error.code != REQUEST_TIMEOUT:
             raise AssertionError(
-                f"Expected the SDK's timeout raised - McpError with code "
-                f"[{httpx.codes.REQUEST_TIMEOUT}] - got {raised!r}."
+                f"Expected the SDK's timeout raised - MCPError with code "
+                f"[{REQUEST_TIMEOUT}] - got {raised!r}."
             )
 
         return True

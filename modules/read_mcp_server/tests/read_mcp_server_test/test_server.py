@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Final
 from unittest.mock import Mock, create_autospec
 
 import pytest
@@ -40,8 +41,8 @@ from core.models import CodeSearch
 from core.vector_store import VectorSearch
 from deployment_platform import DeploymentPlatformReads
 from flag_provider import FlagProviderReads, FlagProviderUnavailable
-from mcp.server.fastmcp import FastMCP
-from mcp.shared.memory import create_connected_server_and_client_session
+from mcp.client import Client
+from mcp.server.mcpserver import MCPServer
 from mcp.types import CallToolResult, Tool
 from metrics_source import MetricsSource, SeriesClassifier
 from postgres import Connections
@@ -53,6 +54,11 @@ from read_mcp_server.server import build_server
 from read_mcp_server.window import RetrievalSettings
 
 SEARCHING_BY_GREP_ALONE = CodeSearch.GREP
+
+# How the SDK's client is told to open a session by the `initialize` handshake,
+# as the tier's own client opens one - its default speaks to a server in the
+# same process without one.
+LEGACY_HANDSHAKE: Final = "legacy"
 
 THE_REGISTER = "get_service_dependencies"
 # The rollout channel's two answers, named because the test below is about both
@@ -278,7 +284,7 @@ def test_the_enabled_flags_are_the_providers_answer_in_its_order() -> None:
 
     Scenario() \
         .given(read_tier := _a_read_tier(SEARCHING_BY_GREP_ALONE, flags)) \
-        .when(lambda: _asked(read_tier, THE_ENABLED_FLAGS).structuredContent) \
+        .when(lambda: _asked(read_tier, THE_ENABLED_FLAGS).structured_content) \
         .then(the_answer_was({"result": [SOME_OTHER_FLAG, SOME_FLAG]}))
 
 
@@ -292,7 +298,7 @@ def test_a_provider_that_could_not_be_asked_is_an_error_rather_than_nothing_enab
 
     Scenario() \
         .given(read_tier := _a_read_tier(SEARCHING_BY_GREP_ALONE, flags)) \
-        .when(lambda: _asked(read_tier, THE_ENABLED_FLAGS).isError) \
+        .when(lambda: _asked(read_tier, THE_ENABLED_FLAGS).is_error) \
         .then(the_answer_was(True))
 
 
@@ -306,7 +312,7 @@ def test_a_file_is_read_by_the_code_host_at_the_path_and_ref_asked_for() -> None
     Scenario() \
         .given(read_tier := _a_read_tier(SEARCHING_BY_GREP_ALONE, code=code)) \
         .when(lambda: _asked(read_tier, THE_FILE_READER,
-                             path=SOME_PATH, ref=SOME_REF).structuredContent) \
+                             path=SOME_PATH, ref=SOME_REF).structured_content) \
         .then(all_of(
             the_answer_was({"result": SOME_SOURCE}),
             lambda _: _the_code_host_was_asked(code.file_at, (SOME_PATH, SOME_REF))
@@ -323,7 +329,7 @@ def test_whether_a_branch_holds_a_revision_is_asked_of_the_code_host_as_named() 
     Scenario() \
         .given(read_tier := _a_read_tier(SEARCHING_BY_GREP_ALONE, code=code)) \
         .when(lambda: _asked(read_tier, THE_BRANCH_CONTAINING,
-                             branch=SOME_BRANCH, revision=SOME_REVISION).structuredContent) \
+                             branch=SOME_BRANCH, revision=SOME_REVISION).structured_content) \
         .then(all_of(
             the_answer_was({"result": True}),
             lambda _: _the_code_host_was_asked(code.contains, (SOME_BRANCH, SOME_REVISION))
@@ -353,10 +359,11 @@ def _the_code_host_was_asked(asked: Mock, expected: tuple[object, ...]) -> bool:
     return True
 
 
-def _asked(server: FastMCP, tool: str, **arguments: object) -> CallToolResult:
-    """One call over a real MCP session held in memory."""
+def _asked(server: MCPServer, tool: str, **arguments: object) -> CallToolResult:
+    """One call over a real MCP session held in memory, opened by the handshake
+    the tier's own client opens one with."""
     async def over_a_session() -> CallToolResult:
-        async with create_connected_server_and_client_session(server) as session:
+        async with Client(server, mode=LEGACY_HANDSHAKE) as session:
             return await session.call_tool(tool, dict(arguments))
 
     return asyncio.run(over_a_session())
@@ -387,7 +394,7 @@ class _Arguments:
         def assertion(tool: Tool) -> bool:
             undescribed = [
                 argument
-                for argument, schema in tool.inputSchema.get("properties", {}).items()
+                for argument, schema in tool.input_schema.get("properties", {}).items()
                 if argument not in self._bound and not schema.get("description")
             ]
 
@@ -464,7 +471,7 @@ def _the_tools_offered_by(mode: CodeSearch) -> list[str]:
 
 def _a_read_tier(mode: CodeSearch,
                  flags: Mock | None = None,
-                 code: Mock | None = None) -> FastMCP:
+                 code: Mock | None = None) -> MCPServer:
     """One deployment's read tier, reaching nothing - its flags answered by
     `flags` and its repository by `code` where a case gives them."""
     return build_server(

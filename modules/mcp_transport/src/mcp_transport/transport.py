@@ -34,10 +34,12 @@ event loop per call raised the moment a caller already had one.
 Every call is traced across the boundary, both halves here because they are two
 halves of one convention. The client makes each call a span and sends that
 span's context in the request's `_meta`, as OTel's MCP conventions and MCP's
-SEP-414 both say to; `TracedFastMCP` is the server that reads it back and
+SEP-414 both say to; `TracedMCPServer` is the server that reads it back and
 answers inside the caller's trace. `_meta` rather than an HTTP header because
 the session is held: its headers were fixed when it opened, and `_meta`
-travels with each call.
+travels with each call. The SDK traces each request too, on the client's loop:
+the caller's context is attached there, so the SDK's span is this one's child
+and the trace runs unbroken to the server.
 """
 
 from __future__ import annotations
@@ -47,16 +49,15 @@ import json
 import logging
 import threading
 import time
-from collections.abc import Awaitable, Callable, Generator, Mapping, Sequence
+from collections.abc import AsyncGenerator, Awaitable, Callable, Generator, Mapping
 from concurrent.futures import Future
-from contextlib import contextmanager, suppress
-from datetime import timedelta
+from contextlib import asynccontextmanager, contextmanager, suppress
 from enum import Enum
 from types import TracebackType
 from typing import Any, Final, Self
 from urllib.parse import urlsplit
 
-import httpx
+import httpx2
 import uvicorn
 from core import Holding, RunLost
 from core.models import UndoDescriptor, parse_undo_descriptor
@@ -74,19 +75,24 @@ from core.telemetry import (
 )
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
-from mcp.server.fastmcp import FastMCP
-from mcp.shared.exceptions import McpError
+from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.mcpserver.exceptions import UnexpectedToolError
+from mcp.shared.exceptions import MCPError
 from mcp.types import (
+    INVALID_REQUEST,
     CallToolResult,
-    ContentBlock,
+    InputRequiredResult,
     ListToolsResult,
     PaginatedRequestParams,
+    RequestParamsMeta,
     TextContent,
     Tool,
 )
 from opentelemetry import context, metrics, propagate, trace
+from opentelemetry.context import Context as TraceContext
 from opentelemetry.metrics import Meter
 from opentelemetry.trace import Span, SpanKind, Status, StatusCode, Tracer
+from pydantic import TypeAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -135,13 +141,17 @@ NOT_A_CALL_SECONDS: Final = 30.0
 _HTTP_SECONDS: Final = 30.0
 
 # The MCP SDK's answer to a request a server turned away as made over a session
-# it does not hold - a server restarted beneath a held session answers 404, and
-# the SDK says so as this JSON-RPC error (mcp 1.29,
-# `client/streamable_http.py`, `_send_session_terminated_error`; the server's
-# 404 is `server/streamable_http_manager.py`'s "Session not found"). The one
-# failure after sending that proves the tool never ran. Pinned to that SDK
-# version: its words, as much as its code, are what is matched.
-SESSION_TERMINATED_CODE: Final = 32600
+# it does not hold - a server restarted beneath a held session answers 404
+# before the request reaches anything that could run it. The one failure after
+# sending that proves the tool never ran. Two spellings of it, both under
+# JSON-RPC's invalid-request code: the server's own error body, which the client
+# hands on as it came (mcp 2.3.0, `server/streamable_http_manager.py`,
+# `_error_response("Session not found", 404)`; `client/streamable_http.py`
+# forwards a JSON-RPC error body), and the client's own words for a 404 that
+# carried none. Pinned to that SDK version: its words, as much as its code, are
+# what is matched - the code alone is every invalid request there is.
+SESSION_GONE_CODE: Final = INVALID_REQUEST
+SESSION_NOT_FOUND_WORDS: Final = "Session not found"
 SESSION_TERMINATED_WORDS: Final = "Session terminated"
 
 
@@ -203,10 +213,15 @@ CHANGED_SINCE_MARKER: Final = "argus:changed-since"
 # was not, whatever a suspension before it left behind.
 PERFORMED_MARKER: Final = "argus:performed"
 
-# What the MCP SDK's own server puts in front of the words of a tool that raised
-# (`mcp.server.fastmcp.tools.base.Tool.run`), the tool's name in it. The words
-# after it are the tool's.
-FASTMCP_TOOL_ERROR: Final = "Error executing tool {name}: "
+# What a server puts in front of the words of a tool that raised, the tool's
+# name in it; the words after it are the tool's. The MCP SDK's own spelling,
+# which `TracedMCPServer` keeps: since mcp 2.1 the SDK withholds a crashed
+# tool's words, and these are what a person reads of why a change was refused.
+TOOL_ERROR_PREFIX: Final = "Error executing tool {name}: "
+
+# A call's `_meta` as the SDK types it, built from the carrier a call fills:
+# validated rather than cast, so a key the type cannot hold fails here.
+_AS_REQUEST_META: Final = TypeAdapter(RequestParamsMeta)
 
 # Where in a call's `_meta` the claim it is made for is said, as `Fence.spoken`
 # says it. In `_meta` rather than a header for the trace's reason: the session
@@ -264,7 +279,7 @@ class ActionExhausted(McpToolError):
     without reading the words of the refusal.
 
     Recognised here rather than in the tier's own client, because this is the
-    point where `isError` becomes an exception, and a distinction drawn anywhere
+    point where `is_error` becomes an exception, and a distinction drawn anywhere
     later would be a second reading of the same field.
 
     What it left behind is known, and is nothing: the marker is only ever
@@ -321,7 +336,7 @@ class PlatformUnreachable(McpToolError):
     does not know about this catches it exactly as it always did.
 
     Recognised here rather than in the tier's own client, because this is the
-    point where `isError` becomes an exception, and a distinction drawn anywhere
+    point where `is_error` becomes an exception, and a distinction drawn anywhere
     later would be a second reading of the same field.
 
     What it left behind is known, whatever it carries: a marked failure says
@@ -354,7 +369,7 @@ class ChangedSince(McpToolError):
     does not know about this catches it exactly as it always did.
 
     Recognised here rather than in the tier's own client, because this is the
-    point where `isError` becomes an exception, and a distinction drawn anywhere
+    point where `is_error` becomes an exception, and a distinction drawn anywhere
     later would be a second reading of the same field.
 
     What it left behind is known, whatever it carries: the marker is only ever
@@ -432,22 +447,19 @@ class LostAfterSending(RuntimeError):
     """
 
 
-def an_http_client_waiting(answered_within: float) -> httpx.AsyncClient:
+def an_http_client_waiting(answered_within: float) -> httpx2.AsyncClient:
     """The HTTP client a held session is opened over, waiting `answered_within`
     seconds to read.
 
     A tool written as a plain function says nothing on its stream until it
     returns, so the read timeout is how long a tool's answer may take. Left at
-    httpx's own five seconds, or the SDK's five minutes, an answer the tier is
-    still working on is dropped - and the SDK, which swallows a stream that
-    ends, leaves the call waiting for it for ever. Everything that is not a
-    read keeps the bound the SDK gives it, and redirects are followed as the
-    SDK's own client follows them.
+    the client's own five seconds, or the SDK's five minutes, an answer the
+    tier is still working on is dropped - and the SDK, which swallows a stream
+    that ends, leaves the call waiting for it for ever. Everything that is not
+    a read keeps the bound the SDK gives it. Redirects are the SDK's: it follows
+    one only within the endpoint's origin, whatever the client says.
     """
-    return httpx.AsyncClient(
-        follow_redirects=True,
-        timeout=httpx.Timeout(_HTTP_SECONDS, read=answered_within)
-    )
+    return httpx2.AsyncClient(timeout=httpx2.Timeout(_HTTP_SECONDS, read=answered_within))
 
 
 class _NothingSent(McpUnreachable):
@@ -462,18 +474,19 @@ def _never_sent(failed: Exception) -> bool:
     """Whether a failed call is one that certainly never reached its tool.
 
     Two failures prove it: there was no session to send it over, or the server
-    turned it away as made over a session it does not hold - the SDK's
-    "Session terminated", which a server restarted beneath a held session
-    answers before any tool is asked anything. Any other failure may have come
-    after the tool began, a read that timed out among them.
+    turned it away as made over a session it does not hold - "Session not
+    found", or the SDK's "Session terminated" where the server's 404 said
+    nothing, which a server restarted beneath a held session answers before
+    any tool is asked anything. Any other failure may have come after the tool
+    began, a read that timed out among them.
     """
     if isinstance(failed, _NothingSent):
         return True
 
     return (
-        isinstance(failed, McpError)
-        and failed.error.code == SESSION_TERMINATED_CODE
-        and failed.error.message == SESSION_TERMINATED_WORDS
+        isinstance(failed, MCPError)
+        and failed.error.code == SESSION_GONE_CODE
+        and failed.error.message in (SESSION_NOT_FOUND_WORDS, SESSION_TERMINATED_WORDS)
     )
 
 
@@ -629,11 +642,11 @@ def _the_words_of(result: CallToolResult) -> str:
 def _the_tools_own_words(name: str, spoken: str) -> str:
     """What a tool that failed said, without what its server put in front of it.
 
-    A tool that raises is answered by the MCP SDK's server with the exception's
-    words behind `FASTMCP_TOOL_ERROR`; a tool that said nothing is named, so the
-    failure still says whose it was.
+    A tool that raises is answered with the exception's words behind
+    `TOOL_ERROR_PREFIX`; a tool that said nothing is named, so the failure
+    still says whose it was.
     """
-    own = spoken.removeprefix(FASTMCP_TOOL_ERROR.format(name=name)).strip()
+    own = spoken.removeprefix(TOOL_ERROR_PREFIX.format(name=name)).strip()
 
     return own if own else f"[{name}] failed and said nothing"
 
@@ -717,7 +730,7 @@ class McpClient:
                  meter: Meter | None = None,
                  clock: Clock = time.monotonic,
                  holding: Holding | None = None,
-                 http_client_waiting: Callable[[float], httpx.AsyncClient] = (
+                 http_client_waiting: Callable[[float], httpx2.AsyncClient] = (
                      an_http_client_waiting
                  ),
                  answered_within_for: AskingBound | None = None,
@@ -908,9 +921,11 @@ class McpClient:
                    arguments: dict[str, object],
                    meta: dict[str, Any],
                    asking: Asking) -> Future[object]:
-        """One tool call, handed to the loop that holds the session."""
+        """One tool call, handed to the loop that holds the session - with the
+        calling thread's context, the call's span current in it."""
         return asyncio.run_coroutine_threadsafe(
-            self._call(name, arguments, meta, asking), self._running_loop()
+            self._call(name, arguments, meta, asking, context.get_current()),
+            self._running_loop()
         )
 
     def _running_loop(self) -> asyncio.AbstractEventLoop:
@@ -997,10 +1012,9 @@ class McpClient:
                     self._http_client_waiting(reads_for) as http_client,
                     streamable_http_client(
                         self._url, http_client=http_client
-                    ) as (read, write, _),
+                    ) as (read, write),
                     ClientSession(
-                        read, write,
-                        read_timeout_seconds=timedelta(seconds=self._not_a_call_within)
+                        read, write, read_timeout_seconds=self._not_a_call_within
                     ) as session
                 ):
                     await session.initialize()
@@ -1034,8 +1048,16 @@ class McpClient:
                     name: str,
                     arguments: dict[str, object],
                     meta: dict[str, Any],
-                    asking: Asking) -> object:
+                    asking: Asking,
+                    callers: TraceContext) -> object:
         """One tool call, however it ends - including the client closing under it.
+
+        Run inside `callers`, the calling thread's context: this loop's thread
+        has its own, with no span in it, and the SDK opens a span for every
+        request it sends from whatever context is current - and writes that
+        span's context into the call's `_meta` over the one carried there. Run
+        inside the caller's, the SDK's span is the call's child, and the server
+        answers inside the walk's trace.
 
         A cancellation here is the client being closed and nothing else: no
         caller can cancel one of these, since what a caller holds is a future on
@@ -1043,6 +1065,8 @@ class McpClient:
         that the server became unreachable, and a `CancelledError` surfacing in
         a walk would look like the walk being cancelled instead.
         """
+        continued = context.attach(callers)
+
         try:
             return await self._asked_again_if_the_connection_failed(
                 name, arguments, meta, asking
@@ -1054,6 +1078,8 @@ class McpClient:
             raise McpUnreachable(
                 f"the client for [{self._url}] closed while [{name}] was in flight"
             ) from None
+        finally:
+            context.detach(continued)
 
     async def _asked_again_if_the_connection_failed(
         self, name: str, arguments: dict[str, object], meta: dict[str, Any], asking: Asking
@@ -1146,7 +1172,8 @@ class McpClient:
             waits = min(waits, self._answered_within_for(name, which))
 
         return _answered(name, await session.call_tool(
-            name, arguments=arguments, read_timeout_seconds=timedelta(seconds=waits), meta=meta
+            name, arguments=arguments, read_timeout_seconds=waits,
+            meta=_AS_REQUEST_META.validate_python(meta)
         ))
 
     async def _still_answering(self, session: ClientSession, asking: str) -> ClientSession:
@@ -1250,7 +1277,7 @@ async def every_tool_listed(
     while True:
         answered = await page(cursor)
         listed.extend(answered.tools)
-        cursor = answered.nextCursor
+        cursor = answered.next_cursor
 
         if not cursor:
             return listed
@@ -1265,7 +1292,7 @@ def _answered(name: str, result: CallToolResult) -> object:
     transport's business. The markers are looked for in the same words, and a
     descriptor is read out of them: one reading of one string.
     """
-    if result.isError:
+    if result.is_error:
         spoken = _the_words_of(result)
         said = _the_tools_own_words(name, spoken)
 
@@ -1290,7 +1317,7 @@ def _answered(name: str, result: CallToolResult) -> object:
                            undo_descriptor=what_was_left_behind(spoken),
                            left_behind_known=LEFT_BEHIND_KNOWN_MARKER in spoken)
 
-    structured = result.structuredContent
+    structured = result.structured_content
 
     if structured is None:
         return None
@@ -1319,7 +1346,9 @@ def serving_a_tool_call(name: str,
     A request that brought none - a client that does not send it - is served
     all the same, under a trace of its own; telemetry decides nothing about
     whether a tool answers. A tool that raises is said on the span and raised
-    on, so FastMCP still turns it into the error result it always did.
+    on, so the server still turns it into an error result. Said as what the
+    tool raised: the SDK wraps a tool's crash in `UnexpectedToolError`, and
+    which of a tool's refusals this was is what a reader of a trace filters on.
     """
     callers = propagate.extract(dict(meta) if meta is not None else {})
     serving = tracer if tracer is not None else trace.get_tracer(_SCOPE)
@@ -1343,45 +1372,98 @@ def serving_a_tool_call(name: str,
                 yield span
             except Exception as error:
                 logger.warning("tool call failed", exc_info=True, extra={"tool": name})
-                _said_on(span, error)
+                _said_on(span, _what_the_tool_raised(error))
                 raise
     finally:
         context.detach(continued)
 
 
-class TracedFastMCP(FastMCP):
-    """A FastMCP server that answers every tool call inside its caller's trace.
+def _what_the_tool_raised(error: Exception) -> Exception:
+    """`error`, unwrapped where the SDK wrapped a tool's crash around it."""
+    if isinstance(error, UnexpectedToolError) and isinstance(error.__cause__, Exception):
+        return error.__cause__
 
-    One override, of FastMCP's own public `call_tool` - the method its
+    return error
+
+
+class TracedMCPServer(MCPServer):
+    """An MCP server that answers every tool call inside its caller's trace,
+    one call at a time.
+
+    One override, of the SDK server's own public `call_tool` - the method its
     low-level server dispatches every tool call to - so a server built from
     this is traced whole, and a tool added to it tomorrow is traced without
     anybody remembering to. The tool itself, and every log line it writes, run
     inside the server span, which is what gives a line in a server's
-    `logs.jsonl` the trace id of the walk that asked.
+    `logs.jsonl` the trace id of the walk that asked. The SDK's own server span
+    stands beside it, as the SDK traces every request it serves.
+
+    One call at a time, as every Argus server has always served them: the SDK
+    runs a plain-function tool on a worker thread, where it used to run on the
+    server's loop and hold it, and no tool here was written to share its state
+    with another running beside it. Each call waits for the one before it to
+    end - its span, its fence and its tool - before any of its own begins.
+
+    Served where `host` and `port` say (`serve`), and `host` is what the app is
+    built for: the SDK guards a server built for a loopback host against DNS
+    rebinding, as it did when the host was its own setting.
     """
+
+    def __init__(self, name: str, *, host: str, port: int, **settings: Any) -> None:
+        super().__init__(name, **settings)
+        self._host = host
+        self._port = port
+        # A lock per loop rather than one: an asyncio lock waited on is bound to
+        # the loop that waited, and a server is served on one loop in a process
+        # but may be asked from several, one after another, in a suite. Kept
+        # for the server's life: a served server has one loop, and a suite's
+        # server holds one lock per loop it was asked from.
+        self._one_call_at_a_time: dict[asyncio.AbstractEventLoop, asyncio.Lock] = {}
 
     async def call_tool(self,
                         name: str,
-                        arguments: dict[str, Any]) -> Sequence[ContentBlock] | dict[str, Any]:
-        """Calls the tool, inside a span continuing whatever trace the request carried."""
-        request = self.get_context().request_context
-        meta = request.meta.model_dump() if request.meta is not None else None
+                        arguments: dict[str, Any],
+                        context: Context | None = None) -> CallToolResult | InputRequiredResult:
+        """Calls the tool, once every call before it has ended, inside a span
+        continuing whatever trace the request carried.
 
-        with serving_a_tool_call(name, meta):
-            return await self.answer(name, arguments, meta)
+        A tool that crashed is answered as the SDK answered it until mcp 2.1:
+        its own words, behind `TOOL_ERROR_PREFIX` - the SDK now withholds them,
+        and they are the sentence a person is told a change was refused with,
+        and the markers a refusal is recognised by. Answered here, outside the
+        span, so the span and the log line have seen it fail first. A tool's
+        deliberate `ToolError`, and anything this server refuses itself, the
+        SDK answers in words already.
+        """
+        meta = _the_meta_of(context)
+
+        async with self._a_turn():
+            try:
+                with serving_a_tool_call(name, meta):
+                    return await self.answer(name, arguments, meta, context)
+            except UnexpectedToolError as crashed:
+                return CallToolResult(
+                    content=[TextContent(
+                        type="text",
+                        text=f"{TOOL_ERROR_PREFIX.format(name=name)}{crashed.__cause__}"
+                    )],
+                    is_error=True
+                )
 
     async def answer(self,
                      name: str,
                      arguments: dict[str, Any],
-                     meta: Mapping[str, Any] | None) -> Sequence[ContentBlock] | dict[str, Any]:
+                     meta: Mapping[str, Any] | None,
+                     context: Context | None) -> CallToolResult | InputRequiredResult:
         """What a call is answered with, inside its span: the tool's own answer.
 
         The one place a server built from this decides more about a call than
-        FastMCP does, so that whatever it refuses is refused inside the caller's
+        the SDK does, so that whatever it refuses is refused inside the caller's
         trace - and said there, as any tool that raised is. `meta` is the
-        request's `_meta`, already read.
+        request's `_meta`, already read; `context` is the request's, handed on
+        to the tool.
         """
-        return await super().call_tool(name, arguments)
+        return await super().call_tool(name, arguments, context)
 
     def serve(self, run: Callable[..., None] = uvicorn.run) -> None:
         """Serves this server over streamable HTTP until the process is stopped.
@@ -1389,15 +1471,43 @@ class TracedFastMCP(FastMCP):
         What `run(transport="streamable-http")` does, without uvicorn's own
         logging config. That config gives uvicorn's loggers handlers of their
         own and stops them propagating, so nothing uvicorn said reached the
-        root - and the root is where telemetry listens. FastMCP builds its
+        root - and the root is where telemetry listens. The SDK builds its
         `uvicorn.Config` inside `run`, where nobody can reach it, so the app it
         would have served is served here instead; the app carries the session
         manager's lifespan, which is everything `run` added to it.
 
+        A session is never closed for being idle, as it never was before mcp
+        1.30: a client holds one for the life of its process, and a call it
+        makes after a quiet half hour is a call, not a stranger's.
+
         `run` defaults to uvicorn's own; a parameter so that what is served,
         and how, can be asserted without serving it.
         """
-        run(self.streamable_http_app(),
-            host=self.settings.host,
-            port=self.settings.port,
+        run(self.streamable_http_app(host=self._host, session_idle_timeout=None),
+            host=self._host,
+            port=self._port,
             log_config=None)
+
+    @asynccontextmanager
+    async def _a_turn(self) -> AsyncGenerator[None]:
+        """This call's turn: held until the call ends, once every call before
+        it on this loop has ended."""
+        loop = asyncio.get_running_loop()
+        lock = self._one_call_at_a_time.get(loop)
+
+        if lock is None:
+            lock = self._one_call_at_a_time[loop] = asyncio.Lock()
+
+        async with lock:
+            yield
+
+
+def _the_meta_of(context: Context | None) -> Mapping[str, Any] | None:
+    """The request's `_meta`, read as a plain map - or `None` where the request
+    carried none, or no request context reached the call."""
+    if context is None:
+        return None
+
+    meta = context.request_context.meta
+
+    return dict(meta) if meta is not None else None

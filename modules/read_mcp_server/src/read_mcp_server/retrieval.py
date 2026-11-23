@@ -118,7 +118,7 @@ def get_log_lines(alert_time: str | None = None,
     This is the public seam the `@mcp.tool()` wrapper in `server.py`
     delegates to. It lives here rather than on the decorated function because
     a `Callable`-typed default parameter - the `fetch` injection point - breaks
-    FastMCP's JSON-schema generation.
+    the MCP SDK's JSON-schema generation.
 
     `filters` matches the tool's eventual shape (§16 field-level filtering)
     but isn't acted on yet - no caller supplies one until the ReAct loop

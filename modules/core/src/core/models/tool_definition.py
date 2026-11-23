@@ -16,8 +16,8 @@ _ADDITIONAL_PROPERTIES_KEY: Final = "additionalProperties"
 
 _OBJECT_TYPE: Final = "object"
 
-# A schema keyword a generator writes on every node - pydantic's, under
-# FastMCP - which strict tool use lists no support for and no model needs.
+# A schema keyword a generator writes on every node - pydantic's, under the
+# MCP SDK's server - which strict tool use lists no support for and no model needs.
 _TITLE_KEY: Final = "title"
 # Where a schema says a node is defined elsewhere in it.
 _REF_KEY: Final = "$ref"

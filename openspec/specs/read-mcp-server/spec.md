@@ -4,7 +4,7 @@
 TBD - created by archiving change read-mcp-server. Update Purpose after archive.
 ## Requirements
 ### Requirement: argus-read-mcp exposes get_log_lines over MCP
-The system SHALL provide a FastMCP server, `argus-read-mcp`, exposing a
+The system SHALL provide an MCP server, `argus-read-mcp`, exposing a
 `get_log_lines(alert_time, window_start, window_end, filters)` tool that
 fetches the Target Service's current log via HTTP and returns the entries
 matching the requested window and filters.

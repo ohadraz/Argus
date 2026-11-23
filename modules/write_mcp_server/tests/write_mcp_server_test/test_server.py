@@ -34,7 +34,7 @@ import asyncio
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Final
 from unittest.mock import Mock, create_autospec
 
 import pytest
@@ -63,12 +63,12 @@ from deployment_platform import (
     SyncOperations,
 )
 from flag_provider import FlagProviderUnavailable, FlagProviderWrites
-from mcp.shared.memory import create_connected_server_and_client_session
-from mcp.types import CallToolResult, TextContent
+from mcp.client import Client
+from mcp.types import CallToolResult, RequestParamsMeta, TextContent
 from mcp_transport import ACTION_META_KEY, CHANGED_SINCE_MARKER, FENCE_META_KEY
 from pydantic import BaseModel, TypeAdapter
 from write_mcp_server.discarding import DiscardSettings
-from write_mcp_server.fencing import FencedFastMCP, HoldForAChange
+from write_mcp_server.fencing import FencedMCPServer, HoldForAChange
 from write_mcp_server.server import build_server
 
 from write_mcp_server_test.framework.marks import (
@@ -77,6 +77,14 @@ from write_mcp_server_test.framework.marks import (
     a_mark_found,
     marked_are,
 )
+
+# How the SDK's client is told to open a session by the `initialize` handshake,
+# as the tier's own client opens one - its default speaks to a server in the
+# same process without one.
+LEGACY_HANDSHAKE: Final = "legacy"
+# A call's `_meta` as the SDK types it, built from the map a case writes, as the
+# transport builds it: validated rather than cast.
+_AS_REQUEST_META: Final = TypeAdapter(RequestParamsMeta)
 
 # Every tool that changes something outside the tier: the seven mitigations,
 # the four restores that put them back, and the branch and pull request a fix
@@ -485,7 +493,7 @@ def test_a_fix_is_put_on_its_branch_by_the_code_host_as_the_call_named_it() -> N
         .given(server := _a_server(code=code, hold=_a_hold_answering_held)) \
         .when(lambda: _asked(server, "commit_to_new_branch", _acting_for(SOME_ACTION_ID),
                              branch=SOME_FIX_BRANCH, base_branch=SOME_BASE_BRANCH,
-                             files=SOME_PATCH, message=SOME_MESSAGE).structuredContent) \
+                             files=SOME_PATCH, message=SOME_MESSAGE).structured_content) \
         .then(all_of(
             the_answer_was({"result": SOME_FIX_BRANCH}),
             lambda _: _the_code_host_was_asked(
@@ -505,7 +513,7 @@ def test_a_fix_is_proposed_by_the_code_host_as_the_call_named_it() -> None:
         .when(lambda: OpenedPullRequest.model_validate(
             _asked(server, "open_pull_request", _acting_for(SOME_ACTION_ID),
                    head_branch=SOME_FIX_BRANCH, base_branch=SOME_BASE_BRANCH,
-                   title=SOME_MESSAGE, body=SOME_BODY).structuredContent
+                   title=SOME_MESSAGE, body=SOME_BODY).structured_content
         )) \
         .then(all_of(
             the_answer_was(SOME_PROPOSAL),
@@ -540,7 +548,7 @@ def test_a_history_the_provider_could_not_give_is_an_error_rather_than_empty() -
 
     Scenario() \
         .given(server := _a_server(flags)) \
-        .when(lambda: _asked(server, THE_HISTORY, None, since=to_iso(SOME_MOMENT)).isError) \
+        .when(lambda: _asked(server, THE_HISTORY, None, since=to_iso(SOME_MOMENT)).is_error) \
         .then(the_answer_was(True))
 
 
@@ -652,7 +660,8 @@ def _a_platform_a_rollback_can_be_planned_over() -> Mock:
 def _a_platform_its_own_sync_ran_on_since_the_plan() -> Mock:
     """`_a_platform_a_rollback_can_be_planned_over`, after the platform's own
     sync - naming nobody - deployed another revision and then the one it was on
-    again, both since the plan."""
+    again, both since the plan; and answering a rollback asked of it after the
+    plan, by its own clock."""
     platform = _a_platform_a_rollback_can_be_planned_over()
     platform.deployments_of.return_value = [
         *_the_history_a_rollback_is_planned_from(),
@@ -661,6 +670,7 @@ def _a_platform_its_own_sync_ran_on_since_the_plan() -> Mock:
         _a_deployment(THE_ENTRY_SYNCED_BACK_SINCE, THE_REVISION_IT_WAS_ON, by=None,
                       deployed_at=AFTER_THE_PLAN)
     ]
+    platform.roll_back.return_value = AFTER_THE_PLAN
 
     return platform
 
@@ -742,7 +752,7 @@ def _a_server(flags: Mock | None = None,
               platform: Mock | None = None,
               hold: HoldForAChange | None = None,
               argus_account: str = SOME_ARGUS_ACCOUNT,
-              code: Mock | None = None) -> FencedFastMCP:
+              code: Mock | None = None) -> FencedMCPServer:
     return build_server(
         WriteMcpEndpoint(write_mcp_host="127.0.0.1", write_mcp_port=8199,
                          write_mcp_url="http://127.0.0.1:8199"),
@@ -792,11 +802,11 @@ def _a_hold_answering_held(dont_care_fence: Fence) -> Generator[bool]:
     yield True
 
 
-def _what_it_serves(server: FencedFastMCP) -> set[str]:
+def _what_it_serves(server: FencedMCPServer) -> set[str]:
     return {tool.name for tool in asyncio.run(server.list_tools())}
 
 
-def _the_arguments_of(server: FencedFastMCP, tool: str) -> set[str] | None:
+def _the_arguments_of(server: FencedMCPServer, tool: str) -> set[str] | None:
     """The arguments `tool` declares to a caller, or `None` where it is not
     served at all."""
     declared = {each.name: each for each in asyncio.run(server.list_tools())}
@@ -804,33 +814,36 @@ def _the_arguments_of(server: FencedFastMCP, tool: str) -> set[str] | None:
     if tool not in declared:
         return None
 
-    return set(declared[tool].inputSchema.get("properties", {}))
+    return set(declared[tool].input_schema.get("properties", {}))
 
 
-def _asked(server: FencedFastMCP,
+def _asked(server: FencedMCPServer,
            tool: str,
            meta: dict[str, Any] | None,
            **arguments: object) -> CallToolResult:
-    """One call over a real MCP session held in memory, carrying `meta` - none,
-    for a read."""
+    """One call over a real MCP session held in memory, opened by the handshake
+    the tier's own client opens one with, carrying `meta` - none, for a read."""
     async def over_a_session() -> CallToolResult:
-        async with create_connected_server_and_client_session(server) as session:
-            return await session.call_tool(tool, dict(arguments), meta=meta)
+        async with Client(server, mode=LEGACY_HANDSHAKE) as session:
+            return await session.call_tool(
+                tool, dict(arguments),
+                meta=_AS_REQUEST_META.validate_python(meta) if meta is not None else None
+            )
 
     return asyncio.run(over_a_session())
 
 
-def _the_answer_to(server: FencedFastMCP, tool: str, **arguments: object) -> Any:
+def _the_answer_to(server: FencedMCPServer, tool: str, **arguments: object) -> Any:
     """What the tool answered, as the transport reads a structured answer."""
     result = _asked(server, tool, None, **arguments)
 
-    if result.isError or result.structuredContent is None:
+    if result.is_error or result.structured_content is None:
         raise AssertionError(f"Expected [{tool}] to answer, and it said [{result.content}].")
 
-    return result.structuredContent.get("result", result.structuredContent)
+    return result.structured_content.get("result", result.structured_content)
 
 
-def _the_plan_answered[P: BaseModel](server: FencedFastMCP,
+def _the_plan_answered[P: BaseModel](server: FencedMCPServer,
                                     tool: str,
                                     planned_as: type[P],
                                     **arguments: object) -> P:
@@ -847,15 +860,15 @@ def _it_was_refused_as_changed_since(expected: bool) -> Assertion[CallToolResult
     """Refused as a change made since the plan, or answered - `expected` says
     which."""
     def assertion(result: CallToolResult) -> bool:
-        refused = result.isError and CHANGED_SINCE_MARKER in _the_words_of(result)
+        refused = result.is_error and CHANGED_SINCE_MARKER in _the_words_of(result)
 
         if expected and not refused:
             raise AssertionError(
                 f"Expected the write refused as changed since the plan, and it answered "
-                f"isError=[{result.isError}] saying [{_the_words_of(result)}]."
+                f"is_error=[{result.is_error}] saying [{_the_words_of(result)}]."
             )
 
-        if not expected and result.isError:
+        if not expected and result.is_error:
             raise AssertionError(
                 f"Expected the write answered as made, and it was refused saying "
                 f"[{_the_words_of(result)}]."
@@ -990,7 +1003,7 @@ def _the_arguments_are(tool: str, expected: set[str]) -> Assertion[set[str] | No
     return assertion
 
 
-def _changes_are(server: FencedFastMCP,
+def _changes_are(server: FencedMCPServer,
                  expected: set[str],
                  reads: set[str]) -> Assertion[set[str]]:
     def assertion(served: set[str]) -> bool:
@@ -1250,7 +1263,7 @@ def _a_platform_as_the_accelerator_pin_left_it(marked_by: str) -> Mock:
     return platform
 
 
-def _what_it_found(server: FencedFastMCP,
+def _what_it_found(server: FencedMCPServer,
                    tool: str,
                    meta: dict[str, Any] | None,
                    **arguments: object) -> ChangeFound:
@@ -1258,11 +1271,11 @@ def _what_it_found(server: FencedFastMCP,
     found."""
     result = _asked(server, tool, meta, **arguments)
 
-    if result.isError or result.structuredContent is None:
+    if result.is_error or result.structured_content is None:
         raise AssertionError(f"Expected [{tool}] to answer, and it said [{result.content}].")
 
     return ChangeFound.model_validate(
-        result.structuredContent.get("result", result.structuredContent)
+        result.structured_content.get("result", result.structured_content)
     )
 
 
@@ -1472,7 +1485,7 @@ def test_a_scale_out_whose_suspension_alone_landed_carries_it_across_the_wire() 
 def _it_left_behind_across_the_wire(expected: ReplicaUndo) -> Assertion[CallToolResult]:
     """Nothing landed, carrying `expected` - read back as the kind it is."""
     def assertion(result: CallToolResult) -> bool:
-        answered = (result.structuredContent or {}).get("result", result.structuredContent)
+        answered = (result.structured_content or {}).get("result", result.structured_content)
         carried = answered.get("left_behind") if isinstance(answered, dict) else None
         left = None if carried is None else TypeAdapter(ReplicaUndo).validate_python(carried)
 
@@ -1525,9 +1538,9 @@ def _it_came_back(expected: str, saying: str | None = None) -> Assertion[CallToo
     def assertion(result: CallToolResult) -> bool:
         words = _the_words_of(result)
 
-        answered = (result.structuredContent or {}).get("result", result.structuredContent)
+        answered = (result.structured_content or {}).get("result", result.structured_content)
 
-        if result.isError:
+        if result.is_error:
             came_back = CHANGED_SINCE if CHANGED_SINCE_MARKER in words else NOBODY_CAN_SAY
         elif isinstance(answered, dict) and "made_at" in answered:
             came_back = MADE
@@ -1554,7 +1567,7 @@ def _it_came_back(expected: str, saying: str | None = None) -> Assertion[CallToo
 
 def _it_was_made_at(expected: datetime) -> Assertion[CallToolResult]:
     def assertion(result: CallToolResult) -> bool:
-        answered = (result.structuredContent or {}).get("result", result.structuredContent)
+        answered = (result.structured_content or {}).get("result", result.structured_content)
         made_at = None if answered is None else answered.get("made_at")
 
         if made_at is None or datetime.fromisoformat(made_at) != expected:

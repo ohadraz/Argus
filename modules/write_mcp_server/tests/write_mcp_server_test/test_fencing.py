@@ -18,9 +18,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from collections.abc import Callable, Generator
 from contextlib import AbstractContextManager, contextmanager
-from typing import Any
+from typing import Any, Final
 
 import pytest
 from argus_testkit import (
@@ -33,8 +34,9 @@ from argus_testkit import (
 )
 from core import DatabaseSettings, Fence
 from incident_record.repository import runs
-from mcp.shared.memory import create_connected_server_and_client_session
-from mcp.types import CallToolResult, TextContent
+from mcp.client import Client
+from mcp.server.mcpserver import Context
+from mcp.types import CallToolResult, InputRequiredResult, RequestParamsMeta, TextContent
 from mcp_transport import (
     ACTION_META_KEY,
     FENCE_META_KEY,
@@ -43,7 +45,8 @@ from mcp_transport import (
     UNREACHABLE_PLATFORM_MARKER,
     an_unreachable_platform,
 )
-from write_mcp_server.fencing import FencedFastMCP, HoldForAChange, holds_in_the_database
+from pydantic import TypeAdapter
+from write_mcp_server.fencing import FencedMCPServer, HoldForAChange, holds_in_the_database
 
 from write_mcp_server_test.framework.marks import marked_are
 
@@ -52,6 +55,21 @@ SOME_DATABASE = DatabaseSettings(database_url="postgresql://some-database.invali
 SOME_ACTION_ID = "6f1c1d2e-0000-4000-8000-0000000000a1"
 WHAT_THE_CHANGE_ANSWERS = ["changed"]
 DONT_CARE_WHY = "another change for the run is still being made"
+# Where a tier built here would be served, which nothing here does.
+DONT_CARE_HOST = "127.0.0.1"
+DONT_CARE_PORT = 8199
+# How long a change held open waits for the call after it to arrive before it
+# goes on without it: a guard against a hang, never waited out by a case that
+# passes - the second call arrives in milliseconds.
+LONG_PAST_ANY_ARRIVAL_SECONDS = 30.0
+
+# How the SDK's client is told to open a session by the `initialize` handshake,
+# as the tier's own client opens one - its default speaks to a server in the
+# same process without one.
+LEGACY_HANDSHAKE: Final = "legacy"
+# A call's `_meta` as the SDK types it, built from the map a case writes, as the
+# transport builds it: validated rather than cast.
+_AS_REQUEST_META: Final = TypeAdapter(RequestParamsMeta)
 
 
 @pytest.mark.unit
@@ -181,6 +199,32 @@ def test_the_run_is_held_for_as_long_as_the_change_is_being_made() -> None:
         .then(
             _happened_in_order(made, ["held", "changed", "let go"])
         )
+
+
+@pytest.mark.unit
+def test_a_change_asked_while_another_is_being_made_waits_for_the_run_to_be_let_go() -> None:
+    # What the client does when a change's answer is lost: it asks again over a
+    # new session, and the first asking may still be being made. The second
+    # waits its turn - the whole of the first, its hold and its tool - and is
+    # then made for a run that is free, where it finds its own mark. Let into
+    # its hold while the first still held the run, it would be refused as a
+    # change in flight, and the walk would record as unknown a change that was
+    # made.
+    made: list[str] = []
+
+    Scenario() \
+        .given(
+            server := _a_tier_answering_once_both_are_asked(
+                made, _a_hold_kept_for_one_change_at_a_time(made)
+            )
+        ) \
+        .when(
+            lambda: _both_asked(server, "make_a_change_once_both_are_asked", _sent(SOME_FENCE))
+        ) \
+        .then(all_of(
+            _every_call_answered_with(WHAT_THE_CHANGE_ANSWERS, times=2),
+            _happened_in_order(made, ["held", "changed", "let go"] * 2)
+        ))
 
 
 @pytest.mark.unit
@@ -422,10 +466,11 @@ def _the_database_was_asked_about(asked_about: list[DatabaseSettings],
     return assertion
 
 
-def _a_tier_making(made: list[str], hold: HoldForAChange) -> FencedFastMCP:
+def _a_tier_making(made: list[str], hold: HoldForAChange) -> FencedMCPServer:
     """A tier with a change, which says it was made into `made`, the same change
     marked, a change whose platform is not there, and a read."""
-    server = FencedFastMCP("some-tier", hold_for_a_change=hold)
+    server = FencedMCPServer("some-tier", hold_for_a_change=hold,
+                             host=DONT_CARE_HOST, port=DONT_CARE_PORT)
 
     @server.change()
     def make_a_change() -> list[str]:
@@ -448,6 +493,69 @@ def _a_tier_making(made: list[str], hold: HoldForAChange) -> FencedFastMCP:
         return ["read"]
 
     return server
+
+
+class _CountingArrivals(FencedMCPServer):
+    """A tier that counts each call as it arrives - before it waits its turn -
+    and says when a second has."""
+
+    def __init__(self, hold: HoldForAChange) -> None:
+        super().__init__("some-tier", hold_for_a_change=hold,
+                         host=DONT_CARE_HOST, port=DONT_CARE_PORT)
+        self.a_second_arrived = threading.Event()
+        self._arrived = 0
+
+    async def call_tool(self,
+                        name: str,
+                        arguments: dict[str, Any],
+                        context: Context[Any, Any] | None = None
+                        ) -> CallToolResult | InputRequiredResult:
+        self._arrived += 1
+
+        if self._arrived == 2:
+            self.a_second_arrived.set()
+
+        return await super().call_tool(name, arguments, context)
+
+
+def _a_tier_answering_once_both_are_asked(made: list[str],
+                                          hold: HoldForAChange) -> FencedMCPServer:
+    """A tier with a change that, once made, is held open until a second call
+    has arrived - and says it was made into `made`."""
+    server = _CountingArrivals(hold)
+
+    @server.change()
+    def make_a_change_once_both_are_asked() -> list[str]:
+        server.a_second_arrived.wait(LONG_PAST_ANY_ARRIVAL_SECONDS)
+        made.append("changed")
+
+        return WHAT_THE_CHANGE_ANSWERS
+
+    return server
+
+
+def _a_hold_kept_for_one_change_at_a_time(made: list[str]) -> HoldForAChange:
+    """A run held for one change at a time, as the database holds it: asked
+    for while another change holds it, it is refused as a change in flight."""
+    holding = False
+
+    @contextmanager
+    def hold(dont_care_fence: Fence) -> Generator[bool]:
+        nonlocal holding
+
+        if holding:
+            raise runs.ChangeInFlight(DONT_CARE_WHY)
+
+        holding = True
+        made.append("held")
+
+        try:
+            yield True
+        finally:
+            holding = False
+            made.append("let go")
+
+    return hold
 
 
 def _a_hold_answering(still_held: bool, asked: list[Fence] | None = None) -> HoldForAChange:
@@ -514,12 +622,35 @@ def _sent(held: Fence, acting_for: str | None = None) -> dict[str, Any]:
     return sent
 
 
-def _asked(server: FencedFastMCP, tool: str, meta: dict[str, Any] | None) -> CallToolResult:
+def _asked(server: FencedMCPServer, tool: str, meta: dict[str, Any] | None) -> CallToolResult:
+    """One call over a real MCP session held in memory, opened by the handshake
+    the tier's own client opens one with, carrying `meta`."""
     async def over_a_session() -> CallToolResult:
-        async with create_connected_server_and_client_session(server) as session:
-            return await session.call_tool(tool, {}, meta=meta)
+        async with Client(server, mode=LEGACY_HANDSHAKE) as session:
+            return await _sent_over(session, tool, meta)
 
     return asyncio.run(over_a_session())
+
+
+def _both_asked(server: FencedMCPServer,
+                tool: str,
+                meta: dict[str, Any]) -> list[CallToolResult]:
+    """`tool` asked twice at once over one session, each call carrying `meta` -
+    the second sent while the first is still being answered."""
+    async def over_a_session() -> list[CallToolResult]:
+        async with Client(server, mode=LEGACY_HANDSHAKE) as session:
+            return list(await asyncio.gather(_sent_over(session, tool, meta),
+                                             _sent_over(session, tool, meta)))
+
+    return asyncio.run(over_a_session())
+
+
+async def _sent_over(session: Client,
+                     tool: str,
+                     meta: dict[str, Any] | None) -> CallToolResult:
+    return await session.call_tool(
+        tool, {}, meta=_AS_REQUEST_META.validate_python(meta) if meta is not None else None
+    )
 
 
 def _the_words_of(result: CallToolResult) -> str:
@@ -528,12 +659,29 @@ def _the_words_of(result: CallToolResult) -> str:
 
 def _answered_with(expected: list[str]) -> Assertion[CallToolResult]:
     def assertion(result: CallToolResult) -> bool:
-        structured = result.structuredContent or {}
+        structured = result.structured_content or {}
 
-        if result.isError or structured.get("result") != expected:
+        if result.is_error or structured.get("result") != expected:
             raise AssertionError(
                 f"Expected the call answered with {expected}, got "
-                f"[{_the_words_of(result)}] (an error: {result.isError})."
+                f"[{_the_words_of(result)}] (an error: {result.is_error})."
+            )
+
+        return True
+
+    return assertion
+
+
+def _every_call_answered_with(expected: list[str],
+                              times: int) -> Assertion[list[CallToolResult]]:
+    def assertion(results: list[CallToolResult]) -> bool:
+        said = [(result.is_error, (result.structured_content or {}).get("result"))
+                for result in results]
+
+        if said != [(False, expected)] * times:
+            raise AssertionError(
+                f"Expected {times} calls each answered with {expected}, and they said "
+                f"(an error, the answer) {said}: {[_the_words_of(each) for each in results]}."
             )
 
         return True
@@ -545,10 +693,10 @@ def _refused(as_a_lost_run: bool) -> Assertion[CallToolResult]:
     def assertion(result: CallToolResult) -> bool:
         said = _the_words_of(result)
 
-        if not result.isError or (RUN_LOST_MARKER in said) is not as_a_lost_run:
+        if not result.is_error or (RUN_LOST_MARKER in said) is not as_a_lost_run:
             raise AssertionError(
                 f"Expected the call refused {"as" if as_a_lost_run else "but not as"} a "
-                f"lost run, got [{said}] (an error: {result.isError})."
+                f"lost run, got [{said}] (an error: {result.is_error})."
             )
 
         return True
@@ -560,10 +708,10 @@ def _refused_with(marker: str) -> Assertion[CallToolResult]:
     def assertion(result: CallToolResult) -> bool:
         said = _the_words_of(result)
 
-        if not result.isError or marker not in said:
+        if not result.is_error or marker not in said:
             raise AssertionError(
                 f"Expected the call refused with [{marker}], got [{said}] (an error: "
-                f"{result.isError})."
+                f"{result.is_error})."
             )
 
         return True
@@ -578,7 +726,7 @@ def _not_refused_with(marker: str) -> Assertion[CallToolResult]:
         if marker in said:
             raise AssertionError(
                 f"Expected the call answered without [{marker}], got [{said}] (an error: "
-                f"{result.isError})."
+                f"{result.is_error})."
             )
 
         return True

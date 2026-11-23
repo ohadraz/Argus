@@ -36,7 +36,7 @@ from core.models import (
 from core.vector_store import VectorSearch
 from deployment_platform import DeploymentPlatformReads
 from flag_provider import FlagProviderReads
-from mcp_transport import TracedFastMCP
+from mcp_transport import TracedMCPServer
 from metrics_source import MetricsSource, SeriesClassifier
 from postgres import Connections
 from pydantic import Field
@@ -80,7 +80,7 @@ def build_server(endpoint: ReadMcpEndpoint,
                  embed: Embedder,
                  rules: AlertingPlatform,
                  classify: SeriesClassifier,
-                 connections: Connections) -> TracedFastMCP:
+                 connections: Connections) -> TracedMCPServer:
     """Registers every read tool against one deployment's configuration.
 
     A function rather than module-level code, so that importing this module -
@@ -93,13 +93,13 @@ def build_server(endpoint: ReadMcpEndpoint,
 
     The tool bodies stay one-line delegations. What they delegate to is where
     the behaviour lives, and where an injection seam a decorated function
-    cannot have - a `Callable`-typed default breaks FastMCP's schema
+    cannot have - a `Callable`-typed default breaks the MCP SDK's schema
     generation - is available to a test.
     """
-    mcp = TracedFastMCP(
+    mcp = TracedMCPServer(
         "argus-read-mcp",
         host=endpoint.read_mcp_host,
-        port=endpoint.read_mcp_port,
+        port=endpoint.read_mcp_port
     )
 
     fetch_logs = retrieval.target_service_logs(target_service)

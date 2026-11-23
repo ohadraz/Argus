@@ -23,7 +23,6 @@ from argus_testkit import a_free_port, refuse_the_e2e_stacks_project
 from core import get_settings, parse_iso
 from mcp.server.streamable_http import CONTENT_TYPE_JSON, CONTENT_TYPE_SSE
 from mcp.types import (
-    LATEST_PROTOCOL_VERSION,
     ClientCapabilities,
     Implementation,
     InitializeRequest,
@@ -32,6 +31,7 @@ from mcp.types import (
     JSONRPCRequest,
     JSONRPCResponse,
 )
+from mcp_types.version import LATEST_HANDSHAKE_VERSION
 from metrics_source.prometheus_adapter import QUERIES
 from postgres import connect_from_env, reset_schema
 
@@ -63,7 +63,10 @@ A_KNOCK_SECONDS = 1.0
 THE_READ_TIER = "argus-read-mcp"
 # Where it serves MCP, and the parts of the protocol a knock speaks: JSON-RPC's
 # version, the one request's id, who is knocking, and the field of a
-# server-sent event that carries the answer.
+# server-sent event that carries the answer. The knock opens a session as the
+# client does, at the newest version the SDK opens one with by handshake
+# (`LATEST_HANDSHAKE_VERSION`, from the SDK's own types package): its newest
+# version of all is one spoken without a handshake.
 MCP_PATH: Final = "/mcp"
 JSONRPC_VERSION: Final = "2.0"
 A_KNOCK_ID = 1
@@ -351,9 +354,9 @@ def _who_answers_at(url: str) -> str:
     (`initialize`), answered as a server-sent event or as JSON - whichever the
     server chooses."""
     knock = InitializeRequest(params=InitializeRequestParams(
-        protocolVersion=LATEST_PROTOCOL_VERSION,
+        protocol_version=LATEST_HANDSHAKE_VERSION,
         capabilities=ClientCapabilities(),
-        clientInfo=THE_KNOCKER
+        client_info=THE_KNOCKER
     ))
     asked = JSONRPCRequest(jsonrpc=JSONRPC_VERSION, id=A_KNOCK_ID,
                            **knock.model_dump(by_alias=True, mode="json", exclude_none=True))
@@ -375,4 +378,4 @@ def _who_answers_at(url: str) -> str:
 
     response = JSONRPCResponse.model_validate_json(said)
 
-    return InitializeResult.model_validate(response.result).serverInfo.name
+    return InitializeResult.model_validate(response.result).server_info.name

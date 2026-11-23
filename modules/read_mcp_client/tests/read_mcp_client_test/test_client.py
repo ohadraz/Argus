@@ -469,7 +469,7 @@ def _a_session_listing(*names: str) -> Any:
     session = create_autospec(McpClient, instance=True)
     session.list_tools.return_value = [
         Tool(name=name, description="dont care what it does",
-             inputSchema={"type": "object", "properties": {}, "required": []})
+             input_schema={"type": "object", "properties": {}, "required": []})
         for name in names
     ]
 

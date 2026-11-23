@@ -16,7 +16,7 @@ dependencies = [
     "argus-metrics_source",
     "argus-code_host",
     "httpx2",
-    "mcp>=1.29.0",
+    "mcp>=2.3.0",
     "argus-mcp_transport",
 ]
 

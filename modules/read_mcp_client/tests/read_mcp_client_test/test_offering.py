@@ -47,7 +47,7 @@ def test_a_tool_no_agent_holds_is_not_read_into_an_offer() -> None:
     some_listing.append(Tool(
         name="restore_deployment",
         description="dont care what it does",
-        inputSchema={"type": "object",
+        input_schema={"type": "object",
                      "properties": {"descriptor": {"$ref": "#/$defs/RollbackUndo"}},
                      "required": ["descriptor"]}
     ))
@@ -107,7 +107,7 @@ def _a_server_listing(*names: str, properties: list[str] | None = None) -> list[
 
     return [
         Tool(name=name, description="dont care what it does",
-             inputSchema={"type": "object",
+             input_schema={"type": "object",
                           "properties": {argument: SOME_ARGUMENT for argument in taken},
                           "required": list(taken)})
         for name in names

@@ -3,15 +3,15 @@ name = "argus-mcp_transport"
 version = "0.1.0"
 requires-python = ">=3.14"
 
-# The MCP SDK, and what a session is held over: `httpx` because the transport
+# The MCP SDK, and what a session is held over: `httpx2` because the transport
 # builds the HTTP client a session is held over (`an_http_client_waiting`), and
-# the SDK takes one of its own; `uvicorn` because `TracedFastMCP` serves itself.
+# the SDK takes one of its own; `uvicorn` because `TracedMCPServer` serves itself.
 # The telemetry API is named because a call is traced across the boundary here.
 dependencies = [
     "argus-core",
-    "mcp>=1.29.0",
+    "mcp>=2.3.0",
     "uvicorn>=0.30",
-    "httpx>=0.28",
+    "httpx2",
     "opentelemetry-api>=1.45",
 ]
 

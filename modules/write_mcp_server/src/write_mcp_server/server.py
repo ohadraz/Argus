@@ -47,7 +47,7 @@ from core.models import (
 )
 from deployment_platform import DeploymentPlatformWrites, Mark
 from flag_provider import FlagProviderWrites
-from mcp.server.fastmcp import Context
+from mcp.server.mcpserver import Context
 
 from write_mcp_server import (
     accelerators,
@@ -60,7 +60,7 @@ from write_mcp_server import (
     scaling,
 )
 from write_mcp_server.discarding import DiscardSettings
-from write_mcp_server.fencing import FencedFastMCP, HoldForAChange
+from write_mcp_server.fencing import FencedMCPServer, HoldForAChange
 
 
 def build_server(endpoint: WriteMcpEndpoint,
@@ -69,7 +69,7 @@ def build_server(endpoint: WriteMcpEndpoint,
                  platform: DeploymentPlatformWrites,
                  discard_settings: DiscardSettings,
                  hold_for_a_change: HoldForAChange,
-                 argus_account: str) -> FencedFastMCP:
+                 argus_account: str) -> FencedMCPServer:
     """Registers the write tools against one deployment's configuration.
 
     One slice and three ports. The discard speaks to the store a service keeps
@@ -115,7 +115,7 @@ def build_server(endpoint: WriteMcpEndpoint,
     The changes that write to the deployment platform and leave something to
     put back are registered as marked too: each is made only for a call naming
     the action it is for, and every write it makes carries that action's mark
-    (`marking`). Read off the call's `Context`, which FastMCP hands the tool and
+    (`marking`). Read off the call's `Context`, which the SDK hands the tool and
     leaves out of what the tool declares, so no caller is offered it as an
     argument. A restart and a discard leave nothing to put back, and the flag
     provider and the repository record whose a change was in their own way.
@@ -129,7 +129,7 @@ def build_server(endpoint: WriteMcpEndpoint,
     names it and a write told any other name would take Argus's rollback for a
     person's, or a person's for Argus's.
     """
-    mcp = FencedFastMCP(
+    mcp = FencedMCPServer(
         "argus-write-mcp",
         hold_for_a_change=hold_for_a_change,
         host=endpoint.write_mcp_host,
@@ -204,7 +204,7 @@ def build_server(endpoint: WriteMcpEndpoint,
 
     @mcp.change(marked=True)
     def roll_back_deployment(planned: Planned[DeploymentRollbackUndo],
-                             ctx: Context[Any, Any, Any]) -> DeploymentRollbackUndo:
+                             ctx: Context[Any, Any]) -> DeploymentRollbackUndo:
         """Returns a deployment to the entry its plan named, and reports what
         that cost.
 
@@ -233,7 +233,7 @@ def build_server(endpoint: WriteMcpEndpoint,
     @mcp.change(marked=True)
     def restore_deployment(
         descriptor: DeploymentRollbackUndo,
-        ctx: Context[Any, Any, Any]
+        ctx: Context[Any, Any]
     ) -> DeploymentRestored:
         """Puts back both of the things a rollback changed, where they are
         still Argus's, and reports which of them it managed.
@@ -276,7 +276,7 @@ def build_server(endpoint: WriteMcpEndpoint,
         return scaling.plan_scale_out(application, platform)
 
     @mcp.change(marked=True)
-    def scale_out(planned: Planned[ReplicaUndo], ctx: Context[Any, Any, Any]) -> ReplicaUndo:
+    def scale_out(planned: Planned[ReplicaUndo], ctx: Context[Any, Any]) -> ReplicaUndo:
         """Gives a deployment the replicas its plan asked for, and reports what
         that cost.
 
@@ -308,7 +308,7 @@ def build_server(endpoint: WriteMcpEndpoint,
 
     @mcp.change(marked=True)
     def restore_replica_count(descriptor: ReplicaUndo,
-                              ctx: Context[Any, Any, Any]) -> CapacityRestored:
+                              ctx: Context[Any, Any]) -> CapacityRestored:
         """Puts back both of the things a scale-out changed, where they are
         still Argus's, and reports which of them it managed.
 
@@ -346,7 +346,7 @@ def build_server(endpoint: WriteMcpEndpoint,
 
     @mcp.change(marked=True)
     def pin_autoscaler(planned: Planned[AutoscalerUndo],
-                       ctx: Context[Any, Any, Any]) -> AutoscalerUndo:
+                       ctx: Context[Any, Any]) -> AutoscalerUndo:
         """Stops a deployment's autoscaler moving the replica count about, as
         its plan said, and reports the floor it had.
 
@@ -411,7 +411,7 @@ def build_server(endpoint: WriteMcpEndpoint,
     @mcp.change(marked=True)
     def restore_autoscaler_floor(
         descriptor: AutoscalerUndo,
-        ctx: Context[Any, Any, Any]
+        ctx: Context[Any, Any]
     ) -> AutoscalingRestored:
         """Puts back both of the things a pin changed, where they are still
         Argus's, and reports which of them it managed.
@@ -453,7 +453,7 @@ def build_server(endpoint: WriteMcpEndpoint,
 
     @mcp.change(marked=True)
     def pin_to_accelerator(planned: Planned[AcceleratorPinUndo],
-                           ctx: Context[Any, Any, Any]) -> AcceleratorPinUndo:
+                           ctx: Context[Any, Any]) -> AcceleratorPinUndo:
         """Holds a deployment's pods to the card its plan named, and reports the
         card they were held to before.
 
@@ -475,7 +475,7 @@ def build_server(endpoint: WriteMcpEndpoint,
     @mcp.change(marked=True)
     def restore_accelerator_pin(
         descriptor: AcceleratorPinUndo,
-        ctx: Context[Any, Any, Any]
+        ctx: Context[Any, Any]
     ) -> AcceleratorPinRestored:
         """Puts back both of the things a pin to a card changed, where they are
         still Argus's, and reports which of them it managed.
@@ -536,7 +536,7 @@ def build_server(endpoint: WriteMcpEndpoint,
 
     @mcp.tool()
     def whether_rollback_was_made(planned: Planned[DeploymentRollbackUndo],
-                                  ctx: Context[Any, Any, Any]
+                                  ctx: Context[Any, Any]
                                   ) -> (Made[DeploymentRollbackUndo]
                                         | NotMade[DeploymentRollbackUndo]):
         """Answers whether the rollback a claim planned was made: made, with
@@ -562,7 +562,7 @@ def build_server(endpoint: WriteMcpEndpoint,
 
     @mcp.tool()
     def whether_scale_out_was_made(planned: Planned[ReplicaUndo],
-                                   ctx: Context[Any, Any, Any]
+                                   ctx: Context[Any, Any]
                                    ) -> Made[ReplicaUndo] | NotMade[ReplicaUndo]:
         """Answers whether the scale-out a claim planned was made under the
         claim the call names: made, with when its mark says; not made where
@@ -575,7 +575,7 @@ def build_server(endpoint: WriteMcpEndpoint,
 
     @mcp.tool()
     def scale_out_still_argus_s(descriptor: ReplicaUndo,
-                                ctx: Context[Any, Any, Any]) -> ChangeFound:
+                                ctx: Context[Any, Any]) -> ChangeFound:
         """Answers whether a scale-out Argus made is still as Argus left it,
         under the claim the call names.
 
@@ -585,7 +585,7 @@ def build_server(endpoint: WriteMcpEndpoint,
 
     @mcp.tool()
     def whether_autoscaler_pin_was_made(planned: Planned[AutoscalerUndo],
-                                        ctx: Context[Any, Any, Any]
+                                        ctx: Context[Any, Any]
                                         ) -> Made[AutoscalerUndo] | NotMade[AutoscalerUndo]:
         """Answers whether the autoscaler pin a claim planned was made under the
         claim the call names: made, with when its mark says; not made where
@@ -598,7 +598,7 @@ def build_server(endpoint: WriteMcpEndpoint,
 
     @mcp.tool()
     def autoscaler_pin_still_argus_s(descriptor: AutoscalerUndo,
-                                     ctx: Context[Any, Any, Any]) -> ChangeFound:
+                                     ctx: Context[Any, Any]) -> ChangeFound:
         """Answers whether an autoscaler pin Argus made is still as Argus left
         it, under the claim the call names.
 
@@ -608,7 +608,7 @@ def build_server(endpoint: WriteMcpEndpoint,
 
     @mcp.tool()
     def whether_accelerator_pin_was_made(planned: Planned[AcceleratorPinUndo],
-                                         ctx: Context[Any, Any, Any]
+                                         ctx: Context[Any, Any]
                                          ) -> (Made[AcceleratorPinUndo]
                                                | NotMade[AcceleratorPinUndo]):
         """Answers whether the pin to a card a claim planned was made under the
@@ -622,7 +622,7 @@ def build_server(endpoint: WriteMcpEndpoint,
 
     @mcp.tool()
     def accelerator_pin_still_argus_s(descriptor: AcceleratorPinUndo,
-                                      ctx: Context[Any, Any, Any]) -> ChangeFound:
+                                      ctx: Context[Any, Any]) -> ChangeFound:
         """Answers whether a pin to a card Argus made is still as Argus left
         it, under the claim the call names.
 
@@ -686,21 +686,21 @@ def build_server(endpoint: WriteMcpEndpoint,
     return mcp
 
 
-def _the_mark_of(ctx: Context[Any, Any, Any]) -> Mark:
+def _the_mark_of(ctx: Context[Any, Any]) -> Mark:
     """The mark the call asking for a tool names, as `marking` reads it off the
     call's `_meta`."""
     return marking.the_mark_in(_the_meta_of(ctx))
 
 
-def _the_action_of(ctx: Context[Any, Any, Any]) -> str | None:
+def _the_action_of(ctx: Context[Any, Any]) -> str | None:
     """The claim the call asking for a read names, as `marking` reads it off the
     call's `_meta` - `None` where it names none, which the read answers as a
     question nobody can answer rather than refusing to be asked."""
     return marking.the_action_in(_the_meta_of(ctx))
 
 
-def _the_meta_of(ctx: Context[Any, Any, Any]) -> dict[str, Any] | None:
+def _the_meta_of(ctx: Context[Any, Any]) -> dict[str, Any] | None:
     """The call's `_meta`, as a mapping, or `None` where it carried none."""
     meta = ctx.request_context.meta
 
-    return meta.model_dump() if meta is not None else None
+    return dict(meta) if meta is not None else None

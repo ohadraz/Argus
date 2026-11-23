@@ -12,7 +12,7 @@ dependencies = [
     "argus-flag_provider",
     "argus-code_host",
     "httpx2",
-    "mcp>=1.29.0",
+    "mcp>=2.3.0",
     "argus-mcp_transport",
     # The store the cache lives in, for the one action that reaches a datastore
     # rather than a control plane. Without `hiredis`: that extra is a compiled

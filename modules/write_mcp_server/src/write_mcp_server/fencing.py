@@ -14,9 +14,16 @@ could not be asked after, is refused as an ordinary refusal: neither says the
 run was lost, and a walk told it was would stop in silence where it should reach
 a human. So is a change registered as marked whose call names no action: its
 write could not say whose it was. All are refused before the tool runs, and say
-they left nothing. A change whose run has another change already being made for
-it is refused too, before it runs - but without saying it left nothing, since
-the change asking is that same one asked again, and the first may have landed.
+they left nothing. A change whose run is held elsewhere for longer than a claim
+takes to commit - by a change another server process is making for it - is
+refused too, before it runs - but without saying it left nothing, since the
+change asking may be that same one asked again, and the first may have landed.
+
+Within one server no change meets another's hold. The server answers one call
+at a time (`TracedMCPServer`), so a change asked again of it waits for the first
+to end and let its run go, and is then made for a run that is free - which is
+safe only because the client asks again only a change that finds its own mark
+and answers as made (`Asking.CHANGE`), and never a restart or a discard.
 
 Reads are answered as they always were. Nothing a read does can be got wrong by
 a second walk.
@@ -25,16 +32,17 @@ a second walk.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Generator, Mapping, Sequence
+from collections.abc import Callable, Generator, Mapping
 from contextlib import AbstractContextManager, ExitStack, contextmanager, suppress
 from typing import Any, Final
 
 from core import DatabaseSettings, Fence
 from incident_record.repository import runs
-from mcp.types import AnyFunction, ContentBlock
+from mcp.server.mcpserver import Context
+from mcp.types import CallToolResult, InputRequiredResult
 from mcp_transport import (
     FENCE_META_KEY,
-    TracedFastMCP,
+    TracedMCPServer,
     a_lost_run,
     a_refusal_saying_what_it_left,
 )
@@ -62,17 +70,19 @@ type OpensHolds = Callable[[DatabaseSettings], AbstractContextManager[HoldForACh
 LONGER_THAN_ANY_CHANGE: Final = "15min"
 
 # How long a change waits for its run to be free before it is refused as one
-# already being made. Above the moment a claim holds the run for while it
-# commits, which is what an honest wait is for; below a restart, the one change
-# that can outlast the client's wait for its answer - so a restart asked again,
-# over a connection that gave out while the first was still being made, is
-# refused rather than made twice. Every other change is usually over within this wait,
-# so one asked again is waited out and asked again: that redo is crash-resume's
-# to answer, not this.
+# already being made. Only a hold on another connection is ever waited for:
+# this server answers one call at a time, so its own last change has let its
+# run go before the next call begins. Above the moment a claim holds the run
+# for while it commits, which is what an honest wait is for; below a restart,
+# the one change that can outlast the client's wait for its answer - so a
+# restart asked of another server process while this one's is still being
+# made is refused rather than made twice. Every other change is usually over
+# within this wait, so one asked of another process is waited out and made:
+# that redo is crash-resume's to answer, not this.
 LONGER_THAN_ANY_CLAIM: Final = "5s"
 
 
-class FencedFastMCP(TracedFastMCP):
+class FencedMCPServer(TracedMCPServer):
     """A traced server whose changes are made only for the claim holding their run.
 
     A tool is registered as a change with `change()` rather than `tool()`, and
@@ -82,8 +92,14 @@ class FencedFastMCP(TracedFastMCP):
     the trace of the walk it refused.
     """
 
-    def __init__(self, name: str, hold_for_a_change: HoldForAChange, **settings: Any) -> None:
-        super().__init__(name, **settings)
+    def __init__(self,
+                 name: str,
+                 hold_for_a_change: HoldForAChange,
+                 *,
+                 host: str,
+                 port: int,
+                 **settings: Any) -> None:
+        super().__init__(name, host=host, port=port, **settings)
         self._hold_for_a_change = hold_for_a_change
         self._changes: set[str] = set()
         self._marked: set[str] = set()
@@ -99,12 +115,12 @@ class FencedFastMCP(TracedFastMCP):
         for, by name."""
         return frozenset(self._marked)
 
-    def change(self, marked: bool = False) -> Callable[[AnyFunction], AnyFunction]:
+    def change[F: Callable[..., Any]](self, marked: bool = False) -> Callable[[F], F]:
         """Registers a tool, as `tool()` does, as one that changes the world -
         and, `marked`, as one made only for a call naming the action it is for."""
         register = self.tool()
 
-        def registered(tool: AnyFunction) -> AnyFunction:
+        def registered(tool: F) -> F:
             self._changes.add(tool.__name__)
 
             if marked:
@@ -117,11 +133,12 @@ class FencedFastMCP(TracedFastMCP):
     async def answer(self,
                      name: str,
                      arguments: dict[str, Any],
-                     meta: Mapping[str, Any] | None) -> Sequence[ContentBlock] | dict[str, Any]:
+                     meta: Mapping[str, Any] | None,
+                     context: Context | None) -> CallToolResult | InputRequiredResult:
         """A change, made only for the claim holding its run; anything else, as
         it comes."""
         if name not in self._changes:
-            return await super().answer(name, arguments, meta)
+            return await super().answer(name, arguments, meta, context)
 
         held = _the_claim_in(meta)
 
@@ -166,7 +183,7 @@ class FencedFastMCP(TracedFastMCP):
                     f"[{held.run_id}], which the run has moved past"
                 ))
 
-            return await super().answer(name, arguments, meta)
+            return await super().answer(name, arguments, meta, context)
 
 
 @contextmanager
