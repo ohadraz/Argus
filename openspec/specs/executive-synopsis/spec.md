@@ -313,7 +313,8 @@ cent, everywhere the synopsis states it - the overview included. Each row SHALL
 be rounded to the cent so that the rows shown add up to the total shown, the
 cents a plain rounding leaves over going to the rows with the largest
 remainders. Beneath it the synopsis SHALL state the basis: the working year the
-bands were divided by, and that each title is priced at its band's midpoint.
+bands were divided by, that each title is priced at its band's midpoint, and
+each rate a band was converted at.
 
 #### Scenario: Two titles, two rows and a total
 - **GIVEN** responders holding two titles, both priced
@@ -344,12 +345,35 @@ The step SHALL price the stored postmortem's minutes by title at the pay bands
 it reads once, before the overview is asked for, working out every title's row
 and the totals in one pass, and SHALL store both with the basis they rest on.
 The totals SHALL be absent wherever any title is unpriced. Nothing SHALL be read
-where the postmortem holds no minutes by title.
+where the postmortem holds no minutes by title. A band published in another
+currency SHALL be converted into the reporting currency at the day's rates
+before it prices anything, the rates read only where a responding title's band
+needs them, and the basis SHALL state each rate and the day it was published. A
+band no rate converts SHALL leave its title unpriced, the basis saying whether
+no rate was published for its currency or the rates could not be read.
 
 #### Scenario: Rows and totals from one pass
 - **GIVEN** a postmortem whose responders held two priced titles
 - **WHEN** the synopsis is written
 - **THEN** the bands are read once, and the totals are the rows added up
+
+#### Scenario: Bands in the reporting currency read no rates
+- **GIVEN** a postmortem whose responders' bands are all in the reporting
+  currency
+- **WHEN** the synopsis is written
+- **THEN** the rates are not read, and the response is priced
+
+#### Scenario: A band in another currency, with a rate
+- **GIVEN** a responder whose band is in another currency, and a rate for it
+- **WHEN** the synopsis is written
+- **THEN** the band is converted at that rate, the response is priced in the
+  reporting currency, and the basis says the rate and its date
+
+#### Scenario: A band in another currency, with no rate
+- **GIVEN** a responder whose band is in a currency no rate converts
+- **WHEN** the synopsis is written
+- **THEN** that title's row has no amounts, the totals are absent, and the basis
+  names the title, its currency and why
 
 #### Scenario: An unpriced title leaves no total
 - **GIVEN** a postmortem one of whose titles has no band

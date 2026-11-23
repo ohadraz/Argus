@@ -9,21 +9,24 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping, Sequence
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, NamedTuple
 
 from argus_testkit import Kept
 from core.llm import LLMClient
 from core.models import ToolCall, ToolDefinition, Transcript, Turn
-from incident_cost import MoneySources, PayBand, PayBands, RateTable
+from incident_cost import MoneySources, PayBand, PayBands, Rates, RateTable
 from postmortem_writing import Flag, Flagging
 
 DONT_CARE_WORKING_YEAR = 2080.0
 SOME_CURRENCY = "usd"
+SOME_OTHER_CURRENCY = "eur"
+DONT_CARE_RATE_DATE = date(2026, 9, 2)
 
 
 def some_money(bands: PayBands | None = None,
+               rates: Rates | None = None,
                working_hours_a_year: float = DONT_CARE_WORKING_YEAR) -> MoneySources:
     """Every source of money, with the bands answering plainly and the takings
     and rates answering nothing.
@@ -40,7 +43,7 @@ def some_money(bands: PayBands | None = None,
 
     return MoneySources(
         revenue=no_revenue,
-        rates=no_rates,
+        rates=rates if rates is not None else no_rates,
         bands=bands if bands is not None else a_band_source_pricing({}),
         working_hours_a_year=working_hours_a_year,
         reporting_currency=SOME_CURRENCY
@@ -52,6 +55,15 @@ def a_band_source_pricing(bands: Mapping[str, PayBand]) -> PayBands:
         return bands
 
     return pay_bands
+
+
+def rates_published(per_unit: Mapping[str, Decimal]) -> Rates:
+    """A rate table quoted against the reporting currency, as the source would
+    hand one over."""
+    def rates() -> RateTable | None:
+        return RateTable(base=SOME_CURRENCY, on=DONT_CARE_RATE_DATE, per_unit=per_unit)
+
+    return rates
 
 
 def a_band_source_that_cannot_answer() -> PayBands:

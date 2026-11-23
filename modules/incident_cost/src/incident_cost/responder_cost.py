@@ -71,9 +71,8 @@ class ResponderCost(BaseModel):
     by_title: list[PricedMinutes | None]
     total: PricedMinutes | None
     # What the bands were quoted in, and `None` where no band priced anything.
-    # The first band's, because they come from one source's one table and a
-    # source quoting two currencies in one table is a case nothing here has
-    # met.
+    # The first band's, because every band is in the reporting currency by the
+    # time it is priced (`bands_reported`).
     currency: str | None
 
 

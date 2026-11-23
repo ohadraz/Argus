@@ -19,13 +19,16 @@ from incident_cost import (
     PAY_BANDS_UNAVAILABLE_ASSUMPTION,
     UNPRICED_TITLE_ASSUMPTION_LABEL,
     PayBand,
+    Rates,
 )
 
 from executive_synopsis_test.framework.builders import (
     SOME_CURRENCY,
+    SOME_OTHER_CURRENCY,
     a_band_source_counting_reads_into,
     a_band_source_pricing,
     a_band_source_that_cannot_answer,
+    rates_published,
     some_money,
 )
 
@@ -44,6 +47,11 @@ A_BAND = PayBand(minimum=MINUTES_A_WORKING_YEAR / 2, midpoint=MINUTES_A_WORKING_
 # different total rather than a coincidence.
 ANOTHER_BAND = PayBand(minimum=MINUTES_A_WORKING_YEAR, midpoint=MINUTES_A_WORKING_YEAR * 2,
                        maximum=MINUTES_A_WORKING_YEAR * 4, currency=SOME_CURRENCY)
+# The first band's figures, paid in another currency at two to one of the
+# reporting currency - so a conversion that multiplied would double the price
+# where the right one halves it.
+A_FOREIGN_BAND = A_BAND.model_copy(update={"currency": SOME_OTHER_CURRENCY})
+A_RATE = Decimal(2)
 
 TWO_SENIORS = TitleMinutes(title=SOME_TITLE, responders=2, minutes=30)
 ONE_JUNIOR = TitleMinutes(title=SOME_OTHER_TITLE, responders=1, minutes=15)
@@ -106,6 +114,34 @@ def test_a_title_no_band_covers_keeps_its_row_unpriced_and_leaves_no_total() -> 
                 _based_on_a_line_mentioning(UNPRICED_TITLE_ASSUMPTION_LABEL,
                                             SOME_TITLE_NO_BAND_COVERS)
             )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("band", "rates", "expected_total"), [
+    # Read with no rates at all, so a price here owes the rate source nothing.
+    pytest.param(A_BAND, None, Decimal(TWO_SENIORS.minutes),
+                 id="a band in the reporting currency"),
+    pytest.param(A_FOREIGN_BAND, rates_published({SOME_OTHER_CURRENCY: A_RATE}),
+                 Decimal(TWO_SENIORS.minutes) / A_RATE,
+                 id="a band in another currency, with a rate"),
+    pytest.param(A_FOREIGN_BAND, rates_published({}), None,
+                 id="a band in another currency, with no rate")
+])
+def test_the_response_is_priced_in_all_only_where_every_band_reaches_the_reporting_currency(
+        band: PayBand, rates: Rates | None, expected_total: Decimal | None) -> None:
+    # What decides whether the overview may name the response's cost at all.
+    Scenario() \
+        .given(
+            some_money_paid := some_money(bands=a_band_source_pricing({SOME_TITLE: band}),
+                                          rates=rates,
+                                          working_hours_a_year=WORKING_YEAR)
+        ) \
+        .when(
+            lambda: the_response_priced([TWO_SENIORS], some_money_paid)
+        ) \
+        .then(
+            _estimated_at(expected_total)
         )
 
 
@@ -189,6 +225,18 @@ def _priced_in_all_at(midpoint: Decimal | None,
             raise AssertionError(
                 f"Expected the response priced in all at [{midpoint}] from [{minimum}] "
                 f"to [{maximum}], got [{got[0]}] from [{got[1]}] to [{got[2]}].")
+
+        return True
+
+    return assertion
+
+
+def _estimated_at(expected: Decimal | None) -> Assertion[PricedResponse]:
+    def assertion(priced: PricedResponse) -> bool:
+        if priced.responder_cost_estimate != expected:
+            raise AssertionError(
+                f"Expected the response estimated at [{expected}], "
+                f"got [{priced.responder_cost_estimate}].")
 
         return True
 

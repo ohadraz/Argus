@@ -27,10 +27,9 @@ from decimal import Decimal
 import pytest
 from argus_testkit import Scenario, all_of
 from core.models import TitleMinutes, Verdict
-from incident_cost import Revenue
+from incident_cost import EXCHANGE_RATE_ASSUMPTION_LABEL, Revenue
 from postmortem_writing import (
     ENGAGEMENT_UNAVAILABLE_ASSUMPTION,
-    EXCHANGE_RATE_ASSUMPTION_LABEL,
     NOT_PAGED_ASSUMPTION,
     ONSET_UNKNOWN_ASSUMPTION,
     REVENUE_UNAVAILABLE_ASSUMPTION,

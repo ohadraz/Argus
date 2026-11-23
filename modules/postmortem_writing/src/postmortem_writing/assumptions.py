@@ -26,7 +26,12 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from incident_cost import weeks_back_for
+from incident_cost import (
+    NO_RATE_PUBLISHED_REASON,
+    RATES_UNAVAILABLE_REASON,
+    a_conversion_said,
+    weeks_back_for,
+)
 from narration import said_as_money
 
 from postmortem_writing.answer import SubmittedPostmortem
@@ -34,27 +39,11 @@ from postmortem_writing.estimate import Unmeasured
 from postmortem_writing.measuring import Measurements
 from postmortem_writing.sources import EngagementAnswer, NotPaged
 
-# How a conversion announces itself in the assumptions. A constant rather than
-# a phrase written at each end, because the document and anything reading it
-# have to agree on the wording, and two spellings would leave a disclosed
-# assumption looking undisclosed. Money taken abroad
-# reaches the estimate through a rate, and a figure converted at a rate nobody
-# can see is a figure nobody can check.
-EXCHANGE_RATE_ASSUMPTION_LABEL = "Exchange rate"
-
 # How money left out of the figure announces itself. A shop can be paid in a
 # currency the rate source prices nothing for, and the estimate then covers
 # some of what was taken rather than all of it - which is a real answer, but
 # only while the document says which part is missing.
 EXCLUDED_CURRENCY_ASSUMPTION_LABEL = "Excluded currency"
-
-# Why that currency was left out. Two reasons rather than one, because they
-# send a reader to two different places: a provider that publishes no rate for
-# a currency is a fact about the currency, and a table nobody could fetch is a
-# fact about the read. Told the first when the second happened, a reader goes
-# hunting for a currency the provider covers perfectly well.
-NO_RATE_PUBLISHED_REASON = "no rate was published for it"
-RATES_UNAVAILABLE_REASON = "the exchange rate source could not be read"
 
 # How a zero that is the shop's own variation announces itself. Takings that
 # fell short by less than two calm stretches differ by on their own are no loss
@@ -212,10 +201,6 @@ def _rates_applied(measured: Measurements) -> list[str]:
     if taken is None or rates is None or measured.loss is None:
         return []
 
-    return [
-        f"{EXCHANGE_RATE_ASSUMPTION_LABEL}: {currency.upper()} converted at "
-        f"{rates.per_unit[currency]} per {rates.base.upper()}, published "
-        f"{rates.on.isoformat()}"
-        for currency in taken
-        if currency != rates.base and currency in rates.per_unit
-    ]
+    return [a_conversion_said(currency, rates)
+            for currency in taken
+            if currency != rates.base and currency in rates.per_unit]

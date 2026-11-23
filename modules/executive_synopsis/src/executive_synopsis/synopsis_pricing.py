@@ -14,7 +14,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from core.models import PricedResponse, TitleCost, TitleMinutes
-from incident_cost import MoneySources, PricedMinutes, responder_cost, response_cost_basis
+from incident_cost import (
+    MoneySources,
+    PricedMinutes,
+    bands_reported,
+    responder_cost,
+    response_cost_basis,
+)
 
 
 def the_response_priced(held: Sequence[TitleMinutes], money: MoneySources) -> PricedResponse:
@@ -22,19 +28,23 @@ def the_response_priced(held: Sequence[TitleMinutes], money: MoneySources) -> Pr
 
     Nothing is read where nobody responded, or nobody could say who did: there
     is no response to price. Where the bands cannot be read, every row is
-    unpriced and the basis says why. The totals are absent wherever any row is
+    unpriced and the basis says why. A band in another currency is converted
+    into the reporting one, the rates read only for it, and a band no rate
+    converts leaves its row unpriced. The totals are absent wherever any row is
     unpriced.
     """
     if not held:
         return PricedResponse()
 
-    bands = money.bands()
-    basis = response_cost_basis(held, bands, money.working_hours_a_year)
-    if bands is None:
-        return PricedResponse(cost_by_title=[_the_row(row, None) for row in held],
-                              response_cost_basis=basis)
+    published = money.bands()
+    if published is None:
+        return PricedResponse(
+            cost_by_title=[_the_row(row, None) for row in held],
+            response_cost_basis=response_cost_basis(held, None, money.working_hours_a_year))
 
-    cost = responder_cost(held, bands, money.working_hours_a_year)
+    bands = bands_reported(held, published, money.reporting_currency, money.rates)
+    basis = response_cost_basis(held, bands, money.working_hours_a_year)
+    cost = responder_cost(held, bands.bands, money.working_hours_a_year)
     total = cost.total
 
     return PricedResponse(

@@ -15,7 +15,15 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 from argus_testkit import Kept
-from incident_cost import MoneySources, PayBand, PayBands, Rates, RateTable, Revenue
+from incident_cost import (
+    BandsReported,
+    MoneySources,
+    PayBand,
+    PayBands,
+    Rates,
+    RateTable,
+    Revenue,
+)
 
 # One incident, from its onset to the minute it was measured until.
 ONSET = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
@@ -143,6 +151,19 @@ class Share:
 
     title: str | None
     minutes: int
+
+
+def bands_reported_as(bands: Mapping[str, PayBand],
+                      unconverted: Mapping[str, str] | None = None,
+                      rates: RateTable | None = None,
+                      converted: list[str] | None = None) -> BandsReported:
+    """The bands a response is priced at, as `bands_reported` hands them on -
+    all in the reporting currency and nothing converted, unless a test says
+    otherwise."""
+    return BandsReported(bands=dict(bands),
+                         unconverted=dict(unconverted) if unconverted is not None else {},
+                         rates=rates,
+                         converted=converted if converted is not None else [])
 
 
 def a_band_source_pricing(bands: Mapping[str, PayBand]) -> PayBands:

@@ -3,8 +3,9 @@
 The postmortem shows no pay: its readers are the people it would price. The
 figure is priced for the executive synopsis, and a figure is only as honest as
 the steps between the source and it - a working year the bands were divided
-by, a band a title was priced at, a title nothing could price. Those steps are
-what this says, for whoever is shown the figure.
+by, a band a title was priced at, a rate a band was converted at, a title
+nothing could price. Those steps are what this says, for whoever is shown the
+figure.
 """
 
 from __future__ import annotations
@@ -13,6 +14,11 @@ from decimal import Decimal
 
 import pytest
 from argus_testkit import Assertion, Scenario, all_of
+from incident_cost.conversion_said import (
+    EXCHANGE_RATE_ASSUMPTION_LABEL,
+    NO_RATE_PUBLISHED_REASON,
+    RATES_UNAVAILABLE_REASON,
+)
 from incident_cost.response_cost_basis import (
     PAY_BAND_ASSUMPTION_LABEL,
     PAY_BANDS_UNAVAILABLE_ASSUMPTION,
@@ -20,9 +26,16 @@ from incident_cost.response_cost_basis import (
     WORKING_YEAR_ASSUMPTION_LABEL,
     response_cost_basis,
 )
-from incident_cost.sources import PayBand
+from incident_cost.sources import PayBand, RateTable
 
-from incident_cost_test.framework.builders import DONT_CARE_WORKING_YEAR, SOME_CURRENCY, Share
+from incident_cost_test.framework.builders import (
+    DONT_CARE_RATE_DATE,
+    DONT_CARE_WORKING_YEAR,
+    SOME_CURRENCY,
+    SOME_OTHER_CURRENCY,
+    Share,
+    bands_reported_as,
+)
 
 SOME_TITLE = "Senior Kuki"
 SOME_TITLE_NO_BAND_COVERS = "Principal Buki"
@@ -49,14 +62,15 @@ def test_a_published_cost_discloses_the_working_year_and_the_bands_it_used() -> 
         ) \
         .when(
             lambda: response_cost_basis(a_response_priced,
-                                        {SOME_TITLE: SOME_BAND},
+                                        bands_reported_as({SOME_TITLE: SOME_BAND}),
                                         SOME_WORKING_YEAR_IN_HOURS)
         ) \
         .then(
             all_of(
                 _names_a_line_mentioning(WORKING_YEAR_ASSUMPTION_LABEL,
                                          str(int(SOME_WORKING_YEAR_IN_HOURS))),
-                _names_a_line_mentioning(PAY_BAND_ASSUMPTION_LABEL, SOME_TITLE)
+                _names_a_line_mentioning(PAY_BAND_ASSUMPTION_LABEL, SOME_TITLE),
+                _says_nothing_about(EXCHANGE_RATE_ASSUMPTION_LABEL)
             )
         )
 
@@ -71,7 +85,7 @@ def test_a_published_cost_names_no_figure_of_the_band_it_used() -> None:
         ) \
         .when(
             lambda: response_cost_basis(a_response_priced,
-                                        {SOME_TITLE: SOME_BAND},
+                                        bands_reported_as({SOME_TITLE: SOME_BAND}),
                                         SOME_WORKING_YEAR_IN_HOURS)
         ) \
         .then(
@@ -80,6 +94,72 @@ def test_a_published_cost_names_no_figure_of_the_band_it_used() -> None:
                 _says_nothing_about(str(SOME_BAND.minimum)),
                 _says_nothing_about(str(SOME_BAND.midpoint)),
                 _says_nothing_about(str(SOME_BAND.maximum))
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_published_cost_discloses_each_rate_a_band_was_converted_at() -> None:
+    # A band paid in another currency reaches the figure through a rate, and a
+    # figure converted at a rate nobody can see is a figure nobody can check -
+    # so the rate and the day it was published are said, as for the takings.
+    some_rate = Decimal("0.92")
+    some_rates = RateTable(base=SOME_CURRENCY, on=DONT_CARE_RATE_DATE,
+                           per_unit={SOME_OTHER_CURRENCY: some_rate})
+
+    Scenario() \
+        .given(
+            a_response_priced := [Share(title=SOME_TITLE, minutes=DONT_CARE_MINUTES)]
+        ) \
+        .when(
+            lambda: response_cost_basis(a_response_priced,
+                                        bands_reported_as({SOME_TITLE: SOME_BAND},
+                                                          rates=some_rates,
+                                                          converted=[SOME_OTHER_CURRENCY]),
+                                        DONT_CARE_WORKING_YEAR)
+        ) \
+        .then(
+            all_of(
+                _names_a_line_mentioning(EXCHANGE_RATE_ASSUMPTION_LABEL, str(some_rate)),
+                _names_a_line_mentioning(EXCHANGE_RATE_ASSUMPTION_LABEL,
+                                         SOME_OTHER_CURRENCY.upper()),
+                _names_a_line_mentioning(EXCHANGE_RATE_ASSUMPTION_LABEL,
+                                         DONT_CARE_RATE_DATE.isoformat())
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_priced_title_beside_an_unpriced_one_still_discloses_how_it_was_priced() -> None:
+    # The unpriced title leaves no total, but the priced one's row is still
+    # shown with its amounts - converted at a rate a reader must be able to see.
+    some_rate = Decimal("0.92")
+    some_rates = RateTable(base=SOME_CURRENCY, on=DONT_CARE_RATE_DATE,
+                           per_unit={SOME_OTHER_CURRENCY: some_rate})
+
+    Scenario() \
+        .given(
+            a_response_partly_priced := [
+                Share(title=SOME_TITLE, minutes=DONT_CARE_MINUTES),
+                Share(title=SOME_TITLE_NO_BAND_COVERS, minutes=DONT_CARE_MINUTES)
+            ]
+        ) \
+        .when(
+            lambda: response_cost_basis(a_response_partly_priced,
+                                        bands_reported_as({SOME_TITLE: SOME_BAND},
+                                                          rates=some_rates,
+                                                          converted=[SOME_OTHER_CURRENCY]),
+                                        SOME_WORKING_YEAR_IN_HOURS)
+        ) \
+        .then(
+            all_of(
+                _names_a_line_mentioning(WORKING_YEAR_ASSUMPTION_LABEL,
+                                         str(int(SOME_WORKING_YEAR_IN_HOURS))),
+                _names_a_line_mentioning(PAY_BAND_ASSUMPTION_LABEL, SOME_TITLE),
+                _names_a_line_mentioning(EXCHANGE_RATE_ASSUMPTION_LABEL, str(some_rate)),
+                _names_a_line_mentioning(UNPRICED_TITLE_ASSUMPTION_LABEL,
+                                         SOME_TITLE_NO_BAND_COVERS),
+                _says_nothing_about(f"{PAY_BAND_ASSUMPTION_LABEL}: {SOME_TITLE_NO_BAND_COVERS}")
             )
         )
 
@@ -96,12 +176,47 @@ def test_an_unpriced_title_is_named_where_no_cost_could_be_published() -> None:
         ) \
         .when(
             lambda: response_cost_basis(a_response_nobody_could_price,
-                                        {SOME_TITLE: SOME_BAND},
+                                        bands_reported_as({SOME_TITLE: SOME_BAND}),
                                         DONT_CARE_WORKING_YEAR)
         ) \
         .then(
             _names_a_line_mentioning(UNPRICED_TITLE_ASSUMPTION_LABEL,
                                      SOME_TITLE_NO_BAND_COVERS)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("rates", "reason", "not_the_reason"), [
+    pytest.param(RateTable(base=SOME_CURRENCY, on=DONT_CARE_RATE_DATE, per_unit={}),
+                 NO_RATE_PUBLISHED_REASON, RATES_UNAVAILABLE_REASON,
+                 id="no rate published for it"),
+    pytest.param(None, RATES_UNAVAILABLE_REASON, NO_RATE_PUBLISHED_REASON,
+                 id="the rates could not be read")
+])
+def test_a_band_no_rate_converted_names_its_title_its_currency_and_why(
+        rates: RateTable | None, reason: str, not_the_reason: str) -> None:
+    # Two reasons, because they send a reader to two different places: a
+    # currency the provider prices nothing for, or a read that failed.
+    Scenario() \
+        .given(
+            a_response_nobody_could_price := [Share(title=SOME_TITLE, minutes=DONT_CARE_MINUTES)]
+        ) \
+        .when(
+            lambda: response_cost_basis(a_response_nobody_could_price,
+                                        bands_reported_as({},
+                                                          unconverted={
+                                                              SOME_TITLE: SOME_OTHER_CURRENCY},
+                                                          rates=rates),
+                                        DONT_CARE_WORKING_YEAR)
+        ) \
+        .then(
+            all_of(
+                _names_a_line_mentioning(UNPRICED_TITLE_ASSUMPTION_LABEL, SOME_TITLE),
+                _names_a_line_mentioning(UNPRICED_TITLE_ASSUMPTION_LABEL,
+                                         SOME_OTHER_CURRENCY.upper()),
+                _names_a_line_mentioning(UNPRICED_TITLE_ASSUMPTION_LABEL, reason),
+                _says_nothing_about(not_the_reason)
+            )
         )
 
 
@@ -115,7 +230,7 @@ def test_a_responder_with_no_title_is_said_to_have_none() -> None:
         ) \
         .when(
             lambda: response_cost_basis(a_response_nobody_could_price,
-                                        {SOME_TITLE: SOME_BAND},
+                                        bands_reported_as({SOME_TITLE: SOME_BAND}),
                                         DONT_CARE_WORKING_YEAR)
         ) \
         .then(
