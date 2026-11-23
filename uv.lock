@@ -1156,6 +1156,7 @@ dependencies = [
 dev = [
     { name = "argus-apps", extra = ["read-mcp"] },
     { name = "argus-argus-testkit" },
+    { name = "argus-postgres", extra = ["migrations"] },
 ]
 
 [package.metadata]
@@ -1168,6 +1169,7 @@ requires-dist = [
 dev = [
     { name = "argus-apps", extras = ["read-mcp"], editable = "modules/apps" },
     { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
+    { name = "argus-postgres", extras = ["migrations"], editable = "modules/postgres" },
 ]
 
 [[package]]

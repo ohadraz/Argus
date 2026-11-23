@@ -19,7 +19,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from alerting_platform.grafana import RULE_DEFINITION_PATH
-from argus_testkit import a_free_port
+from argus_testkit import a_free_port, refuse_the_e2e_stacks_project
 from core import get_settings, parse_iso
 from mcp.server.streamable_http import CONTENT_TYPE_JSON, CONTENT_TYPE_SSE
 from mcp.types import (
@@ -33,6 +33,13 @@ from mcp.types import (
     JSONRPCResponse,
 )
 from metrics_source.prometheus_adapter import QUERIES
+from postgres import connect_from_env, reset_schema
+
+# The compose service the read server's database is, and what it stops.
+_POSTGRES: Final = "postgres"
+# What postgres depends on in docker-compose.yml, so `up` starts it with
+# postgres and the stop names it too - or it outlives the suite.
+_ITS_CLOCK: Final = "sim-clock"
 
 # Where the fakes listen: loopback, on whatever port the operating system hands
 # out. A port written here is shared by every copy of this suite running at
@@ -215,16 +222,39 @@ class FakeTargetServiceHandler(BaseHTTPRequestHandler):
         pass  # silence default request logging
 
 
+@pytest.fixture(scope="session")
+def postgres() -> Iterator[None]:
+    """The read server's database, up for the whole suite with the schema
+    applied, and stopped after it.
+
+    The server refuses to start without one: its root opens its pool as it
+    starts, and a pool refuses a database with no schema. Nothing here writes a
+    row - the read tier writes none - so nothing is emptied between tests.
+
+    Refused in the e2e stack's compose project, where the reset would empty the
+    database a running stack's worker is attached to.
+    """
+    refuse_the_e2e_stacks_project("test_module(module='read_mcp_client')")
+    subprocess.run(["docker", "compose", "up", "-d", "--wait", _POSTGRES], check=True)
+    try:
+        with connect_from_env() as conn:
+            reset_schema(conn)
+        yield
+    finally:
+        subprocess.run(["docker", "compose", "stop", _POSTGRES, _ITS_CLOCK], check=True)
+
+
 @pytest.fixture
-def running_read_mcp() -> Iterator[type[FakeTargetServiceHandler]]:
+def running_read_mcp(postgres: None) -> Iterator[type[FakeTargetServiceHandler]]:
     """Starts a fake Target Service (stdlib http.server, background thread,
     serving canned `/logs`, Prometheus's range query, Grafana's rule definitions,
     GitHub's comparisons and archives and `/argocd/<application>` JSON) plus a
     real `read_mcp_server` subprocess pointed at it - proves `read_mcp_client`
-    reaches a real server without Docker or a real Target Service. Yields the
-    handler class so a test can set `.logs`, `.metrics`, `.deploys`, `.rules`,
-    `.rule_queries`, `.tree`, `.comparisons` and `.archive` before calling
-    through the client.
+    reaches a real server without a real Target Service. The server's own
+    database is real (`postgres`), since the server refuses to start without
+    one. Yields the handler class so a test can set `.logs`, `.metrics`,
+    `.deploys`, `.rules`, `.rule_queries`, `.tree`, `.comparisons` and
+    `.archive` before calling through the client.
 
     The fake binds whatever port it is given and is asked which; the server
     is handed one the operating system just said was free, and counts as up

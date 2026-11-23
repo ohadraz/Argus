@@ -21,6 +21,9 @@ dev = [
     # The server as its process starts it: its root, which builds every adapter
     # it serves through.
     "argus-apps[read_mcp]",
+    # The server's database, which the suite brings up with the schema: the
+    # server refuses to start without one.
+    "argus-postgres[migrations]",
 ]
 
 [tool.uv.sources]
@@ -28,6 +31,7 @@ argus-core = { workspace = true }
 argus-mcp_transport = { workspace = true }
 argus-argus_testkit = { workspace = true }
 argus-apps = { workspace = true }
+argus-postgres = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]
