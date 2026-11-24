@@ -99,6 +99,9 @@ STILL_IN_PLACE = "still in place"
 # Who the cases read what waits to be delivered as: no deliverer, so nothing is
 # parked for it.
 A_READER_THAT_PARKS_NOTHING = "the walk's suite"
+# Whose collection the cases ask after: any model's, since no deliverer runs
+# here and every collection is still owed what the walk filed.
+SOME_EMBEDDING_MODEL = "some-embedding-model"
 
 
 @pytest.mark.component
@@ -841,7 +844,8 @@ def _it_waits_to_be_delivered(record: RememberedIncident) -> Assertion[None]:
             # One that cannot be read is listed as what stopped it.
             waiting = [filed if isinstance(filed, UnreadableRecord) else filed.record
                        for filed in get_undelivered(conn, limit=len(expected) + 1,
-                                                    deliverer=A_READER_THAT_PARKS_NOTHING)]
+                                                    deliverer=A_READER_THAT_PARKS_NOTHING,
+                                                    embedded_with=SOME_EMBEDDING_MODEL)]
 
         if waiting != expected:
             raise AssertionError(

@@ -7,11 +7,18 @@ would take that write from anybody, and its upsert keyed on the incident would
 keep whichever walk wrote last.
 
 So the store is filled from these rows, by a process of its own (`delivering`),
-and is a view of them rather than a second record. Each row carries two
-versions: the one filed, moved on whenever what was tried changes, and the one
-the store last took. The difference is the work, the retry and the backlog - a
-deliverer that was down finds everything it missed still waiting, and memory
-switched on later finds every incident filed while it was off.
+and is a view of them rather than a second record. Each row carries the version
+filed, moved on whenever what was tried changes, and beside it each collection
+marks the version it last took. The difference is the work, the retry and the
+backlog - a deliverer that was down finds everything it missed still waiting,
+and memory switched on later finds every incident filed while it was off.
+
+A mark per embedding model, because each model is a collection of its own
+(`core.embedding.collection_for`). A model switched to finds every record
+waiting for its collection, and one switched back to finds its own collection
+where it left it. One mark shared between two would have two deliverers on two
+models - as an upgrade runs them - each re-deliver every record the other had
+just marked.
 
 Each row says the shape its record was written in (`core.stored`). A deliverer
 takes only the shapes it knows - one a newer release wrote waits for a
@@ -94,8 +101,10 @@ def get_undelivered(conn: psycopg.Connection,
                     limit: int,
                     *,
                     deliverer: str,
+                    embedded_with: str,
                     shapes: Shapes = SHIPPED) -> list[Filed | UnreadableRecord]:
-    """The records the store does not hold yet, oldest first, at most `limit`.
+    """The records the collection `embedded_with` builds does not hold yet,
+    oldest first, at most `limit`.
 
     Oldest first, so a deliverer that fell behind catches up in the order the
     incidents ended. Bounded, so one pass embeds a batch and marks it before it
@@ -110,15 +119,17 @@ def get_undelivered(conn: psycopg.Connection,
     with conn.cursor() as cursor:
         cursor.execute(
             """
-            SELECT incident_id, record, shape, version
-            FROM incident_memory
-            WHERE delivered_version < version
-              AND parked_by IS DISTINCT FROM %s
-              AND shape <= %s
-            ORDER BY filed_at, incident_id
+            SELECT filed.incident_id, filed.record, filed.shape, filed.version
+            FROM incident_memory AS filed
+            LEFT JOIN incident_memory_delivery AS taken
+              ON taken.incident_id = filed.incident_id AND taken.embedded_with = %s
+            WHERE COALESCE(taken.delivered_version, 0) < filed.version
+              AND filed.parked_by IS DISTINCT FROM %s
+              AND filed.shape <= %s
+            ORDER BY filed.filed_at, filed.incident_id
             LIMIT %s
             """,
-            (deliverer, shapes.current(REMEMBERED_INCIDENT), limit)
+            (embedded_with, deliverer, shapes.current(REMEMBERED_INCIDENT), limit)
         )
         found = cursor.fetchall()
 
@@ -145,20 +156,29 @@ def park(conn: psycopg.Connection, incident_id: str, deliverer: str) -> None:
     conn.commit()
 
 
-def record_delivered(conn: psycopg.Connection, incident_id: str, version: int) -> None:
-    """Records that the store holds this version of the incident's record.
+def record_delivered(conn: psycopg.Connection,
+                     incident_id: str,
+                     version: int,
+                     embedded_with: str) -> None:
+    """Records that the collection `embedded_with` builds holds this version of
+    the incident's record.
 
     As far as `version` and no further, and never backwards. A record refiled
     after this version was read is a newer version the store has not seen, and
     it stays waiting; a mark arriving late for an older version changes nothing.
+    That collection's mark alone: what another model's collection holds is
+    another question.
     """
     with conn.cursor() as cursor:
         cursor.execute(
             """
-            UPDATE incident_memory SET delivered_version = %s
-            WHERE incident_id = %s AND delivered_version < %s
+            INSERT INTO incident_memory_delivery (incident_id, embedded_with, delivered_version)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (incident_id, embedded_with) DO UPDATE SET
+                delivered_version = EXCLUDED.delivered_version
+            WHERE incident_memory_delivery.delivered_version < EXCLUDED.delivered_version
             """,
-            (version, incident_id, version)
+            (incident_id, embedded_with, version)
         )
 
     conn.commit()

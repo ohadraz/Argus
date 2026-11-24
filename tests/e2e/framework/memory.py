@@ -22,6 +22,7 @@ next incident, which is the world being staged.
 from __future__ import annotations
 
 from core import get_settings
+from core.embedding import collection_for
 from core.models import REVERT_FEATURE_FLAG, ActionIdentity, Verdict, WhatWasTried
 from embedding_fastembed import an_embedder
 from incident_memory.keeping import kept_in
@@ -65,7 +66,8 @@ def that_flag_was_tried_before_and_did_not_help() -> None:
     settings = get_settings()
 
     with the_index_at(QdrantSettings().qdrant_url,
-                      settings.incident_memory_collection) as store:
+                      collection_for(settings.incident_memory_collection,
+                                     settings.incident_memory_embedding_model)) as store:
         kept_in(store, an_embedder(settings.incident_memory_embedding_model))(
             RememberedIncident(
                 incident_id=AN_EARLIER_INCIDENT,

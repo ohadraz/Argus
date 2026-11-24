@@ -102,12 +102,13 @@ def main() -> None:
             # The store's reading side, handed on as the port, which can only
             # search. It opens on first use, so a tier that never searches by
             # meaning - or offers no such tool - reaches no store.
-            SearchOpenedOnFirstUse(QdrantSettings().qdrant_url,
-                                   index.repository_index_collection),
+            # The collection is the one named for the recipe the index is built
+            # with, which the catch-up loop works out from the same settings.
+            SearchOpenedOnFirstUse(QdrantSettings().qdrant_url, index.collection),
             # The model a question is embedded with, handed on as the port - the
             # one the index was built with. It loads on first use, so a tier that
             # never searches by meaning loads no model.
-            an_embedder(settings.repository_index_embedding_model),
+            an_embedder(index.repository_index_embedding_model),
             # The alerting platform's adapter, built here for the same reason and
             # handed on as its port, and the metrics adapter's account of what a
             # rule's series measures beside it - the one adapter that may read a

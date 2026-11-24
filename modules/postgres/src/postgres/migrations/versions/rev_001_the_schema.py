@@ -720,30 +720,44 @@ CREATE TABLE IF NOT EXISTS event_cursor (
 
 CREATE TABLE IF NOT EXISTS repository_index (
     -- `owner/name`, as the API addresses a repository, and the identity a
-    -- deployment configures. One row per repository rather than per index:
-    -- what is indexed is a repository, and the vectors themselves live where
-    -- vectors live.
+    -- deployment configures. One row per repository: where the repository is
+    -- does not depend on how anybody indexes it.
     repository TEXT PRIMARY KEY,
-    -- The commit the stored passages describe. Null until the first index has
-    -- finished, which is the absence of a mark rather than a mark that happens
-    -- to differ - the two call for different work, a backfill and a handful of
-    -- changed paths, so they must not arrive looking alike.
-    indexed_sha TEXT,
     -- The commit the repository is at, as the last push reported it. Null
     -- before anything has reported one, which is the ordinary state of a first
     -- deployment: the catch-up pass asks the provider for the deployed
     -- branch's head rather than waiting to be told.
     --
-    -- The difference between this and `indexed_sha` is the whole mechanism -
-    -- the work list, the retry and what a reader is told when what it searched
-    -- is not what is running. Nothing counts attempts, because a pass that
-    -- failed leaves the difference where it was and the next pass finds the
-    -- same work waiting.
-    pending_sha TEXT,
-    -- When the index last finished, which is a different question from when
+    -- The difference between this and a build's `indexed_sha` is the whole
+    -- mechanism - the work list, the retry and what a reader is told when what
+    -- it searched is not what is running. Nothing counts attempts, because a
+    -- pass that failed leaves the difference where it was and the next pass
+    -- finds the same work waiting.
+    pending_sha TEXT
+);
+
+-- Which commit each build of a repository's index describes. One row per
+-- repository and recipe, because each recipe - the embedding model, the bounds
+-- a file is cut by, the directories that are the service - is a collection of
+-- its own (`core.embedding.collection_for`), and a mark shared between two
+-- collections would describe one of them wrongly: going back to a recipe built
+-- before would read as never built, and a whole pass over what is there now
+-- would leave the passages of every file deleted since in that collection.
+-- No row is a recipe never built, which is a backfill; a row is a handful of
+-- changed paths. Dropping a recipe's collection deletes its row, or going back
+-- to it rebuilds nothing and every search answers empty.
+-- Written and read by `repository_index`.
+CREATE TABLE IF NOT EXISTS repository_index_build (
+    repository TEXT NOT NULL REFERENCES repository_index(repository),
+    -- The recipe, as `repository_index.built_with` spells it.
+    built_with TEXT NOT NULL,
+    -- The commit the collection's passages describe.
+    indexed_sha TEXT NOT NULL,
+    -- When this build last finished, which is a different question from when
     -- the commit it describes was pushed - and the one to ask when an index
     -- looks stale.
-    indexed_at TIMESTAMPTZ
+    indexed_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (repository, built_with)
 );
 
 -- What each finished incident tried, filed for long-term memory (spec §11.2) -
@@ -771,20 +785,33 @@ CREATE TABLE IF NOT EXISTS incident_memory (
     -- Not marked delivered: it was not.
     parked_by TEXT,
     -- Which filing of the record this is, moved on whenever what was tried
-    -- changes - and which of them the store last took. The difference is the
-    -- work list, the retry and the backlog, so there is no queue to drain: a
-    -- deliverer that was down, or memory switched on late, finds every record
-    -- the store does not hold still waiting.
+    -- changes. Against what each collection last took
+    -- (`incident_memory_delivery`) it is the work list, the retry and the
+    -- backlog, so there is no queue to drain: a deliverer that was down, or
+    -- memory switched on late, finds every record the store does not hold
+    -- still waiting.
     version BIGINT NOT NULL DEFAULT 1,
-    delivered_version BIGINT NOT NULL DEFAULT 0,
     -- When it was first filed, which is the order a deliverer that fell behind
     -- catches up in.
     filed_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
--- What a deliverer asks for, every interval, forever: the records not yet
--- delivered. Partial, because almost every row is delivered and stays so.
-CREATE INDEX IF NOT EXISTS incident_memory_undelivered_idx
-    ON incident_memory (filed_at) WHERE delivered_version < version;
+
+-- Which filing of each record each collection holds. One row per record and
+-- embedding model, because each model is a collection of its own
+-- (`core.embedding.collection_for`): a mark shared between two would have two
+-- deliverers on two models - as an upgrade runs them - each re-deliver every
+-- record the other had just marked. No row is a record that collection has
+-- never taken. Dropping a model's collection deletes its rows, or going back
+-- to it delivers nothing and every recall answers empty.
+-- Written and read by `incident_memory`.
+CREATE TABLE IF NOT EXISTS incident_memory_delivery (
+    incident_id UUID NOT NULL REFERENCES incident_memory(incident_id),
+    -- The embedding model the collection is built with.
+    embedded_with TEXT NOT NULL,
+    -- The filing that collection last took; never moved backwards.
+    delivered_version BIGINT NOT NULL,
+    PRIMARY KEY (incident_id, embedded_with)
+);
 """
 
 # Where a walk is kept between its steps, so a run taken up after its worker

@@ -455,7 +455,8 @@ def build_server(endpoint: ReadMcpEndpoint,
     # started and never asked to search by meaning loads no model and reaches
     # no store. Both arrive as ports: the store's can only search.
     find_passages = meaning.passages_in(passages)
-    indexed_sha = meaning.the_commit_indexed_for(code.repository, connections)
+    indexed_sha = meaning.the_commit_indexed_for(code.repository, index_settings.recipe,
+                                                 connections)
     head_of = code.head_of
 
     @mcp.tool()

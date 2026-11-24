@@ -22,9 +22,11 @@ from collections.abc import Mapping
 import psycopg
 from code_host import CodeHostReads
 from core import SettingsSlice
+from core.embedding import collection_for
 from core.vector_store import VectorIndex
 
 from repository_index.indexing import Candidate, Embedder, candidates_for, points_of
+from repository_index.recipe import built_with
 from repository_index.records import record_indexed
 from repository_index.store import forget, ids_held_for, store_points
 
@@ -33,9 +35,10 @@ class IndexSettings(SettingsSlice):
     """What a pass is aimed at.
 
     Which directories of the repository are the service, which branch is
-    deployed, and where the passages are kept. Where the repository is and the
-    credential that reads it are the code host's adapter's - a read credential
-    alone, since building an index changes a repository in no way.
+    deployed, where the passages are kept and what they are embedded by. Where
+    the repository is and the credential that reads it are the code host's
+    adapter's - a read credential alone, since building an index changes a
+    repository in no way.
     """
 
     service_source_paths: str
@@ -44,14 +47,31 @@ class IndexSettings(SettingsSlice):
     # nobody is running, which every later search answers from without ever
     # saying so.
     deployed_branch: str
+    # The corpus the passages are kept as. The collection itself is named for
+    # it and for the recipe, so each recipe is kept apart.
     repository_index_collection: str
+    repository_index_embedding_model: str
     # How a file this cannot parse is cut into passages. Here rather than left
     # to the chunker's own defaults because a pass has to cut the way every
-    # other pass over the same store cut: an id is derived from what a passage
-    # says, so the same file under different bounds is a second set of points
-    # beside the first rather than a replacement for it.
+    # other pass over the same collection cut - which the recipe holds it to,
+    # since the bounds are part of what a collection is named for.
     repository_index_max_lines: int
     repository_index_chunk_overlap: int
+
+    @property
+    def recipe(self) -> str:
+        """What a pass builds with (`recipe.built_with`)."""
+        return built_with(
+            embedding_model=self.repository_index_embedding_model,
+            service_source_paths=self.service_source_paths,
+            max_lines=self.repository_index_max_lines,
+            overlap=self.repository_index_chunk_overlap
+        )
+
+    @property
+    def collection(self) -> str:
+        """The collection this recipe's passages are kept in."""
+        return collection_for(self.repository_index_collection, self.recipe)
 
 
 def index_repository(sha: str,
@@ -63,7 +83,8 @@ def index_repository(sha: str,
                      code: CodeHostReads,
                      paths: list[str] | None = None) -> None:
     """Brings the index up to `sha`, for the whole repository or named paths,
-    and records it under the repository the code host reads.
+    and records it under the repository the code host reads and the recipe
+    `settings` build with. `store` is that recipe's collection.
 
     Raises whatever the code host raised. A repository that could not be
     fetched leaves the mark where it was, so the next pass finds the same work
@@ -75,7 +96,7 @@ def index_repository(sha: str,
     for path in paths if paths is not None else list(source):
         _bring_one_file_up_to_date(path, source, settings, store, embed)
 
-    record_indexed(conn, code.repository, sha)
+    record_indexed(conn, code.repository, sha, settings.recipe)
 
 
 def _bring_one_file_up_to_date(path: str,

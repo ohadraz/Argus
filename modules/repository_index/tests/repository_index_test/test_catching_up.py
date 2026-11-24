@@ -54,6 +54,10 @@ SOME_FILE_THAT_CHANGED = "src/io_shop/spend_summary.py"
 # have to be a pair a `Settings` would accept.
 DONT_CARE_MAX_LINES = 60
 DONT_CARE_OVERLAP = 10
+# Nothing in this suite embeds or opens a store, so any model and any
+# collection will do.
+DONT_CARE_EMBEDDING_MODEL = "dont-care-model"
+DONT_CARE_COLLECTION = "dont-care-collection"
 DONT_CARE_INTERVAL_SECONDS = 300.0
 
 
@@ -465,7 +469,8 @@ def some_settings(base_branch: str = THE_DEPLOYED_BRANCH) -> IndexSettings:
     return IndexSettings(
         service_source_paths="",
         deployed_branch=base_branch,
-        repository_index_collection="dont-care-collection",
+        repository_index_collection=DONT_CARE_COLLECTION,
+        repository_index_embedding_model=DONT_CARE_EMBEDDING_MODEL,
         repository_index_max_lines=DONT_CARE_MAX_LINES,
         repository_index_chunk_overlap=DONT_CARE_OVERLAP
     )

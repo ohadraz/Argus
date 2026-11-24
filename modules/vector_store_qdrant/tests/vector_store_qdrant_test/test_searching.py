@@ -111,9 +111,9 @@ def test_a_point_meeting_the_condition_is_not_crowded_out_by_a_nearer_one_that_d
 def test_a_point_under_one_of_the_prefixes_is_not_crowded_out_by_a_nearer_one_outside_them(
     store: QdrantIndex
 ) -> None:
-    # The same defect, as a repository index meets it: the indexer and the
-    # reader are configured separately, and an index built wider than the
-    # reader holds passages outside its scope that may be the nearest.
+    # The same defect, as a repository index meets it: a collection searched
+    # under a scope other than the one that built it holds passages outside
+    # that scope, and they may be the nearest.
     the_services_own = "ours"
 
     Scenario() \

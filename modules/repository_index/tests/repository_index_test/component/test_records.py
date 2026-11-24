@@ -1,9 +1,9 @@
-"""The mark saying which commit the stored passages describe.
+"""The marks saying which commit each build of the index describes.
 
-One row per repository, and two commits on it: the one the index was built from,
-and the one the repository is at. The difference between them is the whole
-mechanism - the work list, the retry, and what a reader is told when what it
-searched is not what is running.
+Where the repository is, one row per repository, and which commit each recipe's
+passages describe, one row per repository and recipe. The difference between
+the two commits is the whole mechanism - the work list, the retry, and what a
+reader is told when what it searched is not what is running.
 
 Nothing here counts attempts or records that work is owed. A pass that failed
 leaves the two commits differing, so the next pass finds the same work waiting
@@ -29,6 +29,11 @@ ANOTHER_REPOSITORY = "owner/another-service"
 SOME_SHA = "9abaec7"
 A_LATER_SHA = "cbe7bc3"
 
+# Two recipes an index is built with, each a collection of its own - as
+# `recipe.built_with` spells one, though what is spelled does not matter here.
+SOME_RECIPE = "some-model lines=60 overlap=10 scope=src"
+ANOTHER_RECIPE = "another-model lines=60 overlap=10 scope=src"
+
 
 @pytest.mark.component
 def test_a_repository_nothing_has_been_recorded_about_is_not_there(
@@ -38,7 +43,7 @@ def test_a_repository_nothing_has_been_recorded_about_is_not_there(
     # mentioned and one whose index has not been built yet are different
     # situations, and only the second is work.
     Scenario() \
-        .when(lambda: get(records, SOME_REPOSITORY)) \
+        .when(lambda: get(records, SOME_REPOSITORY, SOME_RECIPE)) \
         .then(_nothing_was_recorded())
 
 
@@ -52,7 +57,7 @@ def test_a_pushed_commit_is_recorded_for_a_repository_never_seen_before(
     record_pushed(records, SOME_REPOSITORY, SOME_SHA)
 
     Scenario() \
-        .when(lambda: get(records, SOME_REPOSITORY)) \
+        .when(lambda: get(records, SOME_REPOSITORY, SOME_RECIPE)) \
         .then(
             all_of(
                 _the_pending_commit_is(SOME_SHA),
@@ -73,7 +78,7 @@ def test_a_second_push_replaces_the_commit_the_first_reported(
     record_pushed(records, SOME_REPOSITORY, A_LATER_SHA)
 
     Scenario() \
-        .when(lambda: get(records, SOME_REPOSITORY)) \
+        .when(lambda: get(records, SOME_REPOSITORY, SOME_RECIPE)) \
         .then(_the_pending_commit_is(A_LATER_SHA))
 
 
@@ -83,10 +88,10 @@ def test_a_finished_index_records_the_commit_it_described(
 ) -> None:
     record_pushed(records, SOME_REPOSITORY, SOME_SHA)
     record_pushed(records, SOME_REPOSITORY, SOME_SHA)
-    record_indexed(records, SOME_REPOSITORY, SOME_SHA)
+    record_indexed(records, SOME_REPOSITORY, SOME_SHA, SOME_RECIPE)
 
     Scenario() \
-        .when(lambda: get(records, SOME_REPOSITORY)) \
+        .when(lambda: get(records, SOME_REPOSITORY, SOME_RECIPE)) \
         .then(
             all_of(
                 _the_indexed_commit_is(SOME_SHA),
@@ -120,16 +125,65 @@ def test_a_finished_index_does_not_disturb_what_the_last_push_reported(
 
 
 @pytest.mark.component
+def test_a_push_does_not_disturb_what_an_index_described(
+    records: psycopg.Connection
+) -> None:
+    # The other order. A push says where the repository is, not what anybody
+    # built - the mark has to stay where the pass left it, or the difference
+    # that is the work list disappears with the push that made it.
+    record_indexed(records, SOME_REPOSITORY, SOME_SHA, SOME_RECIPE)
+    record_pushed(records, SOME_REPOSITORY, A_LATER_SHA)
+
+    Scenario() \
+        .when(lambda: get(records, SOME_REPOSITORY, SOME_RECIPE)) \
+        .then(
+            all_of(
+                _the_indexed_commit_is(SOME_SHA),
+                _the_pending_commit_is(A_LATER_SHA)
+            )
+        )
+
+
+@pytest.mark.component
 def test_an_index_that_finished_on_a_repository_never_pushed_is_recorded_too(
     records: psycopg.Connection
 ) -> None:
     # A first index that ran before any push arrived - the cold start, where
     # the catch-up pass asked the provider for the branch head itself rather than
     # waiting to be told.
-    record_indexed(records, SOME_REPOSITORY, SOME_SHA)
+    record_indexed(records, SOME_REPOSITORY, SOME_SHA, SOME_RECIPE)
 
     Scenario() \
-        .when(lambda: get(records, SOME_REPOSITORY)) \
+        .when(lambda: get(records, SOME_REPOSITORY, SOME_RECIPE)) \
+        .then(_the_indexed_commit_is(SOME_SHA))
+
+
+@pytest.mark.component
+def test_an_index_another_recipe_built_is_not_one_this_recipe_built(
+    records: psycopg.Connection
+) -> None:
+    # Each recipe is a collection of its own. A mark another recipe left read
+    # as this one's would call a collection current that nothing has built -
+    # and a search of it would answer empty with nothing to say why.
+    record_indexed(records, SOME_REPOSITORY, SOME_SHA, ANOTHER_RECIPE)
+
+    Scenario() \
+        .when(lambda: get(records, SOME_REPOSITORY, SOME_RECIPE)) \
+        .then(_the_indexed_commit_is(None))
+
+
+@pytest.mark.component
+def test_each_recipe_keeps_the_commit_its_own_index_described(
+    records: psycopg.Connection
+) -> None:
+    # Going back to a recipe built before resumes from that collection's own
+    # commit. A mark shared between two would make it a whole pass over what
+    # is there now, leaving every file deleted since in that collection.
+    record_indexed(records, SOME_REPOSITORY, SOME_SHA, SOME_RECIPE)
+    record_indexed(records, SOME_REPOSITORY, A_LATER_SHA, ANOTHER_RECIPE)
+
+    Scenario() \
+        .when(lambda: get(records, SOME_REPOSITORY, SOME_RECIPE)) \
         .then(_the_indexed_commit_is(SOME_SHA))
 
 
@@ -144,7 +198,7 @@ def test_one_repositorys_mark_is_not_anothers(
     record_pushed(records, SOME_REPOSITORY, SOME_SHA)
 
     Scenario() \
-        .when(lambda: get(records, ANOTHER_REPOSITORY)) \
+        .when(lambda: get(records, ANOTHER_REPOSITORY, SOME_RECIPE)) \
         .then(_the_pending_commit_is(A_LATER_SHA))
 
 
@@ -152,9 +206,9 @@ def _recorded_then_read(conn: psycopg.Connection,
                         repository: str,
                         sha: str) -> RepositoryIndex | None:
     """Finishes an index, then reads the row back as one subject to assert on."""
-    record_indexed(conn, repository, sha)
+    record_indexed(conn, repository, sha, SOME_RECIPE)
 
-    return get(conn, repository)
+    return get(conn, repository, SOME_RECIPE)
 
 
 def _nothing_was_recorded() -> Assertion[RepositoryIndex | None]:

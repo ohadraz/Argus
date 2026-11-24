@@ -27,6 +27,7 @@ from codefix_agent import FixSettings, fixes_over
 from core import Holding, Settings, SettingsSlice
 from core.anomaly import AnomalyThresholds
 from core.autonomy import admit
+from core.embedding import collection_for
 from core.llm import ModelProvider, build_llm_client, conversations_through
 from core.vector_store import VectorSearch
 from embedding_fastembed import an_embedder
@@ -160,8 +161,11 @@ def the_store_for(settings: IncidentMemorySettings) -> Generator[VectorSearch | 
     from vector_store_qdrant.searching import the_search_at
     from vector_store_qdrant.settings import QdrantSettings
 
+    # The collection the model recall embeds its question with builds, so a
+    # question is only ever compared with that model's vectors.
     with the_search_at(QdrantSettings().qdrant_url,
-                       settings.incident_memory_collection) as store:
+                       collection_for(settings.incident_memory_collection,
+                                      settings.incident_memory_embedding_model)) as store:
         yield store
 
 

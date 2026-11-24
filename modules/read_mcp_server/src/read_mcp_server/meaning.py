@@ -30,12 +30,14 @@ import re
 from typing import Final, Protocol
 
 from core import SettingsSlice
+from core.embedding import collection_for
 from core.models import CodeSearch
 from core.vector_store import VectorSearch
 from postgres import Connections
 from repository_index import records
 from repository_index.freshness import Freshness
 from repository_index.indexing import Embedder
+from repository_index.recipe import built_with
 from repository_index.store import Found, nearest
 
 from read_mcp_server.repository import RepositoryReadSettings
@@ -104,14 +106,17 @@ _UNCHECKED: Final = (
 
 
 class IndexReadSettings(SettingsSlice):
-    """Where the passages are kept, and whether this deployment keeps any.
+    """Where the passages are kept, what they were built with, and whether this
+    deployment keeps any.
 
     The whole of what this tier may know about the index, and it is a read: a
-    collection. Which store holds it is the store's adapter's, and which model
-    a question is embedded with is the embedder's - the same one the index was
-    built with - and the tier's root builds both. Nothing here could build an
-    index - indexing is a different process, off any incident's path, and this
-    one only asks.
+    collection, named for the recipe the index is built with
+    (`repository_index.recipe`) - the same settings the catch-up loop reads, so
+    the two arrive at the same collection and the same mark. Which store holds
+    it is the store's adapter's, and the model a question is embedded with is
+    the embedder's, built by the tier's root from the same setting. Nothing
+    here could build an index - indexing is a different process, off any
+    incident's path, and this one only asks.
 
     `code_search` is what decides whether any of it exists. A deployment
     searching by grep alone opens no store and registers no tool: a tool that
@@ -121,12 +126,31 @@ class IndexReadSettings(SettingsSlice):
     """
 
     repository_index_collection: str
+    repository_index_embedding_model: str
+    repository_index_max_lines: int
+    repository_index_chunk_overlap: int
+    service_source_paths: str
     code_search: CodeSearch
 
     @property
     def searches_by_meaning(self) -> bool:
         """Whether this deployment has an index to search at all."""
         return self.code_search is not CodeSearch.GREP
+
+    @property
+    def recipe(self) -> str:
+        """What the index this tier searches is built with."""
+        return built_with(
+            embedding_model=self.repository_index_embedding_model,
+            service_source_paths=self.service_source_paths,
+            max_lines=self.repository_index_max_lines,
+            overlap=self.repository_index_chunk_overlap
+        )
+
+    @property
+    def collection(self) -> str:
+        """The collection that recipe's passages are kept in."""
+        return collection_for(self.repository_index_collection, self.recipe)
 
 
 class IndexUnreachable(Exception):
@@ -203,8 +227,14 @@ def passages_in(search: VectorSearch) -> NearestPassages:
 
 
 def the_commit_indexed_for(repository: str,
+                           recipe: str,
                            connections: Connections) -> IndexedSha:
-    """The real watermark read, bound to the repository this deployment serves.
+    """The real watermark read, bound to the repository this deployment serves
+    and the recipe its index is searched as.
+
+    That recipe's mark alone. Another recipe's describes another collection,
+    and read as this one's it would call an index current that has not been
+    built - a search answering empty with nothing to say why.
 
     Asked per call rather than read once at startup, because the catch-up loop
     moves the mark while this process is running: a server that cached it would
@@ -216,7 +246,7 @@ def the_commit_indexed_for(repository: str,
     """
     def indexed_sha() -> str | None:
         with connections() as conn:
-            recorded = records.get(conn, repository)
+            recorded = records.get(conn, repository, recipe)
 
         return recorded.indexed_sha if recorded is not None else None
 
@@ -241,12 +271,13 @@ def search_repository_by_meaning(description: str,
     told only "possibly stale" cannot.
 
     Scoped by the same configuration the substring channel is, so a file one
-    channel will not answer from is a file the other will not either. Asked for
-    here as well as applied at indexing time because the two are configured
-    separately: an index built under a wider scope than this reader is asked
-    about must not answer outside it. Asked of the store, with the floor, rather
-    than applied to what it ranked - the nearest passages outside the scope
-    would otherwise take the places the service's own were owed.
+    channel will not answer from is a file the other will not either. The scope
+    is part of the recipe the collection searched here is named for, so the
+    collection holds nothing outside it and asking excludes nothing. Asked of
+    the store all the same, with the floor, rather than applied to what it
+    ranked: a collection searched under a scope other than the one that built
+    it would otherwise have its nearest passages outside the scope take the
+    places the service's own were owed.
 
     Raises `IndexUnreachable` when the store could not be asked.
     """

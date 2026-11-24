@@ -221,7 +221,7 @@ def main() -> None:
     store_at = QdrantSettings().qdrant_url
     embed = an_embedder(settings.repository_index_embedding_model)
     find = passages_in(
-        SearchOpenedOnFirstUse(store_at, settings.repository_index_collection)
+        SearchOpenedOnFirstUse(store_at, settings.collection)
     )
     answered = the_descriptions_code_fix_searched_with()
 
@@ -239,7 +239,7 @@ def main() -> None:
     # separates anything is a question about this corpus, and the figure that
     # moves when somebody indexes a second repository is this one.
     passages = QdrantClient(url=store_at).count(
-        settings.repository_index_collection
+        settings.collection
     ).count
 
     _swept(

@@ -49,6 +49,7 @@ from push_source.github import (
     SIGNATURE_PREFIX,
     GitHubPushSettings,
 )
+from repository_index.building import IndexSettings
 from repository_index.records import RepositoryIndex
 from repository_index.records import get as the_index_recorded_for
 from web_app.pushes import BRANCH_REF_PREFIX
@@ -217,8 +218,11 @@ def _nothing_was_recorded_about(sha: str) -> Assertion[Any]:
 
 
 def _what_the_index_records() -> RepositoryIndex | None:
+    """The repository's row, with the mark of the recipe the stack's catch-up
+    loop builds with - worked out from the same settings it reads."""
     with psycopg.connect(DATABASE_URL) as conn:
-        return the_index_recorded_for(conn, GitHubReadSettings().github_repository)
+        return the_index_recorded_for(conn, GitHubReadSettings().github_repository,
+                                      IndexSettings.of(get_settings()).recipe)
 
 
 def _a_signed_push_of(sha: str) -> Callable[[], httpx2.Response]:

@@ -42,6 +42,10 @@ SOME_OVERLAP = 10
 # Required by the settings and read by nothing here: the store a pass is handed
 # is bound to its collection where it is built.
 DONT_CARE_COLLECTION = "repository_index_building_test"
+# The model the settings name. Nothing here loads it - the embedder is a double
+# - but it is part of the recipe the mark is filed under.
+SOME_EMBEDDING_MODEL = "some-embedding-model"
+ANOTHER_EMBEDDING_MODEL = "another-embedding-model"
 SOME_REPOSITORY = "owner/some-service"
 SOME_DIRECTORY = "src/shop"
 SOME_PATH = f"{SOME_DIRECTORY}/summary.py"
@@ -82,6 +86,15 @@ def test_a_finished_index_records_the_commit_it_was_built_from(
     Scenario() \
         .when(lambda: _indexed(store, records, {SOME_PATH: SOME_SOURCE})) \
         .then(_the_recorded_commit_is(records, SOME_SHA))
+
+
+@pytest.mark.unit
+def test_another_embedding_model_keeps_its_passages_in_another_collection() -> None:
+    # A vector means something only beside vectors the same model made, so a
+    # pass built by another model never writes into this one's collection.
+    Scenario() \
+        .when(lambda: _some_settings(embedding_model=ANOTHER_EMBEDDING_MODEL).collection) \
+        .then(_not(_some_settings().collection))
 
 
 @pytest.mark.integration
@@ -237,11 +250,12 @@ def _indexed_then_read(store: QdrantIndex,
     return [chunk.text for chunk in chunks_held_for(store, path)]
 
 
-def _some_settings() -> IndexSettings:
+def _some_settings(embedding_model: str = SOME_EMBEDDING_MODEL) -> IndexSettings:
     return IndexSettings(
         service_source_paths=SOME_DIRECTORY,
         deployed_branch=DONT_CARE_BRANCH,
         repository_index_collection=DONT_CARE_COLLECTION,
+        repository_index_embedding_model=embedding_model,
         repository_index_max_lines=SOME_MAX_LINES,
         repository_index_chunk_overlap=SOME_OVERLAP
     )
@@ -301,8 +315,10 @@ def _the_store_holds_nothing_for(store: QdrantIndex,
 
 def _the_recorded_commit_is(records: psycopg.Connection,
                             expected: str) -> Assertion[object]:
+    """The commit on record for the recipe the pass was built with - the only
+    mark a later pass with the same settings reads."""
     def the_recorded_commit_is(_: object) -> bool:
-        found = get(records, SOME_REPOSITORY)
+        found = get(records, SOME_REPOSITORY, _some_settings().recipe)
         indexed = found.indexed_sha if found else None
 
         if indexed != expected:
@@ -314,6 +330,16 @@ def _the_recorded_commit_is(records: psycopg.Connection,
         return True
 
     return the_recorded_commit_is
+
+
+def _not(other: str) -> Assertion[str]:
+    def assertion(collection: str) -> bool:
+        if collection == other:
+            raise AssertionError(f"Expected a collection other than [{other}], got the same.")
+
+        return True
+
+    return assertion
 
 
 def _the_embedder_was_never_called(embed: Any) -> Assertion[object]:

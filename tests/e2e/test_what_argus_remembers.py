@@ -21,6 +21,7 @@ import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, calling, eventually
 from core import get_settings
+from core.embedding import collection_for
 from core.events import SimilarIncidentsRecalled
 from core.models import IncidentStatus, Verdict
 from embedding_fastembed import an_embedder
@@ -133,7 +134,8 @@ def _it_was_remembered_as_having_tried(
         settings = get_settings()
 
         with the_search_at(QdrantSettings().qdrant_url,
-                           settings.incident_memory_collection) as store:
+                           collection_for(settings.incident_memory_collection,
+                                          settings.incident_memory_embedding_model)) as store:
             found = recalled(
                 store,
                 an_embedder(settings.incident_memory_embedding_model)(

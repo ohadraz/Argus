@@ -2,8 +2,9 @@
 
 Against a real Postgres, because what these cases are about is the database's
 half: an upsert that bumps a version only when the record changed, and a mark
-that moves only as far as the version it was given. A stand-in would answer both
-the way its author expected.
+that moves only as far as the version it was given - one for each embedding
+model's collection, so what one holds says nothing of another. A stand-in would
+answer both the way its author expected.
 
 And the reason the walk files a row rather than writing the store: a filing the
 fence refused, for a run since taken back, leaves nothing for a deliverer to
@@ -50,6 +51,11 @@ ENOUGH_ROOM_FOR_THEM_ALL = 10
 SOME_DELIVERER = "a deliverer"
 ANOTHER_DELIVERER = "a deliverer started since"
 
+# The embedding model whose collection is read and marked, and another - as a
+# deployment switching models has both.
+SOME_EMBEDDING_MODEL = "some-embedding-model"
+ANOTHER_EMBEDDING_MODEL = "another-embedding-model"
+
 # What a step from a record's shape to the next one writes, where no release
 # has shipped a step: a description no record here is filed with, so a record
 # carrying it was brought up through the step and not read as it was stored.
@@ -71,7 +77,8 @@ def test_a_record_filed_waits_to_be_delivered_whole(records: psycopg.Connection)
             calling(lambda: file(records, the_record))
         ) \
         .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL,
-                                      deliverer=SOME_DELIVERER)) \
+                                      deliverer=SOME_DELIVERER,
+                                      embedded_with=SOME_EMBEDDING_MODEL)) \
         .then(_these_wait(the_record, at_version=1))
 
 
@@ -86,11 +93,13 @@ def test_the_same_record_filed_again_is_not_a_new_version(records: psycopg.Conne
         .given(
             calling(lambda: an_incident_on_record(records, SOME_INCIDENT)),
             calling(lambda: file(records, the_record)),
-            calling(lambda: record_delivered(records, SOME_INCIDENT, version=1)),
+            calling(lambda: record_delivered(records, SOME_INCIDENT, version=1,
+                                             embedded_with=SOME_EMBEDDING_MODEL)),
             calling(lambda: file(records, the_record))
         ) \
         .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL,
-                                      deliverer=SOME_DELIVERER)) \
+                                      deliverer=SOME_DELIVERER,
+                                      embedded_with=SOME_EMBEDDING_MODEL)) \
         .then(_nothing_waits())
 
 
@@ -105,11 +114,13 @@ def test_a_record_that_changed_is_a_new_version(records: psycopg.Connection) -> 
         .given(
             calling(lambda: an_incident_on_record(records, SOME_INCIDENT)),
             calling(lambda: file(records, what_it_said_first)),
-            calling(lambda: record_delivered(records, SOME_INCIDENT, version=1)),
+            calling(lambda: record_delivered(records, SOME_INCIDENT, version=1,
+                                             embedded_with=SOME_EMBEDDING_MODEL)),
             calling(lambda: file(records, what_it_says_now))
         ) \
         .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL,
-                                      deliverer=SOME_DELIVERER)) \
+                                      deliverer=SOME_DELIVERER,
+                                      embedded_with=SOME_EMBEDDING_MODEL)) \
         .then(_these_wait(what_it_says_now, at_version=2))
 
 
@@ -120,10 +131,12 @@ def test_a_record_delivered_at_its_version_waits_no_longer(records: psycopg.Conn
             calling(lambda: an_incident_on_record(records, SOME_INCIDENT)),
             calling(lambda: file(records, _a_record_trying("new-checkout-flow",
                                                            Verdict.REFUTED))),
-            calling(lambda: record_delivered(records, SOME_INCIDENT, version=1))
+            calling(lambda: record_delivered(records, SOME_INCIDENT, version=1,
+                                             embedded_with=SOME_EMBEDDING_MODEL))
         ) \
         .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL,
-                                      deliverer=SOME_DELIVERER)) \
+                                      deliverer=SOME_DELIVERER,
+                                      embedded_with=SOME_EMBEDDING_MODEL)) \
         .then(_nothing_waits())
 
 
@@ -142,10 +155,12 @@ def test_a_delivery_of_an_older_version_leaves_the_newer_one_waiting(
             calling(lambda: file(records, _a_record_trying("new-checkout-flow",
                                                            Verdict.REFUTED))),
             calling(lambda: file(records, what_it_says_now)),
-            calling(lambda: record_delivered(records, SOME_INCIDENT, version=1))
+            calling(lambda: record_delivered(records, SOME_INCIDENT, version=1,
+                                             embedded_with=SOME_EMBEDDING_MODEL))
         ) \
         .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL,
-                                      deliverer=SOME_DELIVERER)) \
+                                      deliverer=SOME_DELIVERER,
+                                      embedded_with=SOME_EMBEDDING_MODEL)) \
         .then(_these_wait(what_it_says_now, at_version=2))
 
 
@@ -164,11 +179,61 @@ def test_a_late_mark_for_an_older_version_moves_nothing_back(
                                                            Verdict.REFUTED))),
             calling(lambda: file(records, _a_record_trying("new-checkout-flow",
                                                            Verdict.CONFIRMED))),
-            calling(lambda: record_delivered(records, SOME_INCIDENT, version=2)),
-            calling(lambda: record_delivered(records, SOME_INCIDENT, version=1))
+            calling(lambda: record_delivered(records, SOME_INCIDENT, version=2,
+                                             embedded_with=SOME_EMBEDDING_MODEL)),
+            calling(lambda: record_delivered(records, SOME_INCIDENT, version=1,
+                                             embedded_with=SOME_EMBEDDING_MODEL))
         ) \
         .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL,
-                                      deliverer=SOME_DELIVERER)) \
+                                      deliverer=SOME_DELIVERER,
+                                      embedded_with=SOME_EMBEDDING_MODEL)) \
+        .then(_nothing_waits())
+
+
+@pytest.mark.component
+def test_a_record_another_embedding_model_holds_waits_for_this_ones(
+    records: psycopg.Connection
+) -> None:
+    # Each model is a collection of its own, so a deployment that switched
+    # models finds every record waiting for the new collection - where one mark
+    # for both would read the empty collection as holding everything.
+    the_record = _a_record_trying("new-checkout-flow", Verdict.REFUTED)
+
+    Scenario() \
+        .given(
+            calling(lambda: an_incident_on_record(records, SOME_INCIDENT)),
+            calling(lambda: file(records, the_record)),
+            calling(lambda: record_delivered(records, SOME_INCIDENT, version=1,
+                                             embedded_with=ANOTHER_EMBEDDING_MODEL))
+        ) \
+        .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL,
+                                      deliverer=SOME_DELIVERER,
+                                      embedded_with=SOME_EMBEDDING_MODEL)) \
+        .then(_these_wait(the_record, at_version=1))
+
+
+@pytest.mark.component
+def test_a_mark_for_another_embedding_model_moves_this_ones_nowhere(
+    records: psycopg.Connection
+) -> None:
+    # Two deliverers on two models, as an upgrade runs them: the other one
+    # marking the older version it took leaves this one's mark where it was,
+    # so this collection is not handed the newer record again.
+    Scenario() \
+        .given(
+            calling(lambda: an_incident_on_record(records, SOME_INCIDENT)),
+            calling(lambda: file(records, _a_record_trying("new-checkout-flow",
+                                                           Verdict.REFUTED))),
+            calling(lambda: file(records, _a_record_trying("new-checkout-flow",
+                                                           Verdict.CONFIRMED))),
+            calling(lambda: record_delivered(records, SOME_INCIDENT, version=2,
+                                             embedded_with=SOME_EMBEDDING_MODEL)),
+            calling(lambda: record_delivered(records, SOME_INCIDENT, version=1,
+                                             embedded_with=ANOTHER_EMBEDDING_MODEL))
+        ) \
+        .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL,
+                                      deliverer=SOME_DELIVERER,
+                                      embedded_with=SOME_EMBEDDING_MODEL)) \
         .then(_nothing_waits())
 
 
@@ -190,7 +255,9 @@ def test_the_oldest_filing_is_handed_over_first(records: psycopg.Connection) -> 
             calling(lambda: file(records, a_remembered_incident(filed_first))),
             calling(lambda: file(records, a_remembered_incident(filed_second)))
         ) \
-        .when(lambda: get_undelivered(records, room_for_one, deliverer=SOME_DELIVERER)) \
+        .when(lambda: get_undelivered(records, room_for_one,
+                                      deliverer=SOME_DELIVERER,
+                                      embedded_with=SOME_EMBEDDING_MODEL)) \
         .then(_these_wait(a_remembered_incident(filed_first), at_version=1))
 
 
@@ -227,12 +294,14 @@ def test_a_record_filed_again_in_another_shape_is_a_new_version(
         .given(
             calling(lambda: an_incident_on_record(records, SOME_INCIDENT)),
             calling(lambda: file(records, the_record)),
-            calling(lambda: record_delivered(records, SOME_INCIDENT, version=1)),
+            calling(lambda: record_delivered(records, SOME_INCIDENT, version=1,
+                                             embedded_with=SOME_EMBEDDING_MODEL)),
             calling(lambda: filed_by_a_newer_release(records, SOME_INCIDENT)),
             calling(lambda: file(records, the_record))
         ) \
         .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL,
-                                      deliverer=SOME_DELIVERER)) \
+                                      deliverer=SOME_DELIVERER,
+                                      embedded_with=SOME_EMBEDDING_MODEL)) \
         .then(_these_wait(the_record, at_version=2))
 
 
@@ -250,7 +319,8 @@ def test_a_record_a_newer_release_filed_waits_for_a_deliverer_that_knows_it(
             calling(lambda: filed_by_a_newer_release(records, SOME_INCIDENT))
         ) \
         .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL,
-                                      deliverer=SOME_DELIVERER)) \
+                                      deliverer=SOME_DELIVERER,
+                                      embedded_with=SOME_EMBEDDING_MODEL)) \
         .then(_nothing_waits())
 
 
@@ -269,7 +339,9 @@ def test_a_record_in_an_older_shape_is_brought_up_before_it_is_handed_over(
             calling(lambda: file(records, the_record))
         ) \
         .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL,
-                                      deliverer=SOME_DELIVERER, shapes=one_step_on)) \
+                                      deliverer=SOME_DELIVERER,
+                                      embedded_with=SOME_EMBEDDING_MODEL,
+                                      shapes=one_step_on)) \
         .then(_these_wait(
             the_record.model_copy(update={"described_as": A_DESCRIPTION_A_STEP_WROTE}),
             at_version=1
@@ -289,7 +361,8 @@ def test_a_record_that_cannot_be_read_is_handed_over_as_what_stopped_it(
             calling(lambda: filed_unreadable(records, SOME_INCIDENT))
         ) \
         .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL,
-                                      deliverer=SOME_DELIVERER)) \
+                                      deliverer=SOME_DELIVERER,
+                                      embedded_with=SOME_EMBEDDING_MODEL)) \
         .then(_it_could_not_be_read(SOME_INCIDENT))
 
 
@@ -304,7 +377,8 @@ def test_a_record_this_deliverer_parked_waits_no_longer_for_it(
             calling(lambda: park(records, SOME_INCIDENT, SOME_DELIVERER))
         ) \
         .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL,
-                                      deliverer=SOME_DELIVERER)) \
+                                      deliverer=SOME_DELIVERER,
+                                      embedded_with=SOME_EMBEDDING_MODEL)) \
         .then(_nothing_waits())
 
 
@@ -324,7 +398,8 @@ def test_a_record_another_deliverer_parked_waits_for_this_one(
             calling(lambda: park(records, SOME_INCIDENT, ANOTHER_DELIVERER))
         ) \
         .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL,
-                                      deliverer=SOME_DELIVERER)) \
+                                      deliverer=SOME_DELIVERER,
+                                      embedded_with=SOME_EMBEDDING_MODEL)) \
         .then(_these_wait(the_record, at_version=1))
 
 
@@ -343,7 +418,8 @@ def test_a_parked_record_filed_again_waits_again(records: psycopg.Connection) ->
             calling(lambda: file(records, what_it_says_now))
         ) \
         .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL,
-                                      deliverer=SOME_DELIVERER)) \
+                                      deliverer=SOME_DELIVERER,
+                                      embedded_with=SOME_EMBEDDING_MODEL)) \
         .then(_these_wait(what_it_says_now, at_version=2))
 
 
@@ -433,7 +509,9 @@ def _nothing_is_waiting_in(records: psycopg.Connection) -> Assertion[object]:
     returned - which, for a filing refused, is the refusal."""
     def assertion(dont_care_result: object) -> bool:
         return _nothing_waits()(
-            get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL, deliverer=SOME_DELIVERER)
+            get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL,
+                            deliverer=SOME_DELIVERER,
+                            embedded_with=SOME_EMBEDDING_MODEL)
         )
 
     return assertion

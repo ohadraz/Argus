@@ -46,9 +46,6 @@ class CatchUpSettings(SettingsSlice):
     """
 
     repository_index_interval_seconds: float
-    # The model every passage is embedded with - the one the read tier embeds
-    # a question with, which is what makes the two comparable.
-    repository_index_embedding_model: str
     # Whether this deployment keeps an index at all. A run set to grep alone
     # exits rather than building one nobody can search: the read tier
     # registers no tool for it, so every passage embedded here would be
@@ -108,13 +105,17 @@ def main(argv: list[str] | None = None) -> None:
         repository = code.repository
 
         # The store's adapter likewise, handed on as the port: a pass writes
-        # through a `VectorIndex`, and the vendor is this line's alone.
+        # through a `VectorIndex`, and the vendor is this line's alone. The
+        # collection is this recipe's (`repository_index.recipe`), and so is
+        # the mark a pass reads and writes. The model it embeds with is the one
+        # the read server embeds a question with, which is what makes the two
+        # comparable - and the read server names the collection by the same
+        # recipe, so it searches this one.
         with (
-            the_index_at(QdrantSettings().qdrant_url,
-                         index_settings.repository_index_collection) as store,
+            the_index_at(QdrantSettings().qdrant_url, index_settings.collection) as store,
             open_pool(DatabaseSettings.of(settings)) as pool
         ):
-            embed = an_embedder(catch_up_settings.repository_index_embedding_model)
+            embed = an_embedder(index_settings.repository_index_embedding_model)
 
             def pass_over() -> str | None:
                 """One pass, with a connection of its own.
@@ -127,7 +128,7 @@ def main(argv: list[str] | None = None) -> None:
                 with pool.connection() as conn:
                     return catch_up(
                         settings=index_settings,
-                        recorded=partial(get, conn, repository),
+                        recorded=partial(get, conn, repository, index_settings.recipe),
                         head_of=code.head_of,
                         changed_between=code.paths_changed_between,
                         index=lambda sha, paths: index_repository(

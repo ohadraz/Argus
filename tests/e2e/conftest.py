@@ -13,6 +13,7 @@ import httpx2
 import pytest
 from anthropic_double.server import DEFAULT_BASE_URL as ANTHROPIC_DOUBLE_BASE_URL
 from core import get_settings
+from core.embedding import collection_for
 from github_double.server import DEFAULT_BASE_URL as GITHUB_DOUBLE_BASE_URL
 from incident_memory.filing import UnreadableRecord, get_undelivered
 from incident_record.repository import incidents
@@ -355,15 +356,19 @@ def _every_record_was_delivered() -> None:
     waiting means nothing left in flight. Loudly, for the reason the readers
     are waited for loudly.
     """
+    model = get_settings().incident_memory_embedding_model
     deadline = time.monotonic() + _SETTLING_TIMEOUT_SECONDS
 
     while True:
         with connect_from_env() as conn:
-            # One that cannot be read is waiting too, as its incident.
+            # One that cannot be read is waiting too, as its incident. Waiting
+            # for the collection the stack's deliverer fills, which is the one
+            # dropped below.
             waiting = [filed.incident_id if isinstance(filed, UnreadableRecord)
                        else filed.record.incident_id
                        for filed in get_undelivered(conn, limit=_AS_MANY_AS_A_CASE_FILES,
-                                                    deliverer=_A_READER_THAT_PARKS_NOTHING)]
+                                                    deliverer=_A_READER_THAT_PARKS_NOTHING,
+                                                    embedded_with=model)]
 
         if not waiting:
             return
@@ -423,14 +428,17 @@ def _long_term_memory_was_forgotten() -> None:
     is the one its own `given` put there.
 
     Dropped rather than emptied: an absent collection reads as an empty corpus
-    everywhere above the store, and the first write makes it again.
+    everywhere above the store, and the first write makes it again. Its marks
+    went with the tables, emptied just before it - so no mark outlives the
+    collection it says something about.
     """
     settings = get_settings()
 
     store = QdrantClient(url=QdrantSettings().qdrant_url)
 
     try:
-        store.delete_collection(settings.incident_memory_collection)
+        store.delete_collection(collection_for(settings.incident_memory_collection,
+                                               settings.incident_memory_embedding_model))
     finally:
         store.close()
 

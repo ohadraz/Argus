@@ -155,9 +155,17 @@ class Settings(BaseSettings):
     # "which passages are nearest this one", and no amount of SQL makes that a
     # cheap question.
     #
-    # One collection per deployment, named for what it holds rather than for
+    # The corpus the index is kept as, named for what it holds rather than for
     # the repository: the index describes the Target Service's source, and a
-    # deployment pointed at a different repository is a different index.
+    # deployment pointed at a different repository is a different index. The
+    # collection itself is named for this and for the recipe the index is built
+    # with - the embedding model, the bounds below and `service_source_paths`
+    # (`core.embedding.collection_for`) - so changing any of them builds a
+    # collection of its own beside the old one, which stays until somebody
+    # drops it. Whoever drops one deletes that recipe's row in
+    # `repository_index_build` with it: a collection gone with its mark left
+    # reads as built, so going back to that recipe rebuilds nothing and every
+    # search answers empty, with no notice saying why.
     repository_index_collection: str = Field(default="target_service_source")
     # How often the catch-up loop looks. A bound on how long the index may
     # describe yesterday's code while nobody is telling it otherwise, rather
@@ -173,10 +181,11 @@ class Settings(BaseSettings):
     # underperforms, "the model is small" is answered by naming a different one
     # here and indexing again.
     #
-    # Changing it is a re-index, not a restart. The width of the collection and
-    # the meaning of every stored vector both follow from the model, so points
-    # embedded by the old one answer nothing sensible to a query embedded by the
-    # new.
+    # Changing it builds the index again, in a collection of its own. The width
+    # of the collection and the meaning of every stored vector both follow from
+    # the model, so points embedded by the old one answer nothing sensible to a
+    # query embedded by the new - which is why the model is part of the
+    # collection's name (`repository_index_collection` above).
     repository_index_embedding_model: str = Field(default="BAAI/bge-small-en-v1.5")
     # How a file whose structure nothing here understands is cut into passages,
     # in lines, and how many lines of each window the next one repeats. The
@@ -184,13 +193,21 @@ class Settings(BaseSettings):
     #
     # These govern the fallback only. Python is cut at its own definitions,
     # because a function is as long as it is and one truncated to fit a window
-    # is a passage that stops mid-statement.
+    # is a passage that stops mid-statement. Both are part of the recipe the
+    # collection is named for, so changing either builds the index again - all
+    # of it, Python included, since a collection is never cut two ways.
     repository_index_max_lines: int = Field(default=60, gt=0)
     repository_index_chunk_overlap: int = Field(default=10, ge=0)
 
     # Long-term memory: what earlier incidents were done about (spec §11.2).
     # The same Qdrant as the index above, in a collection of its own - two
-    # corpora with nothing to do with each other, and one server.
+    # corpora with nothing to do with each other, and one server. The
+    # collection is named for this and for the embedding model below
+    # (`core.embedding.collection_for`), so a new model is a collection of its
+    # own beside the old one, which stays until somebody drops it. Whoever
+    # drops one deletes that model's rows in `incident_memory_delivery` with
+    # it: a collection gone with its marks left reads as delivered, so going
+    # back to that model delivers nothing and every recall answers empty.
     incident_memory_collection: str = Field(default="incidents_remembered")
     # Whether what incidents tried is searchable, and whether it is consulted.
     # Off is a real configuration rather than a way of disabling a broken
@@ -206,8 +223,9 @@ class Settings(BaseSettings):
     incident_memory_delivery_interval_seconds: float = Field(default=2.0, gt=0)
     # Which model turns an incident's description into the vector a later
     # incident is compared against. A different corpus from the index's, so a
-    # setting of its own - and changing it, like changing the index's, means
-    # everything already stored answers a new query nonsensically.
+    # setting of its own - and changing it, like changing the index's, delivers
+    # every record again into a collection of its own, since everything stored
+    # by the old model would answer a new query nonsensically.
     incident_memory_embedding_model: str = Field(default="BAAI/bge-small-en-v1.5")
     # How many past incidents inform one ordering decision, and how unlike this
     # one a record may be and still be consulted.

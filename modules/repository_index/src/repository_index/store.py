@@ -124,12 +124,15 @@ def nearest(search: VectorSearch,
     Ranked, because a caller that trusts the order and is handed an arbitrary
     one reads the least relevant passage first and spends its turn on it.
 
-    Scoped and floored inside the search rather than after it. The indexer and
-    the reader are configured separately, so an index built under a wider scope
-    than the reader is asked about holds passages outside it. A store answers
-    its `limit` nearest, and where those outside passages are nearer, a scope
-    applied to them afterwards answers with fewer passages than there are in
-    the service, and sometimes with none. `source_paths` is read as
+    Scoped and floored inside the search rather than after it. The scope is
+    part of the recipe a collection is named for, so a deployment's reader
+    searches only a collection built under its own scope, and the condition
+    excludes nothing there. It is asked all the same, so what a caller is
+    answered from never rests on which collection it was handed: one built
+    under a wider scope holds passages outside it. A store answers its `limit`
+    nearest, and where those outside passages are nearer, a scope applied to
+    them afterwards answers with fewer passages than there are in the service,
+    and sometimes with none. `source_paths` is read as
     `core.source_scope` reads it: empty scopes nothing.
 
     A store that has never been written to finds nothing, which is answered

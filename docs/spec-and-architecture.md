@@ -491,6 +491,8 @@ erDiagram
     INCIDENT ||--o{ INCIDENT_REFERENCE : is_known_elsewhere_by
     INCIDENT ||--o{ THREAD_MESSAGE : is_talked_about_in
     INCIDENT ||--o| INCIDENT_MEMORY : is_remembered_by
+    INCIDENT_MEMORY ||--o{ INCIDENT_MEMORY_DELIVERY : is_held_as
+    REPOSITORY_INDEX ||--o{ REPOSITORY_INDEX_BUILD : is_built_as
 
     INCIDENT {
         uuid id PK
@@ -644,8 +646,12 @@ erDiagram
     }
     REPOSITORY_INDEX {
         text repository PK
-        text indexed_sha
         text pending_sha
+    }
+    REPOSITORY_INDEX_BUILD {
+        text repository PK
+        text built_with PK
+        text indexed_sha
         timestamp indexed_at
     }
     INCIDENT_MEMORY {
@@ -654,8 +660,12 @@ erDiagram
         smallint shape
         text parked_by
         bigint version
-        bigint delivered_version
         timestamp filed_at
+    }
+    INCIDENT_MEMORY_DELIVERY {
+        uuid incident_id PK
+        text embedded_with PK
+        bigint delivered_version
     }
 ```
 
@@ -681,15 +691,15 @@ An `ACTION` row is written *before* its action is taken, and one incident has at
 
 `EXCHANGE_RATE` belongs to no incident, and is the only table here that does not - which is why it hangs off nothing in the diagram. It is a cache of what a currency was worth on a day, read when an incident's loss is reported in a currency the takings were not measured in. Keyed by the day rather than the moment: a published rate is a fact about a date, so two incidents on the same day are priced identically however far apart they ran, and a rate already fetched is never fetched twice. `fetched_at` records when Argus asked, which is a different question from when the rate was published and the one to ask when a figure looks stale.
 
-`REPOSITORY_INDEX` belongs to no incident either, and belongs to the index rather than to the record: it is the watermark saying which commit the stored passages describe and which commit the repository is at (§11.5). It is in Postgres because "is what I searched what is running" is an exact comparison rather than a nearness, which is the one question a vector store answers badly. It is also the only part of the index that is not derived - the passages can be rebuilt from the repository at any time, and this row is what says where they would be rebuilt to.
+`REPOSITORY_INDEX` belongs to no incident either, and belongs to the index rather than to the record: it says which commit the repository is at, and `REPOSITORY_INDEX_BUILD` says which commit each recipe's passages describe - one row per repository and recipe, because each recipe is a collection of its own (§11.5). They are in Postgres because "is what I searched what is running" is an exact comparison rather than a nearness, which is the one question a vector store answers badly. They are also the only part of the index that is not derived - the passages can be rebuilt from the repository at any time, and these rows are what say where they would be rebuilt to. A collection dropped takes its recipe's row with it, or going back to that recipe reads as built and rebuilds nothing.
 
-`INCIDENT_MEMORY` is what each finished incident tried, filed for long-term memory (§11.2) - the walk's one write to it. A row rather than a write to the vector store, because the fence (§7.1) holds only here: a walk whose run was taken back files nothing over the record of the walk that holds it now, where the store would take its write from anybody. The store is filled from these rows and is a view of them. `version` moves on whenever what was tried changes - or the shape it is written in - and `delivered_version` says which the store last took, so the difference between them is the work list, the retry and the backlog - a deliverer that was down, or memory switched on late, finds every record the store does not hold still waiting.
+`INCIDENT_MEMORY` is what each finished incident tried, filed for long-term memory (§11.2) - the walk's one write to it. A row rather than a write to the vector store, because the fence (§7.1) holds only here: a walk whose run was taken back files nothing over the record of the walk that holds it now, where the store would take its write from anybody. The store is filled from these rows and is a view of them. `version` moves on whenever what was tried changes - or the shape it is written in - and `INCIDENT_MEMORY_DELIVERY` says which version each collection last took, one row per record and embedding model, since each model is a collection of its own (§11.2). The difference is the work list, the retry and the backlog - a deliverer that was down, memory switched on late, or a model never delivered to finds every record its collection does not hold still waiting. A collection dropped takes its model's rows with it, or going back to that model reads as delivered and delivers nothing.
 
 `REPLAY_LOG` serves a different purpose again: it's Argus's own eval infrastructure (Design Principle 6, §4), not incident-domain state, written at a different granularity - one row per LLM completion or MCP call. It's written inside the Orchestrator's process, from whichever agent node makes the call, via a shared instrumented client in `core` - never by the MCP servers themselves, keeping them as pure as §13's MCP-server-boundary guardrail requires.
 
 ### 11.2 Long-term memory (Qdrant)
 
-One collection, one record per finished incident:
+One collection per embedding model, one record per finished incident in each:
 
 ```
 {
@@ -707,7 +717,7 @@ Every incident that ends is recorded, not only a resolved one. An escalation aft
 
 The record is composed from the incident's own `ACTION` rows and the alert that opened it, by a step of the walk that does nothing else (§7.1). Not from the postmortem: that is a document for a person to read, written by a different step from a different source, and deriving one from the other would make an unwritten document into a missing memory.
 
-**The walk files the record; it never writes the store.** What the step writes is an `INCIDENT_MEMORY` row (§11.1), which the fence refuses for a walk whose run was taken back - where the store's upsert, keyed on the incident, would keep whichever walk wrote last. A process of its own, the deliverer, reads the rows the store does not hold yet, embeds each record and keeps it, and marks the version it kept: a record refiled while its old version was on the way is still waiting afterwards, and is delivered again. One deliverer delivers at a time, holding a lock in the database on a connection of its own for each pass - two at once could leave the store holding an older version for good - and a second that finds the lock held waits for its next pass. A pass that fails is retried on the next, and a record is marked only once the store holds it, so nothing is lost by a store that is down and nothing is said about it either: the store is derived, and an event published after an incident ended would land in a finished timeline. The walk itself reads the store - recall is a read, and a read made for a lost run changes nothing anybody else holds - and is held away from the store's writing side, and from any other store with no fence, by the layering guard (§20.1).
+**The walk files the record; it never writes the store.** What the step writes is an `INCIDENT_MEMORY` row (§11.1), which the fence refuses for a walk whose run was taken back - where the store's upsert, keyed on the incident, would keep whichever walk wrote last. A process of its own, the deliverer, reads the rows the store does not hold yet, embeds each record and keeps it, and marks the version it kept, under the model it embedded with: a record refiled while its old version was on the way is still waiting afterwards, and is delivered again. The collection is named for the model (`core.embedding.collection_for`), and so is the mark: a vector means something only beside vectors the same model made, so a new model delivers every record again into a collection of its own, and recall, which embeds its question with the model it names the collection by, never compares one model's vectors with another's. One deliverer delivers at a time, holding a lock in the database on a connection of its own for each pass - two at once could leave the store holding an older version for good - and a second that finds the lock held waits for its next pass. A pass that fails is retried on the next, and a record is marked only once the store holds it, so nothing is lost by a store that is down and nothing is said about it either: the store is derived, and an event published after an incident ended would land in a finished timeline. The walk itself reads the store - recall is a read, and a read made for a lost run changes nothing anybody else holds - and is held away from the store's writing side, and from any other store with no fence, by the layering guard (§20.1).
 
 `described_as` is the text that is embedded and searched. It is assembled rather than written - the alert's own words, then what the investigation concluded and the evidence it cited - so one vector carries both how the monitoring named the incident and what it actually looked like. Assembled rather than composed by a model because its only job is to be matched against, and a join of text already on hand embeds to very nearly the same place at no cost, with no failure mode, and reproducibly.
 
@@ -760,15 +770,15 @@ The one place a semantic store is the right tool is where it's already used: "ha
 
 ### 11.5 The repository index (Qdrant)
 
-What Code-Fix searches when it looks for code by meaning (§7.4). One collection of passages from the Target Service's own source: Python cut at its own definitions, everything else in overlapping line windows, each passage carrying its path and line span so a hit is an address as well as an answer.
+What Code-Fix searches when it looks for code by meaning (§7.4). One collection of passages from the Target Service's own source per recipe - the embedding model, the bounds a file is cut by and the directories that are the service, everything the passages are derived from but the commit - named for it (`core.embedding.collection_for`): Python cut at its own definitions, everything else in overlapping line windows, each passage carrying its path and line span so a hit is an address as well as an answer.
 
-A passage's id is derived from what it says, which is what makes re-indexing cheap: a function that moved because something above it grew is the same passage and is not embedded again. The embedding model runs in Argus's own process - no key, no network, no per-passage bill - and which model it is is configuration, because it is the one variable a retrieval benchmark (§21) cannot hold constant.
+A passage's id is derived from what it says, which is what makes re-indexing cheap: a function that moved because something above it grew is the same passage and is not embedded again. The embedding model runs in Argus's own process - no key, no network, no per-passage bill - and which model it is is configuration, because it is the one variable a retrieval benchmark (§21) cannot hold constant. Changing any part of the recipe builds the index again in a collection of its own; going back to one built before resumes from the commit that collection describes. The catch-up loop and the read server work the recipe out from the same settings, so a question is embedded by the model that built the collection it searches.
 
 A collection of its own, beside the one long-term memory keeps (§11.2). Two corpora with different access patterns sharing one server: the repository index is rewritten continuously as code moves and wants cheap deletes, upserts and first-class filtering, where long-term memory is appended to once per incident and wants nothing more than similarity over a few hundred descriptions. Neither collection is asked to be the other.
 
-**A search is scoped and floored by the store.** What a reader is answered from is the service's own source - the directories configuration names - and nothing further off than a floor. Both are asked of the store while it ranks rather than applied to what it returned. The indexer and the reader are configured separately, so an index built under a wider scope than the reader is asked about holds passages outside it; a scope applied afterwards to the nearest few would answer with fewer, or with nothing, exactly when those passages are the nearer. A passage's path is indexed to serve a prefix, so the scope is traversed rather than scanned for, and a collection whose path index cannot serve one is indexed again in place, keeping its passages, by the next catch-up pass that writes - which is a pass that found a file changed. Until then the scope is answered by a scan: slower, never wrong.
+**A search is scoped and floored by the store.** What a reader is answered from is the service's own source - the directories configuration names - and nothing further off than a floor. Both are asked of the store while it ranks rather than applied to what it returned. The scope is part of the recipe a collection is named for, so in a deployment the reader opens only the collection its own scope built, and asking the store for the scope excludes nothing there. It is asked all the same, so what a reader is answered from never rests on which collection it was handed: one built under a wider scope would otherwise answer from outside it wherever its passages there are the nearer, and a scope applied afterwards to the nearest few would answer with fewer, or with nothing. A passage's path is indexed to serve a prefix, so the scope is traversed rather than scanned for, and a collection whose path index cannot serve one is indexed again in place, keeping its passages, by the next catch-up pass that writes - which is a pass that found a file changed. Until then the scope is answered by a scan: slower, never wrong.
 
-**The index knows which commit it describes.** One row in Postgres per repository carries two commits: the one the stored passages were built from, and the one the repository is at. Everything follows from their difference. A catch-up pass compares them and closes the gap - embedding only the paths a comparison says changed, or the whole repository when it is empty or the provider cannot say what changed - and records the new commit only once the work is done, so a pass that failed leaves the same work waiting without anything recording that it is owed. There is no attempt count, no backoff and no queue of unprocessed notifications: the state is the goal, not the history of trying to reach it.
+**The index knows which commit it describes.** Postgres carries two commits: per repository, the one the repository is at, and per repository and recipe, the one that recipe's passages were built from. Everything follows from their difference. A catch-up pass compares them and closes the gap - embedding only the paths a comparison says changed, or the whole repository when it is empty or the provider cannot say what changed - and records the new commit only once the work is done, so a pass that failed leaves the same work waiting without anything recording that it is owed. There is no attempt count, no backoff and no queue of unprocessed notifications: the state is the goal, not the history of trying to reach it.
 
 A push webhook (§7.9) records where the repository has moved to and does nothing else. It is an edge that shortens a wait, never the thing that makes the index correct: a deployment with no tunnel, or a delivery that never arrives, costs a delay of one catch-up interval rather than an index that is permanently stale. The same difference is what a reader is told when it matters - an index behind the deployed commit says so in every answer it gives.
 

@@ -1,9 +1,12 @@
-"""The mark saying which commit the stored passages describe.
+"""The marks saying which commit each build of the index describes.
 
-One row per repository, carrying two commits: the one the index was built from,
-and the one the repository is at. The difference between them is the work list,
-the retry, and what a reader is told when what it searched is not what is
-running.
+Two tables. Where the repository is - the commit the last push reported - is
+one row per repository, because it does not depend on how anybody indexes it.
+Which commit the stored passages describe is one row per repository and recipe
+(`built_with`), because each recipe is a collection of its own and a mark
+shared between two would describe one of them wrongly. The difference between
+the two commits is the work list, the retry, and what a reader is told when
+what it searched is not what is running.
 
 Nothing here counts attempts or records that work is owed. A pass that failed
 leaves the two commits differing, so the next pass finds the same work waiting
@@ -11,7 +14,7 @@ without anybody having written down that it does - which is why there is no
 attempt column, no backoff and no queue of unprocessed notifications. The state
 is the goal, not the history of trying to reach it.
 
-The vectors live in the store and the mark lives here, and that split is
+The vectors live in the store and the marks live here, and that split is
 deliberate: a store answers "what passages are near this" well and "what commit
 is this collection as of" not at all.
 """
@@ -25,13 +28,14 @@ from pydantic import BaseModel
 
 
 class RepositoryIndex(BaseModel):
-    """What is on record about one repository's index.
+    """What is on record about one repository's index, as one recipe built it.
 
     Both commits are optional and mean different absences. No `indexed_sha` is
-    an index that has never been built - a backfill. No `pending_sha` is a
-    repository nothing has reported a push for yet, which is the ordinary state
-    of a first deployment and means the catch-up pass must ask the provider
-    for the deployed branch's head rather than wait to be told.
+    an index this recipe has never built - a backfill, into a collection of its
+    own. No `pending_sha` is a repository nothing has reported a push for yet,
+    which is the ordinary state of a first deployment and means the catch-up
+    pass must ask the provider for the deployed branch's head rather than wait
+    to be told.
     """
 
     repository: str
@@ -40,24 +44,28 @@ class RepositoryIndex(BaseModel):
     indexed_at: datetime | None = None
 
 
-def get(conn: psycopg.Connection, repository: str) -> RepositoryIndex | None:
-    """What is on record about `repository`, or nothing.
+def get(conn: psycopg.Connection, repository: str, built_with: str) -> RepositoryIndex | None:
+    """What is on record about `repository`, with what `built_with` built of
+    it, or nothing.
 
-    A bare `get`, which the naming rule allows because the argument is the
-    identity: a repository is addressed as `owner/name` and that is the key.
+    A bare `get`, which the naming rule allows because the arguments are the
+    identity: a repository is addressed as `owner/name`, and a build of it by
+    the recipe it was built with.
 
     `None` is a repository nothing has been recorded about at all, which is a
-    different thing from one whose index has not been built - and only the
-    second is work.
+    different thing from one this recipe has not built - and only the second
+    is work.
     """
     with conn.cursor() as cursor:
         cursor.execute(
             """
-            SELECT repository, indexed_sha, pending_sha, indexed_at
-            FROM repository_index
-            WHERE repository = %s
+            SELECT index.repository, build.indexed_sha, index.pending_sha, build.indexed_at
+            FROM repository_index AS index
+            LEFT JOIN repository_index_build AS build
+                ON build.repository = index.repository AND build.built_with = %s
+            WHERE index.repository = %s
             """,
-            (repository,)
+            (built_with, repository)
         )
         found = cursor.fetchone()
 
@@ -85,7 +93,8 @@ def record_pushed(conn: psycopg.Connection,
 
     Replaces rather than accumulates. Three pushes arriving before the index
     catches up must leave it aiming at the third, and keeping only the latest is
-    what makes that true without a queue to drain.
+    what makes that true without a queue to drain. Every build's mark is left
+    where it was: a push says where the repository is, not what anybody built.
     """
     with conn.cursor() as cursor:
         cursor.execute(
@@ -102,24 +111,34 @@ def record_pushed(conn: psycopg.Connection,
 
 def record_indexed(conn: psycopg.Connection,
                    repository: str,
-                   sha: str) -> None:
-    """Records that the stored passages now describe `sha`.
+                   sha: str,
+                   built_with: str) -> None:
+    """Records that the passages `built_with` built now describe `sha`.
 
     Leaves `pending_sha` alone, which is the point. A push landing while an
     index is running would otherwise be overwritten by the pass that started
     before it: the index would record itself current while describing a commit
-    that had already been superseded, and nothing would say so.
+    that had already been superseded, and nothing would say so. Leaves every
+    other recipe's mark alone as well, since each describes a collection of its
+    own.
+
+    Creates the repository's row where there is none, as `record_pushed` does:
+    a first index finishes before any push has been reported.
     """
     with conn.cursor() as cursor:
         cursor.execute(
+            "INSERT INTO repository_index (repository) VALUES (%s) ON CONFLICT DO NOTHING",
+            (repository,)
+        )
+        cursor.execute(
             """
-            INSERT INTO repository_index (repository, indexed_sha, indexed_at)
-            VALUES (%s, %s, now())
-            ON CONFLICT (repository) DO UPDATE SET
+            INSERT INTO repository_index_build (repository, built_with, indexed_sha, indexed_at)
+            VALUES (%s, %s, %s, now())
+            ON CONFLICT (repository, built_with) DO UPDATE SET
                 indexed_sha = EXCLUDED.indexed_sha,
                 indexed_at = EXCLUDED.indexed_at
             """,
-            (repository, sha)
+            (repository, built_with, sha)
         )
 
     conn.commit()

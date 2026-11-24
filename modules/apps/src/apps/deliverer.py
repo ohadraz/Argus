@@ -18,6 +18,7 @@ from core import (
     new_id,
     the_clock,
 )
+from core.embedding import collection_for
 from embedding_fastembed import an_embedder
 from incident_memory.delivering import deliver_forever, deliver_on
 from incident_memory.keeping import kept_in
@@ -85,8 +86,11 @@ def main() -> None:
             # The adapter is built here and nowhere else in this process, and
             # handed on as the port: what `keeping` writes through is a
             # `VectorIndex`, and the vendor is this line's alone.
+            # The collection the model builds, so the vectors kept there are
+            # only ever this model's (`core.embedding.collection_for`).
             the_index_at(QdrantSettings().qdrant_url,
-                         delivery.incident_memory_collection) as store
+                         collection_for(delivery.incident_memory_collection,
+                                        delivery.incident_memory_embedding_model)) as store
         ):
             keep = kept_in(store, an_embedder(delivery.incident_memory_embedding_model))
             deliverer = new_id()
@@ -95,7 +99,10 @@ def main() -> None:
                 """One pass, on a connection of its own for the whole of it -
                 which is what the delivery's lock is held on."""
                 with pool.connection() as conn:
-                    return deliver_on(conn, keep, deliverer=deliverer)
+                    return deliver_on(
+                        conn, keep, deliverer=deliverer,
+                        embedded_with=delivery.incident_memory_embedding_model
+                    )
 
             logger.info("delivery started")
             deliver_forever(delivery.incident_memory_delivery_interval_seconds, pass_over)

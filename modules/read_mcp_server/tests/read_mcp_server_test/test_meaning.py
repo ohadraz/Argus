@@ -24,16 +24,19 @@ import pytest
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.logs import one_record_was_logged
 from argus_testkit.scenario import Scenario, attempting
+from core import get_settings
 from read_mcp_server.meaning import (
     NEAR_ENOUGH_TO_ANSWER,
     HeadOf,
     IndexedSha,
+    IndexReadSettings,
     IndexUnreachable,
     NearestPassages,
     search_repository_by_meaning,
     the_index_notice,
 )
 from read_mcp_server.repository import RepositoryReadSettings
+from repository_index.building import IndexSettings
 from repository_index.chunking import Chunk
 from repository_index.indexing import Embedder
 from repository_index.store import Found
@@ -48,6 +51,23 @@ DONT_CARE_DESCRIPTION = "something the service does"
 SOME_VECTOR = [0.1, 0.2, 0.3]
 
 _THE_DIVISION = "def average_spend(purchases):\n    return total(purchases) / len(purchases)"
+
+
+@pytest.mark.unit
+def test_the_index_searched_is_the_one_the_catch_up_loop_builds_from_the_same_settings(
+) -> None:
+    # Two processes work the recipe out for themselves, each from a settings
+    # slice of its own. Drifted apart, this tier would search a collection
+    # nothing builds and read another recipe's mark - and the notice Code-Fix
+    # is given would change with nothing to say why.
+    settings = get_settings()
+
+    Scenario() \
+        .when(lambda: IndexReadSettings.of(settings)) \
+        .then(all_of(
+            _its_recipe_is(IndexSettings.of(settings).recipe),
+            _its_collection_is(IndexSettings.of(settings).collection)
+        ))
 
 
 @pytest.mark.unit
@@ -228,11 +248,11 @@ def test_only_the_service_s_own_source_is_asked_for() -> None:
     # repository carries the harness that stages incidents against the shop,
     # and a passage of it is the answer rather than the evidence.
     #
-    # Asked for here as well as applied at indexing time because the two are
-    # configured separately: an index built under a wider scope than the reader
-    # is asked about must not answer outside it. And asked of the store rather
-    # than applied to its answer: the wider index's passages, where nearer,
-    # would otherwise take the places the service's own passages were owed.
+    # The scope is part of the recipe the collection is named for, so in a
+    # deployment the collection holds nothing outside it. Asked of the store all
+    # the same, rather than applied to its answer: a collection searched under
+    # another scope would otherwise have its passages outside this one, where
+    # nearer, take the places the service's own passages were owed.
     index = an_index_holding()
     the_service_lives_in = "src/io_shop"
 
@@ -841,3 +861,25 @@ def some_settings(source_paths: str = "") -> RepositoryReadSettings:
     search - so a file one channel will not answer from is a file the other
     will not either."""
     return RepositoryReadSettings(service_source_paths=source_paths)
+
+
+def _its_recipe_is(expected: str) -> Assertion[IndexReadSettings]:
+    def assertion(index: IndexReadSettings) -> bool:
+        if index.recipe != expected:
+            raise AssertionError(f"Expected the index searched to be built with [{expected}], "
+                                 f"and it is [{index.recipe}].")
+
+        return True
+
+    return assertion
+
+
+def _its_collection_is(expected: str) -> Assertion[IndexReadSettings]:
+    def assertion(index: IndexReadSettings) -> bool:
+        if index.collection != expected:
+            raise AssertionError(f"Expected the collection searched to be [{expected}], "
+                                 f"and it is [{index.collection}].")
+
+        return True
+
+    return assertion

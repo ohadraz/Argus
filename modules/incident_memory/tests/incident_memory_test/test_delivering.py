@@ -62,6 +62,11 @@ ANOTHER_INCIDENT = "0f5c4d6e-3a1b-4c2d-8e9f-1a2b3c4d5e70"
 SOME_DELIVERER = "a deliverer"
 ANOTHER_DELIVERER = "a deliverer started since"
 
+# The embedding model the deliverer builds its collection with, and another - as
+# a deployment switching models has both.
+SOME_EMBEDDING_MODEL = "some-embedding-model"
+ANOTHER_EMBEDDING_MODEL = "another-embedding-model"
+
 
 @pytest.mark.integration
 def test_a_filed_record_is_found_in_the_store_once_delivered(
@@ -74,7 +79,8 @@ def test_a_filed_record_is_found_in_the_store_once_delivered(
             calling(lambda: an_incident_on_record(records, SOME_INCIDENT)),
             calling(lambda: file(records, a_remembered_incident(SOME_INCIDENT)))
         ) \
-        .when(lambda: deliver_on(records, _keeping_in(store), deliverer=SOME_DELIVERER)) \
+        .when(lambda: deliver_on(records, _keeping_in(store), deliverer=SOME_DELIVERER,
+                                 embedded_with=SOME_EMBEDDING_MODEL)) \
         .then(_the_store_holds(store, [SOME_INCIDENT]))
 
 
@@ -88,8 +94,28 @@ def test_a_delivered_record_waits_no_longer(
             calling(lambda: an_incident_on_record(records, SOME_INCIDENT)),
             calling(lambda: file(records, a_remembered_incident(SOME_INCIDENT)))
         ) \
-        .when(lambda: deliver_on(records, _keeping_in(store), deliverer=SOME_DELIVERER)) \
+        .when(lambda: deliver_on(records, _keeping_in(store), deliverer=SOME_DELIVERER,
+                                 embedded_with=SOME_EMBEDDING_MODEL)) \
         .then(_nothing_waits(records))
+
+
+@pytest.mark.integration
+def test_a_pass_marks_the_record_for_its_own_embedding_model_alone(
+    records: psycopg.Connection, store: QdrantIndex
+) -> None:
+    # What it kept went into its own model's collection, and only there: a
+    # deliverer on another model still has the record to deliver.
+    Scenario() \
+        .given(
+            calling(lambda: an_incident_on_record(records, SOME_INCIDENT)),
+            calling(lambda: file(records, a_remembered_incident(SOME_INCIDENT)))
+        ) \
+        .when(lambda: deliver_on(records, _keeping_in(store), deliverer=SOME_DELIVERER,
+                                 embedded_with=SOME_EMBEDDING_MODEL)) \
+        .then(all_of(
+            _nothing_waits(records),
+            _these_wait(records, [(SOME_INCIDENT, 1)], embedded_with=ANOTHER_EMBEDDING_MODEL)
+        ))
 
 
 @pytest.mark.integration
@@ -112,7 +138,8 @@ def test_a_record_refiled_while_it_was_delivered_waits_again(
             )))
         ) \
         .when(lambda: deliver_on(records, _keeping_in(store, then_refiling=what_it_says_now),
-                                 deliverer=SOME_DELIVERER)) \
+                                 deliverer=SOME_DELIVERER,
+                                 embedded_with=SOME_EMBEDDING_MODEL)) \
         .then(_these_wait(records, [(SOME_INCIDENT, 2)]))
 
 
@@ -130,7 +157,8 @@ def test_a_pass_while_another_deliverer_is_in_one_delivers_nothing(
                 calling(lambda: an_incident_on_record(records, SOME_INCIDENT)),
                 calling(lambda: file(records, a_remembered_incident(SOME_INCIDENT)))
             ) \
-            .when(lambda: deliver_on(records, _keeping_in(store), deliverer=SOME_DELIVERER)) \
+            .when(lambda: deliver_on(records, _keeping_in(store), deliverer=SOME_DELIVERER,
+                                     embedded_with=SOME_EMBEDDING_MODEL)) \
             .then(all_of(
                 _the_store_holds(store, []),
                 _these_wait(records, [(SOME_INCIDENT, 1)])
@@ -151,11 +179,13 @@ def test_a_pass_that_failed_leaves_the_record_for_the_next(
             calling(lambda: an_incident_on_record(records, SOME_INCIDENT)),
             calling(lambda: file(records, a_remembered_incident(SOME_INCIDENT))),
             calling(attempting(lambda: deliver_on(records, _a_store_that_is_down(),
-                                                  deliverer=SOME_DELIVERER)))
+                                                  deliverer=SOME_DELIVERER,
+                                                  embedded_with=SOME_EMBEDDING_MODEL)))
         ) \
         .when(lambda: _on_a_connection_of_its_own(
             lambda the_next_pass: deliver_on(the_next_pass, _keeping_in(store),
-                                             deliverer=SOME_DELIVERER)
+                                             deliverer=SOME_DELIVERER,
+                                             embedded_with=SOME_EMBEDDING_MODEL)
         )) \
         .then(_the_store_holds(store, [SOME_INCIDENT]))
 
@@ -175,7 +205,8 @@ def test_a_record_that_cannot_be_read_is_parked_and_the_rest_delivered(
             calling(lambda: file(records, a_remembered_incident(ANOTHER_INCIDENT))),
             calling(lambda: filed_unreadable(records, SOME_INCIDENT))
         ) \
-        .when(lambda: deliver_on(records, _keeping_in(store), deliverer=SOME_DELIVERER)) \
+        .when(lambda: deliver_on(records, _keeping_in(store), deliverer=SOME_DELIVERER,
+                                 embedded_with=SOME_EMBEDDING_MODEL)) \
         .then(all_of(
             _the_store_holds(store, [ANOTHER_INCIDENT]),
             _nothing_waits(records),
@@ -196,10 +227,12 @@ def test_a_parked_record_is_not_marked_delivered(
             calling(lambda: an_incident_on_record(records, SOME_INCIDENT)),
             calling(lambda: file(records, a_remembered_incident(SOME_INCIDENT))),
             calling(lambda: filed_unreadable(records, SOME_INCIDENT)),
-            calling(lambda: deliver_on(records, _keeping_in(store), deliverer=SOME_DELIVERER))
+            calling(lambda: deliver_on(records, _keeping_in(store), deliverer=SOME_DELIVERER,
+                                       embedded_with=SOME_EMBEDDING_MODEL))
         ) \
         .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL,
-                                      deliverer=ANOTHER_DELIVERER)) \
+                                      deliverer=ANOTHER_DELIVERER,
+                                      embedded_with=SOME_EMBEDDING_MODEL)) \
         .then(_these_are_waiting([(SOME_INCIDENT, CANNOT_BE_READ)]))
 
 
@@ -288,11 +321,15 @@ type _Waiting = list[tuple[str, int | None]]
 CANNOT_BE_READ = None
 
 
-def _these_wait(records: psycopg.Connection, expected: _Waiting) -> Assertion[object]:
-    """What waits for the deliverer that made the passes."""
+def _these_wait(records: psycopg.Connection,
+                expected: _Waiting,
+                embedded_with: str = SOME_EMBEDDING_MODEL) -> Assertion[object]:
+    """What waits for the deliverer that made the passes, in the collection
+    `embedded_with` builds - its own, unless another is named."""
     def assertion(dont_care_result: object) -> bool:
         return _these_are_waiting(expected)(
-            get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL, deliverer=SOME_DELIVERER)
+            get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL, deliverer=SOME_DELIVERER,
+                            embedded_with=embedded_with)
         )
 
     return assertion

@@ -87,12 +87,15 @@ def deliver_on(conn: psycopg.Connection,
                keep: Keeper,
                *,
                deliverer: str,
+               embedded_with: str,
                batch: int = A_BATCH) -> int:
     """Delivers what is waiting, a batch of it, and answers how many.
 
     Nothing where another deliverer holds the delivery. Each record is kept and
     then marked, in that order, so a record is only ever marked once the store
     holds it - and a pass that fails part of the way leaves the rest waiting.
+    `keep` writes into the collection the model `embedded_with` builds, and
+    what is waiting and what is marked are that collection's.
 
     Raises whatever the store or the database raised. A failure must leave the
     record waiting: swallowing it here would hand the next pass a row that
@@ -109,7 +112,8 @@ def deliver_on(conn: psycopg.Connection,
 
         delivered = 0
 
-        for filed in get_undelivered(conn, batch, deliverer=deliverer):
+        for filed in get_undelivered(conn, batch, deliverer=deliverer,
+                                     embedded_with=embedded_with):
             if isinstance(filed, UnreadableRecord):
                 logger.error("record parked: it cannot be read", extra={
                     ARGUS_INCIDENT_ID: filed.incident_id, "why": filed.unreadable.why
@@ -119,7 +123,7 @@ def deliver_on(conn: psycopg.Connection,
                 continue
 
             keep(filed.record)
-            record_delivered(conn, filed.record.incident_id, filed.version)
+            record_delivered(conn, filed.record.incident_id, filed.version, embedded_with)
             delivered += 1
 
     if delivered:

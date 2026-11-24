@@ -55,6 +55,14 @@ from read_mcp_server.window import RetrievalSettings
 
 SEARCHING_BY_GREP_ALONE = CodeSearch.GREP
 
+# What the index a read tier searches is built with: required by the settings,
+# and read by nothing here, since no case opens a store.
+DONT_CARE_COLLECTION = "dont-care-collection"
+DONT_CARE_EMBEDDING_MODEL = "dont-care-model"
+DONT_CARE_MAX_LINES = 60
+DONT_CARE_OVERLAP = 10
+DONT_CARE_SCOPE = "src"
+
 # How the SDK's client is told to open a session by the `initialize` handshake,
 # as the tier's own client opens one - its default speaks to a server in the
 # same process without one.
@@ -492,7 +500,11 @@ def _a_read_tier(mode: CodeSearch,
             service_registry_service_path="/registry/services/{service}"
         ),
         RepositoryReadSettings(service_source_paths="src"),
-        IndexReadSettings(repository_index_collection="dont-care-collection",
+        IndexReadSettings(repository_index_collection=DONT_CARE_COLLECTION,
+                          repository_index_embedding_model=DONT_CARE_EMBEDDING_MODEL,
+                          repository_index_max_lines=DONT_CARE_MAX_LINES,
+                          repository_index_chunk_overlap=DONT_CARE_OVERLAP,
+                          service_source_paths=DONT_CARE_SCOPE,
                           code_search=mode),
         create_autospec(VectorSearch, instance=True),
         create_autospec(Embedder, instance=True),

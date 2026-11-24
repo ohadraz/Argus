@@ -219,11 +219,13 @@ def test_a_store_that_has_never_been_written_to_finds_nothing(
 def test_a_passage_outside_the_service_is_not_answered_even_when_it_is_the_nearest(
     store: QdrantIndex
 ) -> None:
-    # Scoped inside the search, which is the defect this exists for. The indexer
-    # and the reader are configured separately, so an index built wider than
-    # the reader holds passages outside its scope; where one of those is the
-    # nearest, asked for the one nearest and scoped afterwards, the answer was
-    # nothing, while the service's own passage sat second in the ranking.
+    # Scoped inside the search, which is the defect this exists for. A
+    # deployment's reader searches only the collection its own scope built, and
+    # the scope is asked all the same so the answer never rests on which
+    # collection the search was handed: one built under a wider scope holds
+    # passages outside it, and where one of those is the nearest, asked for the
+    # one nearest and scoped afterwards, the answer was nothing, while the
+    # service's own passage sat second in the ranking.
     the_service_lives_in = SOME_PATH.rsplit("/", 1)[0]
     indexed_wider = _a_point(SOME_PATH_OUTSIDE_THE_SERVICE, ANOTHER_TEXT,
                              vector=[1.0, 0.0, 0.0, 0.0])

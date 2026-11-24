@@ -53,6 +53,7 @@ import httpx2
 import psycopg
 from anthropic_double.recordings import RECORDINGS_DIR, load, question_beside
 from core import get_settings, to_iso, utc_now
+from core.embedding import collection_for
 from core.events import (
     ActionRecommended,
     ActionRefused,
@@ -1370,16 +1371,28 @@ def _long_term_memory_was_forgotten() -> None:
     collection again holding the last recording's incident, for the next walk
     to recall. A record is marked delivered only once the store holds it, so
     nothing waiting means nothing in flight.
+
+    The marks are left where they are, which is the one place a collection is
+    dropped with its marks on purpose. The rows outlive a recording here - this
+    script empties no table - and they are what keep every earlier recording's
+    records out of the collection the next write makes: deleted, the deliverer
+    would carry them all into it, for the next walk to recall.
     """
+    settings = get_settings()
     deadline = time.monotonic() + _A_DELIVERY_SECONDS
 
     while True:
         with psycopg.connect(DATABASE_URL) as connection:
             # One that cannot be read is waiting too, as its incident.
-            waiting = [filed.incident_id if isinstance(filed, UnreadableRecord)
-                       else filed.record.incident_id
-                       for filed in get_undelivered(connection, _AS_MANY_AS_A_RUN_FILES,
-                                                    deliverer=_A_READER_THAT_PARKS_NOTHING)]
+            waiting = [
+                filed.incident_id if isinstance(filed, UnreadableRecord)
+                else filed.record.incident_id
+                for filed in get_undelivered(
+                    connection, _AS_MANY_AS_A_RUN_FILES,
+                    deliverer=_A_READER_THAT_PARKS_NOTHING,
+                    embedded_with=settings.incident_memory_embedding_model
+                )
+            ]
 
         if not waiting:
             break
@@ -1395,7 +1408,8 @@ def _long_term_memory_was_forgotten() -> None:
     store = QdrantClient(url=QdrantSettings().qdrant_url)
 
     try:
-        store.delete_collection(get_settings().incident_memory_collection)
+        store.delete_collection(collection_for(settings.incident_memory_collection,
+                                               settings.incident_memory_embedding_model))
     finally:
         store.close()
 
