@@ -7,11 +7,16 @@ from core.events import IncidentEvent, RecordedEvent, UnreadableEvent, parse_sto
 from core.stored import SHIPPED, Shapes, Unreadable
 from psycopg.types.json import Jsonb
 
+from incident_record.walk_step import the_current_step
+
 # `RecordedEvent` and `UnreadableEvent` are kernel contracts, named here as well
 # because this is the table they are read from and every caller of `get_since`
 # already has this module open. The relay that follows the log names them from
 # the kernel instead - it has no business holding a repository to hold a row.
-__all__ = ["RecordedEvent", "UnreadableEvent", "get_by_incident", "get_since", "record"]
+__all__ = [
+    "RecordedEvent", "UnreadableEvent", "delete_by_step", "get_by_incident", "get_since",
+    "record"
+]
 
 
 def record(conn: psycopg.Connection, event: IncidentEvent) -> None:
@@ -33,20 +38,48 @@ def record(conn: psycopg.Connection, event: IncidentEvent) -> None:
     two are one write - or on a connection opened for it alone, which commits
     when the block that opened it ends. Committing here would make the first of
     those impossible.
+
+    Stamped with the walk's step it was published in (`the_current_step`), or
+    none outside one - so a step run again finds the lines its interrupted
+    attempt said (`delete_by_step`).
     """
     with conn.cursor() as cursor:
         cursor.execute(
-            "INSERT INTO incident_event (id, incident_id, kind, at, shape, payload) "
-            "VALUES (%s, %s, %s, %s, %s, %s)",
+            "INSERT INTO incident_event "
+            "       (id, incident_id, kind, at, shape, payload, walk_step) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
             (
                 event.id,
                 event.incident_id,
                 event.kind,
                 event.at,
                 SHIPPED.current(event.kind),
-                Jsonb(event.model_dump(mode="json"))
+                Jsonb(event.model_dump(mode="json")),
+                the_current_step()
             )
         )
+
+
+def delete_by_step(conn: psycopg.Connection, incident_id: str, step: int) -> int:
+    """Takes back every line one step of an incident's walk said, and answers
+    how many there were.
+
+    The one exception to an account that is only ever appended to, and it is
+    not an amendment: a step run again from its checkpoint tells itself again,
+    and the attempt that was interrupted is not a second telling of the step
+    but the first, unfinished. Kept, it would leave the account saying one
+    step twice - two agents invoked, two sets of findings - where the walk took
+    it once.
+
+    Committing is the caller's, as `record`'s is.
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "DELETE FROM incident_event WHERE incident_id = %s AND walk_step = %s",
+            (incident_id, step)
+        )
+
+        return cursor.rowcount
 
 
 def get_since(conn: psycopg.Connection,

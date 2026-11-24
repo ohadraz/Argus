@@ -328,6 +328,65 @@ def test_an_incident_still_being_worked_records_no_end() -> None:
 
 
 @pytest.mark.integration
+def test_a_move_back_to_work_clears_the_end_an_earlier_move_stamped() -> None:
+    # A step run again from its checkpoint can take a different road than its
+    # interrupted attempt: the first found the alarm disproven, and the second,
+    # asking the model again, goes on to mitigate. An incident still being
+    # worked must not carry the end the first attempt wrote.
+    some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    the_first_attempts_moment = datetime(2026, 10, 21, 19, 14, 3, 456789, tzinfo=UTC)
+
+    with connect_from_env() as conn:
+        the_incident_records_no_end = partial(_the_incident_records_no_end, conn)
+
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(conn, some_alert),
+                calling(lambda: incidents.transition(conn, incident_id,
+                                                     IncidentStatus.DISPROVEN,
+                                                     at=the_first_attempts_moment))
+            ) \
+            .when(
+                lambda: incidents.transition(conn, incident_id, IncidentStatus.MITIGATING,
+                                             at=utc_now())
+            ) \
+            .then(
+                the_incident_records_no_end(incident_id)
+            )
+
+
+@pytest.mark.integration
+def test_an_incident_ended_again_after_a_move_back_to_work_ends_at_the_last_moment() -> None:
+    # The end the row says is the one the account's last move says: the first
+    # attempt's end was taken back with its line, and the move that ends the
+    # incident now is the one a duration is measured to.
+    some_alert = Alert(service="kuki-service", alert_name="HighErrorRate")
+    the_first_attempts_moment = datetime(2026, 10, 21, 19, 14, 3, 456789, tzinfo=UTC)
+    the_last_moment = datetime(2026, 10, 21, 19, 22, 41, 123456, tzinfo=UTC)
+
+    with connect_from_env() as conn:
+        the_incident_ended_at = partial(_the_incident_ended_at, conn)
+
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(conn, some_alert),
+                calling(lambda: incidents.transition(conn, incident_id,
+                                                     IncidentStatus.DISPROVEN,
+                                                     at=the_first_attempts_moment)),
+                calling(lambda: incidents.transition(conn, incident_id,
+                                                     IncidentStatus.MITIGATING,
+                                                     at=utc_now()))
+            ) \
+            .when(
+                lambda: incidents.transition(conn, incident_id, IncidentStatus.ESCALATED,
+                                             at=the_last_moment)
+            ) \
+            .then(
+                the_incident_ended_at(incident_id, the_last_moment)
+            )
+
+
+@pytest.mark.integration
 def test_transition_says_that_it_took_effect() -> None:
     # The walk publishes a move and carries on only where the row actually
     # moved, so a transition that wrote nothing must not read the same as one

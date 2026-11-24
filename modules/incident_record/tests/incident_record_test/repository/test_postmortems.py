@@ -87,6 +87,43 @@ def test_a_document_is_dated_by_the_moment_given() -> None:
 
 
 @pytest.mark.integration
+def test_a_document_written_again_replaces_the_one_before_it() -> None:
+    # A postmortem step run again from its checkpoint - its first attempt
+    # stored the document and stopped before the walk moved on - writes the
+    # document again. One write-up per incident, and it is the second one,
+    # dated as the second one's line is: a row the page read arbitrarily
+    # between two, or one dated by the attempt whose line was taken back,
+    # would be a write-up nobody's account describes.
+    the_first_moment = datetime(2026, 10, 21, 19, 14, 9, 456789, tzinfo=UTC)
+    the_second_moment = datetime(2026, 10, 21, 19, 16, 2, 123456, tzinfo=UTC)
+    the_first_cause = "the first attempt's cause"
+    the_second_cause = "the second attempt's cause"
+    one_write_up = 1
+
+    with connect_from_env() as conn:
+        incident_id = an_incident_created_for(conn, _an_alert())
+
+        Scenario() \
+            .given(
+                calling(lambda: postmortems.record(
+                    conn, incident_id, a_postmortem_document(root_cause=the_first_cause),
+                    at=the_first_moment
+                ))
+            ) \
+            .when(
+                lambda: postmortems.record(
+                    conn, incident_id, a_postmortem_document(root_cause=the_second_cause),
+                    at=the_second_moment
+                )
+            ) \
+            .then(all_of(
+                _the_incident_has_postmortems(conn, incident_id, one_write_up),
+                _the_stored_postmortem_was_written_at(conn, incident_id, the_second_moment),
+                _the_stored_postmortem_names_the_cause(conn, incident_id, the_second_cause)
+            ))
+
+
+@pytest.mark.integration
 def test_a_document_that_proposed_no_fix_comes_back_proposing_none() -> None:
     # The ordinary ending. Null rather than an empty object, so that a page
     # asking "is there a fix to read" gets an answer rather than a shape.
@@ -273,6 +310,44 @@ def _the_stored_postmortem_was_written_at(conn: psycopg.Connection,
         if written_at != moment:
             raise AssertionError(
                 f"Expected the postmortem to be written at [{moment}], got [{written_at}].")
+
+        return True
+
+    return assertion
+
+
+def _the_incident_has_postmortems(conn: psycopg.Connection,
+                                  incident_id: str,
+                                  expected: int) -> Assertion[Any]:
+    """How many rows the incident has - counted with SQL of its own, since
+    every reader asks for the one document and would find one of two."""
+    def assertion(_: Any) -> bool:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT count(*) FROM postmortem WHERE incident_id = %s",
+                           (incident_id,))
+            row = cursor.fetchone()
+
+        counted = row[0] if row is not None else None
+
+        if counted != expected:
+            raise AssertionError(
+                f"Expected incident [{incident_id}] to have {expected} postmortem(s), "
+                f"it had {counted}.")
+
+        return True
+
+    return assertion
+
+
+def _the_stored_postmortem_names_the_cause(conn: psycopg.Connection,
+                                           incident_id: str,
+                                           expected: str) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        stored = postmortems.get_by_incident(conn, incident_id)
+        cause = stored.root_cause if stored is not None else None
+
+        if cause != expected:
+            raise AssertionError(f"Expected the root cause [{expected}], got [{cause}].")
 
         return True
 

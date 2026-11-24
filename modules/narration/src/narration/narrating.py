@@ -69,6 +69,7 @@ from core.events import (
     ServiceRegisterRead,
     SimilarIncidentsRecalled,
     StatusChanged,
+    StepRunAgain,
     VerdictReached,
     WithdrawalOffered,
 )
@@ -850,6 +851,17 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
             # something failed.
             emphasis = event.refusal
             text = f"Could not file what was tried - {emphasis}"
+        case StepRunAgain():
+            who = _ARGUS
+            # Said for whoever already heard the interrupted attempt: a channel
+            # carried its lines, and the lines after this one tell the same
+            # step again. The step as the walk names it, in words rather than
+            # as an identifier.
+            emphasis = event.step.replace("_", " ")
+            text = (
+                f"Running the {emphasis} step again from its start - it was "
+                f"interrupted, and what follows replaces what it had said"
+            )
         case RetrievalUnanswered():
             who = _ARGUS
             # Argus's voice for all three publishers, though one of them is a

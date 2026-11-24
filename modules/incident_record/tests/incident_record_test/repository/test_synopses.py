@@ -6,7 +6,7 @@ from typing import Any
 
 import psycopg
 import pytest
-from argus_testkit import Assertion, Scenario, calling
+from argus_testkit import Assertion, Scenario, all_of, calling
 from core import utc_now
 from core.models import Alert, ExecutiveSynopsis, ExecutiveSynopsisDocument, TitleCost
 from core.stored import EXECUTIVE_SYNOPSIS, Shapes
@@ -75,6 +75,40 @@ def test_a_synopsis_is_dated_by_the_moment_given() -> None:
             .then(
                 _the_stored_synopsis_was_written_at(conn, incident_id, some_moment)
             )
+
+
+@pytest.mark.integration
+def test_a_synopsis_written_again_replaces_the_one_before_it() -> None:
+    # A synopsis step run again from its checkpoint writes the synopsis again,
+    # as a postmortem step does its document. One per incident, and it is the
+    # second one, dated as the second one's line is.
+    the_first_moment = datetime(2026, 11, 9, 19, 14, 9, 456789, tzinfo=UTC)
+    the_second_moment = datetime(2026, 11, 9, 19, 16, 2, 123456, tzinfo=UTC)
+    the_first_overview = "the first attempt's overview"
+    the_second_overview = "the second attempt's overview"
+    one_synopsis = 1
+
+    with connect_from_env() as conn:
+        incident_id = an_incident_created_for(conn, _an_alert())
+
+        Scenario() \
+            .given(
+                calling(lambda: synopses.record(
+                    conn, incident_id, _a_synopsis_overviewing(the_first_overview),
+                    at=the_first_moment
+                ))
+            ) \
+            .when(
+                lambda: synopses.record(
+                    conn, incident_id, _a_synopsis_overviewing(the_second_overview),
+                    at=the_second_moment
+                )
+            ) \
+            .then(all_of(
+                _the_incident_has_synopses(conn, incident_id, one_synopsis),
+                _the_stored_synopsis_was_written_at(conn, incident_id, the_second_moment),
+                _the_stored_synopsis_overviews(conn, incident_id, the_second_overview)
+            ))
 
 
 @pytest.mark.integration
@@ -235,6 +269,44 @@ def _the_stored_synopsis_was_written_at(conn: psycopg.Connection,
     return assertion
 
 
+def _the_incident_has_synopses(conn: psycopg.Connection,
+                               incident_id: str,
+                               expected: int) -> Assertion[Any]:
+    """How many rows the incident has - counted with SQL of its own, since
+    every reader asks for the one synopsis and would find one of two."""
+    def assertion(_: Any) -> bool:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT count(*) FROM executive_synopsis WHERE incident_id = %s",
+                           (incident_id,))
+            row = cursor.fetchone()
+
+        counted = row[0] if row is not None else None
+
+        if counted != expected:
+            raise AssertionError(
+                f"Expected incident [{incident_id}] to have {expected} synopsis row(s), "
+                f"it had {counted}.")
+
+        return True
+
+    return assertion
+
+
+def _the_stored_synopsis_overviews(conn: psycopg.Connection,
+                                   incident_id: str,
+                                   expected: str) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        stored = synopses.get_by_incident(conn, incident_id)
+        overview = stored.overview if stored is not None else None
+
+        if overview != expected:
+            raise AssertionError(f"Expected the overview [{expected}], got [{overview}].")
+
+        return True
+
+    return assertion
+
+
 def _the_stored_synopsis_is_withheld_because(conn: psycopg.Connection,
                                              incident_id: str,
                                              reason: str) -> Assertion[Any]:
@@ -336,6 +408,11 @@ def _a_synopsis() -> ExecutiveSynopsisDocument:
         withheld_because=None,
         cost_by_title=[]
     )
+
+
+def _a_synopsis_overviewing(overview: str) -> ExecutiveSynopsisDocument:
+    """A synopsis told apart from another by its overview alone."""
+    return _a_synopsis().model_copy(update={"overview": overview})
 
 
 def _a_step_writing_the_overview(raw: dict[str, Any]) -> dict[str, Any]:

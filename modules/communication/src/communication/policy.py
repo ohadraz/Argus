@@ -45,6 +45,7 @@ from core.events import (
     QuestionAnswered,
     ResolutionOffered,
     StatusChanged,
+    StepRunAgain,
     VerdictReached,
     WithdrawalOffered,
 )
@@ -204,6 +205,13 @@ def how_it_is_said(event: IncidentEvent) -> Register:
             # The reply owed to whoever asked, in the thread they asked it in:
             # an answer only the page showed is no answer to them. Followed
             # rather than announced - nobody else was asking.
+            return Register.FOLLOWED
+        case StepRunAgain():
+            # Followed, where the interrupted attempt's lines went: the thread
+            # heard that attempt, and is about to hear the step told again. The
+            # page drops the first telling and needs no such line; the thread
+            # cannot unsay it, and without this would hear one step twice with
+            # nothing saying why.
             return Register.FOLLOWED
         case _:
             # Everything else, which today is everything that reports a look

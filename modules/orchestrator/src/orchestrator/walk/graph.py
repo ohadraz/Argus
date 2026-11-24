@@ -19,6 +19,12 @@ from orchestrator.walk.choosing import (
 )
 from orchestrator.walk.closing import postmortem_node, synopsis_node
 from orchestrator.walk.collaborators import Collaborators
+from orchestrator.walk.discarding import (
+    Discard,
+    discarding_first,
+    discarding_the_interrupted_attempt,
+    keeps_the_interrupted_fix,
+)
 from orchestrator.walk.ending import stopping_when_a_person_ended_it
 from orchestrator.walk.fixing import codefix_node, route_after_codefix
 from orchestrator.walk.gating import route_after_gate, tier_gate_node
@@ -41,6 +47,7 @@ from orchestrator.walk.routes import (
     WITHDRAWN_ROUTE,
 )
 from orchestrator.walk.state import IncidentState
+from orchestrator.walk.stepping import stepped
 from orchestrator.walk.tracing import traced
 
 # The names LangGraph knows each node by. Every one is stated twice - once
@@ -103,12 +110,25 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
 
     And every node is a step of the walk's trace, registered through `step` so
     that none can be added without one - the agent named beside it is what the
-    step's span, and every model call made inside it, say they were."""
+    step's span, and every model call made inside it, say they were. A
+    numbered step of the walk as well (`stepped`), inside the span, so every
+    row the node writes says which step wrote it.
+
+    And every node but Code-Fix takes back what an interrupted attempt at its
+    step wrote before it runs (`discarding`): inside `with_status`, after the
+    ending is asked, for the nodes it wraps, and around the node for the two it
+    does not. Code-Fix keeps its interrupted attempt's account
+    (`keeps_the_interrupted_fix`)."""
     graph: StateGraph[IncidentState] = StateGraph(IncidentState)
 
     def step(name: str, actor: Actor, node: Callable[[IncidentState], Any]) -> None:
         """Registers a node, traced as a step of the walk that `actor` took."""
-        graph.add_node(name, traced(name, actor, node))
+        graph.add_node(name, traced(name, actor, stepped(node)))
+
+    def discarding(name: str) -> Discard:
+        """The discard of the node registered as `name`."""
+        return discarding_the_interrupted_attempt(
+            name, collaborators.discard_the_interrupted_attempt)
 
     deciding_status = partial(
         with_status,
@@ -147,12 +167,14 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
                     recorder=collaborators.recorder,
                     still_wanted=wanted_until_withdrawn,
                     leads_of=collaborators.leads_of,
-                    record_weighing=collaborators.record_weighing)
+                    record_weighing=collaborators.record_weighing),
+            discard=discarding(INVESTIGATOR_NODE)
         )
     )
     step(
         MITIGATION_PROPOSAL_NODE, Actor.ORCHESTRATOR,
-        deciding_status(mitigation_proposal_node)
+        deciding_status(mitigation_proposal_node,
+                        discard=discarding(MITIGATION_PROPOSAL_NODE))
     )
     step(
         TIER_GATE_NODE, Actor.ORCHESTRATOR,
@@ -161,7 +183,8 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
                     record_outcome=collaborators.record_outcome,
                     admit=collaborators.admit,
                     attempts_per_subject=collaborators.attempts_per_subject,
-                    publisher=collaborators.publisher)
+                    publisher=collaborators.publisher),
+            discard=discarding(TIER_GATE_NODE)
         )
     )
     step(
@@ -179,7 +202,8 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
                     acting_for=collaborators.acting_for,
                     record_outcome=collaborators.record_outcome,
                     still_wanted=still_wanted,
-                    publisher=collaborators.publisher)
+                    publisher=collaborators.publisher),
+            discard=discarding(MITIGATION_NODE)
         )
     )
     step(
@@ -187,7 +211,8 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
         deciding_status(
             partial(next_candidate_node,
                     publisher=collaborators.publisher,
-                    max_rounds=collaborators.max_rounds)
+                    max_rounds=collaborators.max_rounds),
+            discard=discarding(NEXT_CANDIDATE_NODE)
         )
     )
     step(
@@ -198,7 +223,8 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
                     publisher=collaborators.publisher,
                     still_wanted=still_wanted,
                     leads_of=collaborators.leads_of,
-                    what_argus_did=collaborators.what_argus_did)
+                    what_argus_did=collaborators.what_argus_did),
+            discard=keeps_the_interrupted_fix
         )
     )
     # Not wrapped in `deciding_status`, unlike every node above it. Filing what
@@ -207,10 +233,13 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
     # twice.
     step(
         REMEMBERING_NODE, Actor.ORCHESTRATOR,
-        partial(remembering_node,
-                actions_taken=collaborators.actions_taken,
-                remember=collaborators.remember_incident,
-                publisher=collaborators.publisher)
+        discarding_first(
+            discarding(REMEMBERING_NODE),
+            partial(remembering_node,
+                    actions_taken=collaborators.actions_taken,
+                    remember=collaborators.remember_incident,
+                    publisher=collaborators.publisher)
+        )
     )
     # Stopped only by a withdrawal. A person who reported the incident resolved
     # is owed the write-up; the person who withdrew it is not waiting to be
@@ -224,7 +253,8 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
             stops_for=frozenset({IncidentStatus.WITHDRAWN}),
             # Nothing after it is the incident's: the synopsis is said only to
             # the people it is for.
-            wait_for_people=waits_for_nobody
+            wait_for_people=waits_for_nobody,
+            discard=discarding(POSTMORTEM_NODE)
         )
     )
     # Not wrapped in `deciding_status`, for the remembering node's reason: the
@@ -232,9 +262,12 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
     # nothing about where it stands.
     step(
         SYNOPSIS_NODE, Actor.POSTMORTEM,
-        partial(synopsis_node,
-                write=collaborators.write_synopsis,
-                record=collaborators.record_synopsis)
+        discarding_first(
+            discarding(SYNOPSIS_NODE),
+            partial(synopsis_node,
+                    write=collaborators.write_synopsis,
+                    record=collaborators.record_synopsis)
+        )
     )
 
     graph.add_edge(START, INVESTIGATOR_NODE)

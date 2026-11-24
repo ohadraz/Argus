@@ -9,10 +9,14 @@ So they share a transaction. What that must not cost is the promise in §4
 principle 8 - publishing cannot fail the work it describes - which is why the
 narration is written inside a savepoint of its own: it commits with the
 transition, and it fails alone.
+
+The same holds for a step run again taking back what its interrupted attempt
+wrote: the rows go and the line saying so is written in one write.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Final
 
@@ -35,6 +39,7 @@ from core.events import (
     PostmortemWritten,
     Publisher,
     StatusChanged,
+    StepRunAgain,
     VerdictReached,
 )
 from core.models import (
@@ -48,6 +53,7 @@ from core.models import (
     Claimed,
     ExecutiveSynopsisDocument,
     FlagUndo,
+    Hypothesis,
     IncidentStatus,
     Meaning,
     Planned,
@@ -64,6 +70,7 @@ from core.models import (
 )
 from incident_memory.filing import UnreadableRecord, get_undelivered
 from incident_memory.records import RememberedIncident
+from incident_record import within_step
 from incident_record.publishing import events_into_connection
 from incident_record.repository import (
     conversation,
@@ -77,6 +84,7 @@ from orchestrator.records import Records
 from orchestrator.walk.ports import ClaimedAction
 from postgres import connect_from_env
 from postmortem_writing import said_off_the_page
+from psycopg import Connection
 
 from orchestrator_test.framework.builders import a_determined_hypothesis, a_lead, reverting
 
@@ -102,6 +110,13 @@ A_READER_THAT_PARKS_NOTHING = "the walk's suite"
 # Whose collection the cases ask after: any model's, since no deliverer runs
 # here and every collection is still owed what the walk filed.
 SOME_EMBEDDING_MODEL = "some-embedding-model"
+
+# The step of the walk a case's interrupted attempt was, and one the walk took
+# before it - whose rows stand.
+SOME_STEP = 5
+AN_EARLIER_STEP = SOME_STEP - 1
+# The step's name in the walk, which the line saying it was run again carries.
+SOME_NODE = "investigator"
 
 
 @pytest.mark.component
@@ -1678,6 +1693,231 @@ def test_no_action_is_on_file_for_an_incident_that_announced_none(
         .then(
             _the_answers_were(False)
         )
+
+
+@pytest.mark.component
+def test_a_step_run_again_takes_back_what_its_interrupted_attempt_wrote_and_says_so(
+    a_clean_database: None
+) -> None:
+    # The lines it said and the candidates it formed, at that step of that
+    # incident alone: an earlier step's stand, and so does another incident's
+    # at the same number. Said by the line the step is run again under, which
+    # is all that is left of the interrupted attempt.
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
+        another_incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
+        an_interrupted_candidate = a_determined_hypothesis(incident_id)
+        an_earlier_candidate = a_determined_hypothesis(incident_id)
+        another_incidents_candidate = a_determined_hypothesis(another_incident_id)
+        an_interrupted_line = _a_status_change_for(incident_id, SOME_STATUS)
+        an_earlier_line = _a_status_change_for(incident_id, IncidentStatus.INVESTIGATING)
+        another_incidents_line = _a_status_change_for(another_incident_id, SOME_STATUS)
+        _written_at_step(conn, SOME_STEP, an_interrupted_candidate, an_interrupted_line)
+        _written_at_step(conn, AN_EARLIER_STEP, an_earlier_candidate, an_earlier_line)
+        _written_at_step(conn, SOME_STEP, another_incidents_candidate, another_incidents_line)
+
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            a_step_run_again := StepRunAgain(incident_id=incident_id, step=SOME_NODE)
+        ) \
+        .when(
+            lambda: records.discard_the_interrupted_attempt(incident_id, SOME_STEP,
+                                                            a_step_run_again)
+        ) \
+        .then(all_of(
+            the_answer_was(True),
+            _the_candidates_are(incident_id, [an_earlier_candidate.id]),
+            _the_lines_are(incident_id, [an_earlier_line.id, a_step_run_again.id]),
+            _the_candidates_are(another_incident_id, [another_incidents_candidate.id]),
+            _the_lines_are(another_incident_id, [another_incidents_line.id])
+        ))
+
+
+@pytest.mark.component
+def test_a_step_whose_interrupted_attempt_wrote_nothing_is_run_again_without_a_word(
+    a_clean_database: None
+) -> None:
+    # A step that never got as far as its first line has nothing to say twice,
+    # and a line saying it was run again would explain nothing to anybody.
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
+        an_earlier_candidate = a_determined_hypothesis(incident_id)
+        an_earlier_line = _a_status_change_for(incident_id, IncidentStatus.INVESTIGATING)
+        _written_at_step(conn, AN_EARLIER_STEP, an_earlier_candidate, an_earlier_line)
+
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            a_step_run_again := StepRunAgain(incident_id=incident_id, step=SOME_NODE)
+        ) \
+        .when(
+            lambda: records.discard_the_interrupted_attempt(incident_id, SOME_STEP,
+                                                            a_step_run_again)
+        ) \
+        .then(all_of(
+            the_answer_was(False),
+            _the_candidates_are(incident_id, [an_earlier_candidate.id]),
+            _the_lines_are(incident_id, [an_earlier_line.id])
+        ))
+
+
+@pytest.mark.component
+def test_what_a_step_takes_back_is_not_gone_before_the_line_saying_so_is_written(
+    a_clean_database: None
+) -> None:
+    # One write. Published separately, a worker stopping between the two would
+    # leave the next attempt nothing to take back - and so nothing to say - and
+    # the channel would hear the step told twice with nothing saying why.
+    # Asserted from a second connection asked while the line is being written.
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
+        an_interrupted_candidate = a_determined_hypothesis(incident_id)
+        _written_at_step(conn, SOME_STEP, an_interrupted_candidate,
+                         _a_status_change_for(incident_id, SOME_STATUS))
+
+    seen_mid_write: list[list[str]] = []
+    records = Records(
+        connect_from_env,
+        publisher_for=lambda conn: _a_publisher_that_counts_the_candidates(
+            seen_mid_write, events_into_connection(conn)
+        )
+    )
+
+    Scenario() \
+        .given(
+            a_step_run_again := StepRunAgain(incident_id=incident_id, step=SOME_NODE)
+        ) \
+        .when(
+            lambda: records.discard_the_interrupted_attempt(incident_id, SOME_STEP,
+                                                            a_step_run_again)
+        ) \
+        .then(all_of(
+            _outside_still_saw(seen_mid_write, [an_interrupted_candidate.id]),
+            _the_candidates_are(incident_id, [])
+        ))
+
+
+@pytest.mark.component
+def test_a_candidate_formed_outside_any_step_is_refused_and_not_written(
+    a_clean_database: None
+) -> None:
+    # A row with no step is one a step run again never takes back, so the
+    # interrupted attempt's candidates would stand beside the second's.
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
+
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            a_candidate := a_determined_hypothesis(incident_id)
+        ) \
+        .when(
+            attempting(lambda: records.hypothesis(a_candidate))
+        ) \
+        .then(all_of(
+            an_error_was_raised(RuntimeError),
+            _the_candidates_are(incident_id, [])
+        ))
+
+
+@pytest.mark.component
+def test_a_candidate_formed_inside_a_step_is_written(a_clean_database: None) -> None:
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
+
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            a_candidate := a_determined_hypothesis(incident_id)
+        ) \
+        .when(
+            lambda: _inside_step(SOME_STEP, lambda: records.hypothesis(a_candidate))
+        ) \
+        .then(
+            _the_candidates_are(incident_id, [a_candidate.id])
+        )
+
+
+def _written_at_step(conn: Connection,
+                     step: int,
+                     candidate: Hypothesis,
+                     line: IncidentEvent) -> None:
+    """A candidate and a line, as a step of the walk writes them."""
+    with within_step(step):
+        hypotheses.record(conn, candidate)
+        events.record(conn, line)
+
+
+def _inside_step[T](step: int, call: Callable[[], T]) -> T:
+    with within_step(step):
+        return call()
+
+
+def _a_publisher_that_counts_the_candidates(seen: list[list[str]],
+                                            then_publishing: Publisher) -> Publisher:
+    """Reads the incident's candidates from a second connection while the
+    first still holds the discard open, then lets the real subscriber write."""
+    def publisher(event: IncidentEvent) -> None:
+        with connect_from_env() as another_connection:
+            seen.append([candidate.id for candidate
+                         in hypotheses.get_all_by_incident(another_connection,
+                                                           event.incident_id)])
+
+        then_publishing(event)
+
+    return publisher
+
+
+def _outside_still_saw(seen: list[list[str]], expected: list[str]) -> Assertion[bool]:
+    def assertion(dont_care_answer: bool) -> bool:
+        if seen != [expected]:
+            raise AssertionError(
+                f"Expected a reader outside the discard to see the candidates {expected} "
+                f"while the line was written, once; it saw {seen}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_candidates_are(incident_id: str, expected: list[str]) -> Assertion[object]:
+    def assertion(dont_care_result: object) -> bool:
+        with connect_from_env() as conn:
+            kept = [candidate.id
+                    for candidate in hypotheses.get_all_by_incident(conn, incident_id)]
+
+        if sorted(kept) != sorted(expected):
+            raise AssertionError(
+                f"Expected incident [{incident_id}] to keep the candidates {expected}, "
+                f"it keeps {kept}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_lines_are(incident_id: str, expected: list[str]) -> Assertion[object]:
+    """The account by each line's id, in the order it was written."""
+    def assertion(dont_care_result: object) -> bool:
+        with connect_from_env() as conn:
+            told = [event.id for event in events.get_by_incident(conn, incident_id)]
+
+        if told != expected:
+            raise AssertionError(
+                f"Expected incident [{incident_id}] to tell the lines {expected}, in that "
+                f"order, it tells {told}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _it_came_back_carrying(*,

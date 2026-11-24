@@ -67,6 +67,7 @@ from core.events import (
     ServiceRegisterRead,
     SimilarIncidentsRecalled,
     StatusChanged,
+    StepRunAgain,
     VerdictReached,
     WithdrawalOffered,
 )
@@ -3160,6 +3161,29 @@ def test_a_memory_that_could_not_be_written_says_so_and_why() -> None:
         .when(lambda: build_narration([a_failed_filing])) \
         .then(all_of(_the_only_line_marks(why_it_could_not_be_written),
                      _the_lines_are_credited_to([ARGUS])))
+
+
+@pytest.mark.unit
+def test_a_step_run_again_says_which_step_and_that_what_follows_replaces_it() -> None:
+    # For whoever already heard the interrupted attempt: a channel carried its
+    # lines, and the lines after this one tell the same step again. The step
+    # as the walk names it, in words rather than as an identifier.
+    # The facts a reader is given, rather than the prose around them: which
+    # step, that it was interrupted, and that what follows replaces it.
+    the_step_as_the_walk_names_it = "mitigation_proposal"
+    the_step_in_words = "mitigation proposal"
+    that_it_was_interrupted = "interrupted"
+    that_what_follows_replaces_it = "what follows replaces"
+
+    a_step_run_again = StepRunAgain(incident_id=new_id(), step=the_step_as_the_walk_names_it)
+
+    Scenario() \
+        .given(a_step_run_again) \
+        .when(lambda: build_narration([a_step_run_again])) \
+        .then(all_of(
+            _the_only_line_marks(the_step_in_words),
+            _the_only_line_says(that_it_was_interrupted, that_what_follows_replaces_it),
+            _the_lines_are_credited_to([ARGUS])))
 
 
 @pytest.mark.unit

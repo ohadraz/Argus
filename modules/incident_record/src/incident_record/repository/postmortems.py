@@ -76,8 +76,16 @@ def record(conn: psycopg.Connection,
 
     `at` is the moment of the event that says the document was written, so the
     page's author line and the account's line are one instant on one clock.
+
+    One document per incident. A postmortem step run again - its first attempt
+    stored the document and stopped before the walk moved on - replaces the
+    first, moment and all, so the row is the one the account's line was
+    published beside. Taken out and written again rather than updated in
+    place: an update would name every column a second time, in a list kept in
+    step with the one above by nothing.
     """
     with conn.cursor() as cursor:
+        cursor.execute("DELETE FROM postmortem WHERE incident_id = %s", (incident_id,))
         cursor.execute(
             _INSERT,
             (incident_id, at, SHIPPED.current(POSTMORTEM),

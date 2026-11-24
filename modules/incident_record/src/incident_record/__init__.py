@@ -50,6 +50,7 @@ from incident_record.publishing import (
 from incident_record.resolution import resolve_incident
 from incident_record.tracing import inside_the_incidents_trace
 from incident_record.waiting import WaitForPeople, waiting_for_people_via
+from incident_record.walk_step import the_current_step, within_step
 from incident_record.withdrawal import withdraw_incident
 
 __all__ = [
@@ -73,8 +74,10 @@ __all__ = [
     "resolve_incident",
     "start_incident",
     "still_held_via",
+    "the_current_step",
     "waiting_for_people_via",
     "wanted_until_a_person_ends_it",
     "when_it_was_taken",
-    "withdraw_incident"
+    "withdraw_incident",
+    "within_step"
 ]

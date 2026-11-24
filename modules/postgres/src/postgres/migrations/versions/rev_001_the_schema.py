@@ -92,8 +92,15 @@ CREATE TABLE IF NOT EXISTS hypothesis (
     -- the order they were formed - the number every telling says it by.
     -- Defaulted as the rank is: a row that does not say otherwise is first.
     number INTEGER NOT NULL DEFAULT 1,
+    -- The step of the walk that formed it (`IncidentState.steps`), which is
+    -- what a step run again from its checkpoint discards its interrupted
+    -- attempt's candidates by. The walk's writer refuses a candidate with
+    -- none; NULL here is a row written outside a walk.
+    walk_step INTEGER,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE INDEX IF NOT EXISTS hypothesis_walk_step_idx ON hypothesis (incident_id, walk_step);
 
 -- One row per action, written before the action is taken rather than after:
 -- the insert is what claims the right to take it. The unique index below is
@@ -275,6 +282,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS action_open_once_per_subject_idx
 -- The event is stored whole in `payload`, and `kind` beside it is what a
 -- reader discriminates on. The columns are not a second copy to keep in step -
 -- they are what the table is queried by.
+--
+-- One exception to append-only, and it is not an amendment: a step of the
+-- walk run again from its checkpoint discards what its interrupted attempt
+-- said, by `walk_step`, before it says it again.
 CREATE TABLE IF NOT EXISTS incident_event (
     seq BIGSERIAL PRIMARY KEY,
     id UUID NOT NULL UNIQUE,
@@ -284,8 +295,16 @@ CREATE TABLE IF NOT EXISTS incident_event (
     -- The shape `payload` was written in, as its kind was then (core.stored).
     -- No default, so every writer says which shape it wrote.
     shape SMALLINT NOT NULL,
-    payload JSONB NOT NULL
+    payload JSONB NOT NULL,
+    -- The step of the walk that said it (`IncidentState.steps`). NULL for a
+    -- line said outside any step - intake, a person's words and endings, the
+    -- worker escalating a walk that stopped - which no step run again takes
+    -- back.
+    walk_step INTEGER
 );
+
+CREATE INDEX IF NOT EXISTS incident_event_walk_step_idx
+    ON incident_event (incident_id, walk_step);
 
 -- Every call Argus made out of its own process, kept so a run can be
 -- re-examined without making them again (spec §4 principle 6, §11.1).
@@ -326,7 +345,9 @@ CREATE TABLE IF NOT EXISTS replay_log (
 
 CREATE TABLE IF NOT EXISTS postmortem (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    incident_id UUID NOT NULL REFERENCES incident(id),
+    -- One write-up per incident: a postmortem step run again writes over the
+    -- first attempt's rather than beside it.
+    incident_id UUID NOT NULL UNIQUE REFERENCES incident(id),
     -- The shape the document's columns were written in (core.stored), all of
     -- them together: a step from one shape to the next may move a field from
     -- one column to another. No default, so every writer says which shape it
@@ -490,7 +511,8 @@ CREATE TABLE IF NOT EXISTS postmortem (
 -- which the postmortem's readers are the people it would price.
 CREATE TABLE IF NOT EXISTS executive_synopsis (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    incident_id UUID NOT NULL REFERENCES incident(id),
+    -- One per incident, as the postmortem is.
+    incident_id UUID NOT NULL UNIQUE REFERENCES incident(id),
     -- The shape the synopsis's columns were written in, all of them together,
     -- as the postmortem's is.
     shape SMALLINT NOT NULL,

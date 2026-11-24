@@ -60,6 +60,7 @@ from core.events import (
     ResolutionOffered,
     RetrievalRequested,
     StatusChanged,
+    StepRunAgain,
     VerdictReached,
     WithdrawalOffered,
 )
@@ -501,6 +502,21 @@ def test_an_answer_to_a_question_is_said_where_the_person_asked_it() -> None:
     Scenario() \
         .given(an_answering) \
         .when(lambda: how_it_is_said(an_answering)) \
+        .then(_it_is_said(Register.FOLLOWED))
+
+
+@pytest.mark.unit
+def test_a_step_run_again_is_said_where_its_interrupted_attempt_was_heard() -> None:
+    # The thread heard the interrupted attempt's lines and is about to hear the
+    # step told again. The page drops the first telling and needs no such line;
+    # the thread cannot unsay it, and unsaid - the policy's default - it would
+    # hear one step twice with nothing saying why.
+    dont_care_step = "investigator"
+    a_step_run_again = StepRunAgain(incident_id=AN_INCIDENT, step=dont_care_step)
+
+    Scenario() \
+        .given(a_step_run_again) \
+        .when(lambda: how_it_is_said(a_step_run_again)) \
         .then(_it_is_said(Register.FOLLOWED))
 
 

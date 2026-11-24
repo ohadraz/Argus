@@ -9,11 +9,19 @@ import pytest
 from argus_testkit import Assertion, Scenario, all_of, calling, the_answer_was
 from core.models import Alert, Evidence, FailureMode, Hypothesis
 from core.stored import EVIDENCE, Shapes
+from incident_record import within_step
 from incident_record.repository import hypotheses
 from postgres import connect_from_env
 
 from incident_record_test.framework import no_column_is_empty, written_and_rolled_back
 from incident_record_test.framework.builders import an_incident_created_for
+
+# A step of a walk, and the one after it. Which steps they are is not what any
+# case here turns on - only that they are two.
+SOME_STEP = 3
+THE_STEP_AFTER = SOME_STEP + 1
+# The number an incident's first candidate is formed under.
+A_FIRST_NUMBER = 1
 
 
 @pytest.mark.integration
@@ -430,8 +438,171 @@ def test_evidence_written_in_an_older_shape_is_brought_up_before_it_is_read() ->
             )
 
 
+@pytest.mark.integration
+def test_a_candidate_formed_within_a_step_carries_that_step() -> None:
+    # What a step run again from its checkpoint finds the candidates its
+    # interrupted attempt formed by, before it forms them again under ids of
+    # their own.
+    with connect_from_env() as conn:
+        incident_id = an_incident_created_for(conn, _an_alert())
+        some_candidate = _a_determined_hypothesis(incident_id, ["some log line"])
+
+        def it_is_formed_within_the_step() -> None:
+            with within_step(SOME_STEP):
+                hypotheses.record(conn, some_candidate)
+
+        Scenario() \
+            .when(
+                it_is_formed_within_the_step
+            ) \
+            .then(
+                _the_steps_formed_in_are(conn, incident_id, [SOME_STEP])
+            )
+
+
+@pytest.mark.integration
+def test_a_candidate_formed_outside_any_step_is_kept_carrying_none() -> None:
+    # Refusing one is the walk's writer's, not the table's: a candidate written
+    # outside a walk belongs to no step, and no step run again takes it back.
+    with connect_from_env() as conn:
+        incident_id = an_incident_created_for(conn, _an_alert())
+        some_candidate = _a_determined_hypothesis(incident_id, ["some log line"])
+
+        Scenario() \
+            .when(
+                lambda: hypotheses.record(conn, some_candidate)
+            ) \
+            .then(
+                _the_steps_formed_in_are(conn, incident_id, [None])
+            )
+
+
+@pytest.mark.integration
+def test_taking_a_step_back_takes_back_only_what_that_step_of_that_incident_formed() -> None:
+    # The step after it, candidates no step formed, and another incident's step
+    # of the same number all stand.
+    with connect_from_env() as conn:
+        a_candidate_formed_within = partial(_a_candidate_formed_within, conn)
+
+        incident_id = an_incident_created_for(conn, _an_alert())
+        another_incident_id = an_incident_created_for(conn, _an_alert())
+        # Numbered in the order formed, because the steps are read back in the
+        # candidates' order: the step after's candidate, then the step-less one.
+        its_first, its_second, the_step_afters, a_step_less_ones = (
+            A_FIRST_NUMBER + formed for formed in range(4)
+        )
+        what_the_step_formed = [
+            _a_determined_hypothesis(incident_id, [], number=its_first),
+            _a_determined_hypothesis(incident_id, [], number=its_second)
+        ]
+
+        Scenario() \
+            .given(
+                calling(lambda: a_candidate_formed_within(SOME_STEP, *what_the_step_formed)),
+                calling(lambda: a_candidate_formed_within(
+                    THE_STEP_AFTER,
+                    _a_determined_hypothesis(incident_id, [], number=the_step_afters)
+                )),
+                calling(_a_hypothesis_was_recorded(
+                    conn, _a_determined_hypothesis(incident_id, [], number=a_step_less_ones)
+                )),
+                calling(lambda: a_candidate_formed_within(
+                    SOME_STEP, _a_determined_hypothesis(another_incident_id, [])
+                ))
+            ) \
+            .when(
+                lambda: hypotheses.delete_by_step(conn, incident_id, SOME_STEP)
+            ) \
+            .then(all_of(
+                the_answer_was(len(what_the_step_formed)),
+                _the_steps_formed_in_are(conn, incident_id, [THE_STEP_AFTER, None]),
+                _the_steps_formed_in_are(conn, another_incident_id, [SOME_STEP])
+            ))
+
+
+@pytest.mark.integration
+def test_a_step_that_formed_nothing_takes_nothing_back() -> None:
+    # Every step but the investigator's, and the investigator's first attempt.
+    nothing = 0
+
+    with connect_from_env() as conn:
+        incident_id = an_incident_created_for(conn, _an_alert())
+
+        Scenario() \
+            .given(
+                calling(lambda: _a_candidate_formed_within(
+                    conn, THE_STEP_AFTER, _a_determined_hypothesis(incident_id, [])
+                ))
+            ) \
+            .when(
+                lambda: hypotheses.delete_by_step(conn, incident_id, SOME_STEP)
+            ) \
+            .then(all_of(
+                the_answer_was(nothing),
+                _the_steps_formed_in_are(conn, incident_id, [THE_STEP_AFTER])
+            ))
+
+
+@pytest.mark.integration
+def test_candidates_taken_back_and_rolled_back_by_their_caller_stand() -> None:
+    # Committing is the caller's: the walk's discard of the lines and of the
+    # candidates is one write, and half of it standing would leave candidates
+    # no line formed, or lines naming candidates that are gone.
+    with connect_from_env() as conn:
+        incident_id = an_incident_created_for(conn, _an_alert())
+        the_candidate = _a_determined_hypothesis(incident_id, ["some log line"])
+
+        Scenario() \
+            .given(
+                calling(lambda: _a_candidate_formed_within(conn, SOME_STEP, the_candidate)),
+                calling(written_and_rolled_back(
+                    conn, lambda: hypotheses.delete_by_step(conn, incident_id, SOME_STEP)
+                ))
+            ) \
+            .when(
+                lambda: hypotheses.get_latest_by_incident(conn, incident_id)
+            ) \
+            .then(
+                the_answer_was(the_candidate)
+            )
+
+
 def _an_alert() -> Alert:
     return Alert(service="kuki-service", alert_name="HighErrorRate")
+
+
+def _a_candidate_formed_within(conn: psycopg.Connection,
+                               step: int,
+                               *formed: Hypothesis) -> None:
+    """Writes candidates as one step of a walk forms them."""
+    with within_step(step):
+        for candidate in formed:
+            hypotheses.record(conn, candidate)
+
+
+def _the_steps_formed_in_are(conn: psycopg.Connection,
+                             incident_id: str,
+                             expected: list[int | None]) -> Assertion[Any]:
+    """The step each of the incident's candidates carries, in the order they
+    were numbered - read with SQL of its own, since no reader of a candidate
+    reads the column."""
+    def assertion(_result: Any) -> bool:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT walk_step FROM hypothesis WHERE incident_id = %s ORDER BY number",
+                (incident_id,)
+            )
+            formed_in = [row[0] for row in cursor.fetchall()]
+
+        if formed_in != expected:
+            raise AssertionError(
+                f"Expected the candidates of [{incident_id}] to carry the steps "
+                f"{expected}, they carried {formed_in}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _no_hypothesis_came_back() -> Assertion[Hypothesis | None]:
@@ -475,8 +646,11 @@ def test_a_candidate_the_walk_reached_leaves_no_column_of_its_row_empty() -> Non
             faulting_service="io-pricing"
         )
 
+        # Formed within a step, as a walk's candidates are: one formed outside
+        # any carries no step, as asserted above.
         def it_is_recorded_and_then_tested() -> None:
-            hypotheses.record(conn, the_candidate)
+            with within_step(SOME_STEP):
+                hypotheses.record(conn, the_candidate)
             hypotheses.record_outcome(
                 conn, the_candidate.id, tested=True, result="confirmed"
             )

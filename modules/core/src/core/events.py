@@ -1095,6 +1095,28 @@ class RememberingFailed(_Event):
     refusal: str
 
 
+class StepRunAgain(_Event):
+    """A step of the walk was interrupted, and is being run again from its
+    start.
+
+    The record keeps one account of a step: what the interrupted attempt wrote
+    is discarded as the step runs again, and this opens the account the second
+    attempt writes. The page reads the second attempt alone. A channel does
+    not: it already carried the first attempt's lines, and without this it
+    would carry a second account of the same step with nothing saying why.
+
+    Published only where the interrupted attempt had written something - a
+    step that never got as far as its first line has nothing to say twice.
+
+    `step` is the step's name in the walk, as its trace names it.
+    """
+
+    kind: Literal["step-run-again"] = "step-run-again"
+    # That a step is being run again, which rules nothing out.
+    MAY_RULE_OUT: ClassVar[bool] = False
+    step: str
+
+
 class CommunicationFailed(_Event):
     """A line of the account that a destination would not carry, and why.
 
@@ -1296,6 +1318,7 @@ type IncidentEvent = Annotated[
         | CandidatesReordered
         | IncidentRemembered
         | RememberingFailed
+        | StepRunAgain
         | CommunicationFailed
         | PersonWrote
         | MessageUnderstood

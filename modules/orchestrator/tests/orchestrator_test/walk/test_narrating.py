@@ -15,6 +15,10 @@ with its return value.
 Two endings, and one node that answers to only one of them. A withdrawal stops
 every node; a resolution stops every node but the postmortem, which is what the
 person who reported the incident over is owed.
+
+And where a step run again takes back what its interrupted attempt wrote:
+here, once the ending is asked and just before the node. What a discard takes
+back is `discarding`'s; only where this calls it is asserted here.
 """
 
 from __future__ import annotations
@@ -31,6 +35,7 @@ from core.models import Actor, Alert, FailureMode, Hypothesis, IncidentStatus, V
 from incident_record.ending import EndedByAPerson
 from incident_record.waiting import WaitForPeople
 from orchestrator.walk.deltas import Narration, StateDelta
+from orchestrator.walk.discarding import Discard, discards_nothing
 from orchestrator.walk.narrating import with_status
 from orchestrator.walk.state import IncidentState
 
@@ -66,7 +71,9 @@ def test_a_node_that_moved_the_incident_transitions_it_once(
             an_investigation_that_found_something,
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
-            ended_by_a_person=nobody_ended_the_incident())(an_incident_being_investigated)
+            ended_by_a_person=nobody_ended_the_incident(),
+            discard=discards_nothing
+        )(an_incident_being_investigated)
         ) \
         .then(all_of(
             _the_incident_was_moved_once_to(IncidentStatus.MITIGATING,
@@ -96,7 +103,9 @@ def test_a_move_is_logged_with_the_reason_it_was_made(
             an_investigation_that_found_something,
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
-            ended_by_a_person=nobody_ended_the_incident())(an_incident_being_investigated)
+            ended_by_a_person=nobody_ended_the_incident(),
+            discard=discards_nothing
+        )(an_incident_being_investigated)
         ) \
         .then(
             one_record_was_logged(caplog, "orchestrator.walk.narrating", logging.INFO,
@@ -126,7 +135,9 @@ def test_a_node_that_moved_nothing_writes_no_transition(
             a_gate_refusing_an_action,
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
-            ended_by_a_person=nobody_ended_the_incident())(an_incident_mitigating)
+            ended_by_a_person=nobody_ended_the_incident(),
+            discard=discards_nothing
+        )(an_incident_mitigating)
         ) \
         .then(_the_incident_was_not_moved(transition_incident))
 
@@ -152,7 +163,9 @@ def test_a_node_that_moved_nothing_writes_nothing_at_all(
             a_gate_refusing_an_action,
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
-            ended_by_a_person=nobody_ended_the_incident())(an_incident_mitigating)
+            ended_by_a_person=nobody_ended_the_incident(),
+            discard=discards_nothing
+        )(an_incident_mitigating)
         ) \
         .then(_the_incident_was_not_moved(transition_incident))
 
@@ -175,7 +188,9 @@ def test_the_narration_never_reaches_the_graphs_state(
             a_narrating_node,
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
-            ended_by_a_person=nobody_ended_the_incident())(an_incident_mitigating)
+            ended_by_a_person=nobody_ended_the_incident(),
+            discard=discards_nothing
+        )(an_incident_mitigating)
         ) \
         .then(_the_updates_are({"proposed_action": None}))
 
@@ -197,7 +212,9 @@ def test_the_derived_status_is_returned_with_the_nodes_work(
             an_investigation_that_found_something,
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
-            ended_by_a_person=nobody_ended_the_incident())(an_incident_being_investigated)
+            ended_by_a_person=nobody_ended_the_incident(),
+            discard=discards_nothing
+        )(an_incident_being_investigated)
         ) \
         .then(all_of(
             the_updates_carry("status", IncidentStatus.MITIGATING),
@@ -225,7 +242,9 @@ def test_an_incident_a_person_ended_stops_the_node_before_it_runs(
             a_node_that_would_have_acted,
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
-            ended_by_a_person=a_person_ended_the_incident(ending))(an_incident_mitigating)
+            ended_by_a_person=a_person_ended_the_incident(ending),
+            discard=discards_nothing
+        )(an_incident_mitigating)
         ) \
         .then(all_of(
             _the_node_never_ran(ran),
@@ -255,7 +274,8 @@ def test_a_node_that_finished_after_a_person_ended_the_incident_stops_the_walk(
             an_investigation_that_found_something,
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
-            ended_by_a_person=_refused_because_it_was_ended(ending)
+            ended_by_a_person=_refused_because_it_was_ended(ending),
+            discard=discards_nothing
         )(an_incident_being_investigated)) \
         .then(
             the_updates_carry("status", ending)
@@ -280,7 +300,8 @@ def test_a_node_that_moved_nothing_while_a_person_ended_the_incident_stops_the_w
             a_node_that_stopped,
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
-            ended_by_a_person=_ended_while_the_node_ran(ending)
+            ended_by_a_person=_ended_while_the_node_ran(ending),
+            discard=discards_nothing
         )(an_incident_being_investigated)) \
         .then(all_of(
             the_updates_carry("status", ending),
@@ -307,7 +328,8 @@ def test_the_node_that_runs_after_a_resolution_runs_on_a_resolved_incident(
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
             ended_by_a_person=a_person_ended_the_incident(IncidentStatus.RESOLVED),
-            stops_for=ONLY_A_WITHDRAWAL
+            stops_for=ONLY_A_WITHDRAWAL,
+            discard=discards_nothing
         )(a_resolved_incident)) \
         .then(all_of(
             _the_node_ran(ran),
@@ -334,7 +356,8 @@ def test_the_node_that_runs_after_a_resolution_still_stops_for_a_withdrawal(
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
             ended_by_a_person=a_person_ended_the_incident(IncidentStatus.WITHDRAWN),
-            stops_for=ONLY_A_WITHDRAWAL
+            stops_for=ONLY_A_WITHDRAWAL,
+            discard=discards_nothing
         )(an_incident_mitigating)) \
         .then(all_of(
             _the_node_never_ran(ran),
@@ -359,9 +382,55 @@ def test_the_walk_waits_for_people_once_a_step_is_done(
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
             ended_by_a_person=nobody_ended_the_incident(),
-            wait_for_people=_a_wait_noting(happened))(an_incident_being_investigated)
+            wait_for_people=_a_wait_noting(happened),
+            discard=discards_nothing
+        )(an_incident_being_investigated)
         ) \
         .then(_it_happened_in_order(happened, ["ran", "waited"]))
+
+
+@pytest.mark.unit
+def test_a_step_takes_back_its_interrupted_attempt_once_the_ending_is_asked_and_before_it_runs(
+    transition_incident: MagicMock
+) -> None:
+    # After the ending, because a step the ending stops runs nothing and so
+    # keeps what its interrupted attempt wrote; before the node, because what
+    # is taken back is what the node is about to write again. The ending is
+    # asked once more after the node, as every step asks it.
+    happened: list[str] = []
+
+    Scenario() \
+        .given(an_incident_being_investigated := _an_incident_being_investigated()) \
+        .when(lambda: with_status(
+            _a_node_noting(happened),
+            SOME_MAX_ROUNDS,
+            transition_incident=transition_incident,
+            ended_by_a_person=_nobody_ended_it_noting(happened),
+            discard=_a_discard_noting(happened))(an_incident_being_investigated)
+        ) \
+        .then(_it_happened_in_order(happened, ["asked", "discarded", "ran", "asked"]))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("ending", [IncidentStatus.WITHDRAWN, IncidentStatus.RESOLVED])
+def test_a_step_a_person_ended_takes_nothing_back(
+    transition_incident: MagicMock, ending: IncidentStatus
+) -> None:
+    # A mitigation that made its change and stopped, then a person ended the
+    # incident: the change's line is the account of something in the world,
+    # and the step that would have said it again never runs.
+    happened: list[str] = []
+
+    Scenario() \
+        .given(an_incident_mitigating := _an_incident_mitigating()) \
+        .when(lambda: with_status(
+            _a_node_noting(happened),
+            SOME_MAX_ROUNDS,
+            transition_incident=transition_incident,
+            ended_by_a_person=a_person_ended_the_incident(ending),
+            discard=_a_discard_noting(happened))(an_incident_mitigating)
+        ) \
+        .then(_it_happened_in_order(happened, []))
 
 
 @pytest.mark.unit
@@ -386,7 +455,9 @@ def test_the_walk_waits_for_people_before_it_writes_where_a_step_moved_the_incid
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
             ended_by_a_person=nobody_ended_the_incident(),
-            wait_for_people=_a_wait_noting(happened))(an_incident_being_investigated)
+            wait_for_people=_a_wait_noting(happened),
+            discard=discards_nothing
+        )(an_incident_being_investigated)
         ) \
         .then(_it_happened_in_order(happened, ["waited", "moved"]))
 
@@ -414,7 +485,9 @@ def test_a_move_that_takes_an_ending_away_is_written_before_the_walk_waits(
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
             ended_by_a_person=nobody_ended_the_incident(),
-            wait_for_people=_a_wait_noting(happened))(an_incident_mitigating)
+            wait_for_people=_a_wait_noting(happened),
+            discard=discards_nothing
+        )(an_incident_mitigating)
         ) \
         .then(_it_happened_in_order(happened, ["moved", "waited"]))
 
@@ -438,7 +511,8 @@ def test_a_mitigated_incident_a_person_reported_resolved_while_the_walk_waited_i
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
             ended_by_a_person=_ended_as_noted(ended),
-            wait_for_people=_a_wait_ending_it(ended, IncidentStatus.RESOLVED)
+            wait_for_people=_a_wait_ending_it(ended, IncidentStatus.RESOLVED),
+            discard=discards_nothing
         )(an_incident_mitigating)) \
         .then(all_of(
             _the_incident_was_moved_once_to(IncidentStatus.MITIGATED, transition_incident),
@@ -467,7 +541,8 @@ def test_a_move_a_person_ended_the_incident_before_is_never_written(
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
             ended_by_a_person=_ended_as_noted(ended),
-            wait_for_people=_a_wait_ending_it(ended, ending)
+            wait_for_people=_a_wait_ending_it(ended, ending),
+            discard=discards_nothing
         )(an_incident_being_investigated)) \
         .then(all_of(
             _the_incident_was_not_moved(transition_incident),
@@ -491,7 +566,8 @@ def test_an_incident_a_person_ended_while_the_walk_waited_goes_where_the_ending_
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
             ended_by_a_person=_ended_as_noted(ended),
-            wait_for_people=_a_wait_ending_it(ended, ending)
+            wait_for_people=_a_wait_ending_it(ended, ending),
+            discard=discards_nothing
         )(an_incident_being_investigated)) \
         .then(the_updates_carry("status", ending))
 
@@ -511,7 +587,9 @@ def test_a_step_a_person_already_ended_waits_for_nobody(
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
             ended_by_a_person=a_person_ended_the_incident(ending),
-            wait_for_people=_a_wait_noting(happened))(an_incident_being_investigated)
+            wait_for_people=_a_wait_noting(happened),
+            discard=discards_nothing
+        )(an_incident_being_investigated)
         ) \
         .then(_it_happened_in_order(happened, []))
 
@@ -535,7 +613,8 @@ def test_an_ending_heard_while_the_walk_waited_is_logged(
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
             ended_by_a_person=_ended_as_noted(ended),
-            wait_for_people=_a_wait_ending_it(ended, IncidentStatus.RESOLVED)
+            wait_for_people=_a_wait_ending_it(ended, IncidentStatus.RESOLVED),
+            discard=discards_nothing
         )(an_incident_being_investigated)) \
         .then(one_record_was_logged(caplog, "orchestrator.walk.narrating", logging.INFO,
                                     "ended by a person while the walk waited",
@@ -558,7 +637,8 @@ def test_an_ending_heard_after_a_step_is_logged(
             a_node_that_stopped,
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
-            ended_by_a_person=_ended_while_the_node_ran(IncidentStatus.RESOLVED)
+            ended_by_a_person=_ended_while_the_node_ran(IncidentStatus.RESOLVED),
+            discard=discards_nothing
         )(an_incident_being_investigated)) \
         .then(
             one_record_was_logged(caplog, "orchestrator.walk.narrating", logging.INFO,
@@ -587,7 +667,8 @@ def test_a_move_the_row_refused_is_logged(
             an_investigation_that_found_something,
             SOME_MAX_ROUNDS,
             transition_incident=transition_incident,
-            ended_by_a_person=_refused_because_it_was_ended(IncidentStatus.WITHDRAWN)
+            ended_by_a_person=_refused_because_it_was_ended(IncidentStatus.WITHDRAWN),
+            discard=discards_nothing
         )(an_incident_being_investigated)) \
         .then(
             one_record_was_logged(caplog, "orchestrator.walk.narrating", logging.INFO,
@@ -684,6 +765,22 @@ def _ended_as_noted(ended: list[IncidentStatus]) -> EndedByAPerson:
         return ended[0] if ended else None
 
     return ended_by_a_person
+
+
+def _nobody_ended_it_noting(happened: list[str]) -> EndedByAPerson:
+    def ended_by_a_person(dont_care_incident_id: str, /) -> IncidentStatus | None:
+        happened.append("asked")
+
+        return None
+
+    return ended_by_a_person
+
+
+def _a_discard_noting(happened: list[str]) -> Discard:
+    def discard(dont_care_state: IncidentState, /) -> None:
+        happened.append("discarded")
+
+    return discard
 
 
 def _a_node_noting(happened: list[str]) -> Node:

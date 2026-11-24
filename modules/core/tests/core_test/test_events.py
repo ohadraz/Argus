@@ -111,7 +111,8 @@ SOME_DIFF = DeploymentChanges(
 # `kind`s. Every other kind says it may.
 THE_KINDS_THAT_RULE_NOTHING_OUT = frozenset({
     "metrics-retrieved", "logs-retrieved", "onset-detected", "anchored-on-the-alarm",
-    "hypothesis-formed", "candidate-selected", "candidates-reordered", "retrieval-requested"
+    "hypothesis-formed", "candidate-selected", "candidates-reordered", "retrieval-requested",
+    "step-run-again"
 })
 SOME_LOG_LINE = "some log line"
 # What a step from an event's shape to the next one adds, where no release has

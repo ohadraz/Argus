@@ -8,6 +8,8 @@ from core.models import Hypothesis
 from core.stored import EVIDENCE, SHIPPED, Shapes, up_to_date
 from psycopg.rows import dict_row
 
+from incident_record.walk_step import the_current_step
+
 # What a candidate is read from: every field of it, and the shape its evidence
 # was written in.
 _COLUMNS: Final = (
@@ -25,14 +27,20 @@ def record(conn: psycopg.Connection, hypothesis: Hypothesis) -> None:
     Postgres wants. The id comes from the object, not from the table's
     default: it was assigned when the hypothesis was formed. The evidence is
     written in the shape this release writes it in.
+
+    Stamped with the walk's step it was formed in (`the_current_step`), so a
+    step run again finds the candidates its interrupted attempt formed
+    (`delete_by_step`). Refusing a row with no step is the walk's writer's,
+    not this function's: a candidate written outside a walk is a fixture's,
+    and belongs to no step.
     """
     with conn.cursor() as cursor:
         cursor.execute(
             "INSERT INTO hypothesis "
             "       (id, incident_id, summary, failure_mode, confidence, "
             "        supporting_evidence, shape, subject, from_state, to_state, "
-            "        faulting_service, rank, number, tested, result) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            "        faulting_service, rank, number, tested, result, walk_step) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (
                 hypothesis.id,
                 hypothesis.incident_id,
@@ -55,8 +63,30 @@ def record(conn: psycopg.Connection, hypothesis: Hypothesis) -> None:
                 hypothesis.number,
                 hypothesis.tested,
                 hypothesis.result,
+                the_current_step(),
             ),
         )
+
+
+def delete_by_step(conn: psycopg.Connection, incident_id: str, step: int) -> int:
+    """Takes back every candidate one step of an incident's walk formed, and
+    answers how many there were.
+
+    For a step run again from its checkpoint, which forms its candidates again
+    under ids of their own: kept, the interrupted attempt's would be a second
+    set of the same numbers, and every reader of the incident's candidates
+    would list both. Nothing can name one yet - an action is claimed for a
+    candidate by a later step, and a later step never ran.
+
+    Committing is the caller's, as `record`'s is.
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "DELETE FROM hypothesis WHERE incident_id = %s AND walk_step = %s",
+            (incident_id, step),
+        )
+
+        return cursor.rowcount
 
 
 def record_outcome(

@@ -28,6 +28,7 @@ from orchestrator.walk.ports import (
     Admit,
     AdvanceAction,
     CompleteAction,
+    DiscardTheInterruptedAttempt,
     FetchDependencies,
     FetchDeployments,
     FetchFlagChanges,
@@ -103,6 +104,9 @@ class Collaborators:
     write_synopsis: WriteSynopsis
     record_synopsis: RecordSynopsis
     transition_incident: TransitionIncident
+    # What a step run again from its checkpoint takes back of its interrupted
+    # attempt before it runs, saying so where there was anything.
+    discard_the_interrupted_attempt: DiscardTheInterruptedAttempt
     publisher: Publisher
     recorder: Recorder
     # Whether a person has ended the incident, and how. Asked before and after

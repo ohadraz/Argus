@@ -1,4 +1,4 @@
-"""The executive synopsis as a row: written once per incident, read back whole.
+"""The executive synopsis as a row: one per incident, read back whole.
 
 Built as `postmortems` is: its columns said here, each named for the field it
 holds, and read back brought up to the shape the synopsis is at now.
@@ -54,8 +54,11 @@ def record(conn: psycopg.Connection,
            *,
            at: datetime) -> None:
     """Writes the synopsis the step produced, in the shape this release writes
-    it in, dated by the moment of the event that says it was written."""
+    it in, dated by the moment of the event that says it was written -
+    replacing any the incident already has, as a postmortem is replaced."""
     with conn.cursor() as cursor:
+        cursor.execute("DELETE FROM executive_synopsis WHERE incident_id = %s",
+                       (incident_id,))
         cursor.execute(
             _INSERT,
             (incident_id, at, SHIPPED.current(EXECUTIVE_SYNOPSIS),

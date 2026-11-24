@@ -16,7 +16,7 @@ theirs to answer, one module down.
 from __future__ import annotations
 
 from collections.abc import Callable, Generator, Sequence
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager, nullcontext, suppress
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -27,7 +27,7 @@ from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, atte
 from core import RunLost, get_settings
 from core.autonomy import Admitted, admit
 from core.budget import StillWanted, wanted_throughout
-from core.events import Publisher, nobody
+from core.events import IncidentEvent, Publisher, StepRunAgain, nobody
 from core.models import (
     ActionProgress,
     Alert,
@@ -60,7 +60,7 @@ from core.models import (
 )
 from core.replay import Recorder
 from core.replay import nobody as records_nothing
-from incident_record import EndedByAPerson, WaitForPeople
+from incident_record import EndedByAPerson, WaitForPeople, the_current_step
 from investigation_agent import Findings
 from langgraph.checkpoint.memory import MemorySaver
 from mitigation import Action, ChangeMade, Outcome, PutBackOwed, Verdict
@@ -154,6 +154,8 @@ def collaborators(transition_incident: MagicMock) -> Collaborators:
         write_synopsis=lambda dont_care_incident: _a_synopsis(),
         record_synopsis=lambda dont_care_incident, dont_care_synopsis: None,
         transition_incident=transition_incident,
+        discard_the_interrupted_attempt=(
+            lambda dont_care_incident_id, dont_care_step, dont_care_saying, /: False),
         publisher=nobody,
         recorder=records_nothing,
         ended_by_a_person=nobody_ended_the_incident(),
@@ -525,6 +527,94 @@ def test_code_fix_is_handed_what_argus_did(
 
 
 @pytest.mark.component
+def test_every_step_but_code_fix_takes_back_its_interrupted_attempt_before_it_runs(
+    collaborators: Collaborators
+) -> None:
+    # The map of which steps discard, read off a whole walk: the graph hands
+    # every node its own discard, under its own name, and Code-Fix none - its
+    # branch and pull request are a change in the world a step run again does
+    # not take back, and a discard would delete the only line naming them.
+    discarded: list[str] = []
+
+    Scenario() \
+        .given(
+            a_walk_noting_its_discards := replace(
+                collaborators,
+                discard_the_interrupted_attempt=_a_discard_noting(discarded)
+            )
+        ) \
+        .when(lambda: _the_walk_of(_an_incident_just_alerted(), a_walk_noting_its_discards)) \
+        .then(all_of(
+            _the_walk_went(INVESTIGATOR_NODE,
+                           MITIGATION_PROPOSAL_NODE,
+                           TIER_GATE_NODE,
+                           MITIGATION_NODE,
+                           CODEFIX_NODE,
+                           REMEMBERING_NODE,
+                           POSTMORTEM_NODE,
+                           SYNOPSIS_NODE),
+            _the_steps_that_discarded_were(discarded, [INVESTIGATOR_NODE,
+                                                       MITIGATION_PROPOSAL_NODE,
+                                                       TIER_GATE_NODE,
+                                                       MITIGATION_NODE,
+                                                       REMEMBERING_NODE,
+                                                       POSTMORTEM_NODE,
+                                                       SYNOPSIS_NODE])
+        ))
+
+
+@pytest.mark.component
+def test_a_step_run_again_from_its_checkpoint_takes_back_the_step_its_interruption_wrote(
+    collaborators: Collaborators
+) -> None:
+    # The key, across a real resume: a step that raised left the checkpoint
+    # from before it, so the walk resumed on its thread runs it again reading
+    # the step number its interrupted attempt read - which is what finds that
+    # attempt's rows - and the step after it reads the next one.
+    asked_at: list[tuple[str, int]] = []
+    written: list[bool] = []
+
+    Scenario() \
+        .given(
+            a_walk_whose_write_up_fails_once := replace(
+                collaborators,
+                write_postmortem=_a_postmortem_failing_once(written),
+                discard_the_interrupted_attempt=_a_discard_noting_the_step(asked_at)
+            )
+        ) \
+        .when(lambda: _the_walk_resumed_after_it_stopped(_an_incident_just_alerted(),
+                                                         a_walk_whose_write_up_fails_once)) \
+        .then(_the_step_was_asked_again_at_its_own_number(asked_at, POSTMORTEM_NODE,
+                                                          followed_by=SYNOPSIS_NODE))
+
+
+@pytest.mark.component
+def test_every_candidate_and_every_line_a_walk_writes_belongs_to_a_step(
+    collaborators: Collaborators
+) -> None:
+    # What a step run again finds its interrupted attempt's rows by. A row
+    # written with no step bound is one no step ever takes back, and the
+    # account would then tell that step twice.
+    formed_in: list[int | None] = []
+    said_in: list[int | None] = []
+
+    Scenario() \
+        .given(
+            a_walk_noting_its_steps := replace(
+                collaborators,
+                record_hypothesis=lambda dont_care_hypothesis, /: formed_in.append(
+                    the_current_step()),
+                publisher=lambda dont_care_event, /: said_in.append(the_current_step())
+            )
+        ) \
+        .when(lambda: _the_walk_of(_an_incident_just_alerted(), a_walk_noting_its_steps)) \
+        .then(all_of(
+            _each_was_written_inside_a_step(formed_in, "candidate"),
+            _each_was_written_inside_a_step(said_in, "line")
+        ))
+
+
+@pytest.mark.component
 def test_every_lead_the_investigation_weighed_is_kept(
     collaborators: Collaborators
 ) -> None:
@@ -856,6 +946,122 @@ def _the_row_was_moved_to(transition_incident: MagicMock,
             raise AssertionError(
                 f"Expected the row moved to [{status}] once saying [{saying}], got "
                 f"{[(call.args, call.kwargs) for call in transition_incident.call_args_list]}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_discard_noting(discarded: list[str]) -> ports.DiscardTheInterruptedAttempt:
+    """A discard that notes which step asked, by the name its line carries,
+    and found nothing to take back."""
+    def discard(dont_care_incident_id: str, dont_care_step: int, saying: IncidentEvent,
+                /) -> bool:
+        if isinstance(saying, StepRunAgain):
+            discarded.append(saying.step)
+
+        return False
+
+    return discard
+
+
+def _a_discard_noting_the_step(asked_at: list[tuple[str, int]]
+                               ) -> ports.DiscardTheInterruptedAttempt:
+    """A discard that notes which step asked, and at which number."""
+    def discard(dont_care_incident_id: str, step: int, saying: IncidentEvent, /) -> bool:
+        if isinstance(saying, StepRunAgain):
+            asked_at.append((saying.step, step))
+
+        return False
+
+    return discard
+
+
+def _a_postmortem_failing_once(written: list[bool]) -> ports.WritePostmortem:
+    """A write-up whose first attempt is interrupted, as a worker stopping
+    mid-step interrupts it."""
+    def write(dont_care_incident: str) -> PostmortemDocument:
+        if not written:
+            written.append(False)
+            raise RuntimeError("the worker stopped mid-write-up")
+
+        written.append(True)
+
+        return _a_document()
+
+    return write
+
+
+def _the_walk_resumed_after_it_stopped(incident: IncidentState,
+                                       collaborators: Collaborators) -> list[str]:
+    """One incident through the compiled graph until a step raises, then walked
+    again on its own thread from the checkpoint it left - as the worker
+    resumes it - and the steps the resumed walk took."""
+    graph = build_graph(MemorySaver(), collaborators)
+    config: Any = {"configurable": {"thread_id": incident.incident_id},
+                   "recursion_limit": A_GENEROUS_BUDGET}
+
+    with suppress(RuntimeError):
+        graph.invoke(incident, config=config)
+
+    return [name
+            for step in graph.stream(None, config=config, stream_mode="updates")
+            for name in step]
+
+
+def _the_step_was_asked_again_at_its_own_number(asked_at: list[tuple[str, int]],
+                                                step: str,
+                                                followed_by: str) -> Assertion[list[str]]:
+    def assertion(dont_care_resumed: list[str]) -> bool:
+        numbers = [number for name, number in asked_at if name == step]
+        after = [number for name, number in asked_at if name == followed_by]
+
+        if len(numbers) != 2 or numbers[0] != numbers[1]:
+            raise AssertionError(
+                f"Expected the [{step}] step to be asked twice at one number - once "
+                f"interrupted, once run again - and it was asked at {numbers} "
+                f"(every step asked: {asked_at})."
+            )
+
+        if after != [numbers[0] + 1]:
+            raise AssertionError(
+                f"Expected [{followed_by}] asked once, at the number after [{step}]'s "
+                f"[{numbers[0]}], and it was asked at {after}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_steps_that_discarded_were(discarded: list[str],
+                                   expected: list[str]) -> Assertion[Walked]:
+    def assertion(dont_care_walked: Walked) -> bool:
+        if discarded != expected:
+            raise AssertionError(
+                f"Expected the steps {expected} to take back their interrupted attempts, "
+                f"in that order, and {discarded} did."
+            )
+
+        return True
+
+    return assertion
+
+
+def _each_was_written_inside_a_step(written_in: list[int | None],
+                                    what: str) -> Assertion[Walked]:
+    def assertion(dont_care_walked: Walked) -> bool:
+        if not written_in:
+            raise AssertionError(
+                f"Expected the walk to write at least one {what}, and it wrote none - "
+                f"so nothing was asserted."
+            )
+
+        if None in written_in:
+            raise AssertionError(
+                f"Expected every {what} the walk wrote to belong to a step, and the steps "
+                f"they were written in were {written_in}."
             )
 
         return True

@@ -18,7 +18,7 @@ from typing import Any
 
 import psycopg
 import pytest
-from argus_testkit import Assertion, Scenario, all_of, calling
+from argus_testkit import Assertion, Scenario, all_of, calling, the_answer_was
 from core import Fence, utc_now
 from core.events import (
     AgentInvoked,
@@ -30,10 +30,15 @@ from core.events import (
 )
 from core.models import Actor, Alert, RetrievalChannel
 from core.stored import SHIPPED, Shapes
+from incident_record import within_step
 from incident_record.repository import events, incidents, runs
 from postgres import connect_from_env
 
-from incident_record_test.framework import autocommitting, no_column_is_empty
+from incident_record_test.framework import (
+    autocommitting,
+    no_column_is_empty,
+    written_and_rolled_back,
+)
 
 # Bigger than anything published in these tests. What is under test where this
 # appears is which events come back, not how many of them fit in one batch.
@@ -50,6 +55,12 @@ CANNOT_BE_READ = "<cannot be read>"
 NEWER = "<newer>"
 
 SOME_LOG_LINE = "some log line"
+# When the incidents here began, as an onset line says it.
+SOME_ONSET = "2026-08-30T10:03:00Z"
+# A step of a walk, and the one after it. Which steps they are is not what
+# any case here turns on - only that they are two.
+SOME_STEP = 3
+THE_STEP_AFTER = SOME_STEP + 1
 # What a step from an event's shape to the next one adds, where no release has
 # shipped a step: a line no event here is published with, so an event carrying
 # it was brought up through the step and not read as it was stored.
@@ -72,13 +83,13 @@ def test_a_recorded_event_comes_back_as_the_kind_it_was_published_as() -> None:
                 calling(lambda: _record(
                     conn,
                     OnsetDetected(incident_id=incident_id,
-                                  onset="2026-08-30T10:03:00Z")
+                                  onset=SOME_ONSET)
                 ))
             ) \
             .when(lambda: events.get_by_incident(conn, incident_id)) \
             .then(all_of(
                 _they_came_back_as(["OnsetDetected"]),
-                _the_onset_placed_at("2026-08-30T10:03:00Z")
+                _the_onset_placed_at(SOME_ONSET)
             ))
 
 
@@ -204,7 +215,7 @@ def test_only_what_was_published_after_the_cursor_comes_back() -> None:
                 calling(lambda: _record(
                     conn,
                     OnsetDetected(incident_id=incident_id,
-                                  onset="2026-08-30T10:03:00Z")
+                                  onset=SOME_ONSET)
                 ))
             ) \
             .when(lambda: events.get_since(conn, already_delivered, A_GENEROUS_BATCH)) \
@@ -232,7 +243,7 @@ def test_every_incident_s_events_come_back_in_the_one_order_they_happened() -> N
                     AgentInvoked(incident_id=another_incident_id,
                                  agent=Actor.MITIGATION),
                     OnsetDetected(incident_id=incident_id,
-                                  onset="2026-08-30T10:03:00Z")
+                                  onset=SOME_ONSET)
                 ))
             ) \
             .when(lambda: events.get_since(conn,
@@ -334,7 +345,7 @@ def test_an_event_still_being_written_holds_back_the_ones_behind_it() -> None:
                 calling(lambda: _record(
                     conn,
                     OnsetDetected(incident_id=incident_id,
-                                  onset="2026-08-30T10:03:00Z")
+                                  onset=SOME_ONSET)
                 ))
             ) \
             .when(lambda: events.get_since(conn,
@@ -364,7 +375,7 @@ def test_a_held_back_event_is_delivered_once_its_transaction_lands() -> None:
                 calling(lambda: _record(
                     conn,
                     OnsetDetected(incident_id=incident_id,
-                                  onset="2026-08-30T10:03:00Z")
+                                  onset=SOME_ONSET)
                 )),
                 calling(an_unfinished_walk.commit)
             ) \
@@ -409,20 +420,143 @@ def test_an_event_published_while_a_run_is_held_for_a_change_is_not_held_back() 
 
 
 @pytest.mark.integration
-def test_a_recorded_event_leaves_no_column_of_its_row_empty() -> None:
-    # `payload` is the record and the columns beside it are what the table is
-    # read by - which means an empty one is not a missing detail but a line of
-    # the account that no reader's query will reach.
+def test_an_event_said_within_a_step_carries_that_step() -> None:
+    # What a step run again from its checkpoint finds the lines its interrupted
+    # attempt said by, before it says them again.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        some_line = AgentInvoked(incident_id=incident_id, agent=Actor.INVESTIGATOR)
+
+        def it_is_said_within_the_step() -> None:
+            with within_step(SOME_STEP):
+                events.record(conn, some_line)
+
+        Scenario() \
+            .when(it_is_said_within_the_step) \
+            .then(_the_steps_said_are(conn, incident_id, [SOME_STEP]))
+
+
+@pytest.mark.integration
+def test_an_event_said_outside_any_step_carries_none() -> None:
+    # Intake, a person's words and endings, the worker escalating a walk that
+    # stopped: lines no step said, which no step run again may take back.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
         incident_id = incidents.create(conn, some_alert, at=utc_now())
 
         Scenario() \
-            .when(
-                lambda: events.record(conn, AgentInvoked(
+            .when(lambda: events.record(
+                conn, AgentInvoked(incident_id=incident_id, agent=Actor.INVESTIGATOR)
+            )) \
+            .then(_the_steps_said_are(conn, incident_id, [None]))
+
+
+@pytest.mark.integration
+def test_taking_a_step_back_takes_back_only_what_that_step_of_that_incident_said() -> None:
+    # The step after it, the lines no step said, and another incident's step of
+    # the same number are all somebody else's account, and stay.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+        another_incident_id = incidents.create(conn, some_alert, at=utc_now())
+        what_the_step_said = _an_investigation_in_three_steps(incident_id)
+
+        Scenario() \
+            .given(
+                calling(lambda: _said_within(conn, SOME_STEP, *what_the_step_said)),
+                calling(lambda: _said_within(
+                    conn, THE_STEP_AFTER,
+                    AgentInvoked(incident_id=incident_id, agent=Actor.MITIGATION)
+                )),
+                calling(lambda: _record(
+                    conn,
+                    OnsetDetected(incident_id=incident_id, onset=SOME_ONSET)
+                )),
+                calling(lambda: _said_within(
+                    conn, SOME_STEP,
+                    AgentInvoked(incident_id=another_incident_id, agent=Actor.INVESTIGATOR)
+                ))
+            ) \
+            .when(lambda: events.delete_by_step(conn, incident_id, SOME_STEP)) \
+            .then(all_of(
+                the_answer_was(len(what_the_step_said)),
+                _the_steps_said_are(conn, incident_id, [THE_STEP_AFTER, None]),
+                _the_steps_said_are(conn, another_incident_id, [SOME_STEP])
+            ))
+
+
+@pytest.mark.integration
+def test_a_step_that_said_nothing_takes_nothing_back() -> None:
+    # The first attempt at every step, which is nearly every step: the answer
+    # is what says whether there was an interrupted attempt to speak of.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    nothing = 0
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+
+        Scenario() \
+            .given(
+                calling(lambda: _said_within(
+                    conn, THE_STEP_AFTER,
+                    AgentInvoked(incident_id=incident_id, agent=Actor.MITIGATION)
+                ))
+            ) \
+            .when(lambda: events.delete_by_step(conn, incident_id, SOME_STEP)) \
+            .then(all_of(
+                the_answer_was(nothing),
+                _the_steps_said_are(conn, incident_id, [THE_STEP_AFTER])
+            ))
+
+
+@pytest.mark.integration
+def test_a_step_taken_back_and_rolled_back_by_its_caller_leaves_what_it_said() -> None:
+    # Committing is the caller's: the walk's discard and the line saying the
+    # step is run again are one write, and a discard that committed on its own
+    # would stand without the line.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+
+        Scenario() \
+            .given(
+                calling(lambda: _said_within(
+                    conn, SOME_STEP,
+                    AgentInvoked(incident_id=incident_id, agent=Actor.INVESTIGATOR)
+                )),
+                calling(written_and_rolled_back(
+                    conn, lambda: events.delete_by_step(conn, incident_id, SOME_STEP)
+                ))
+            ) \
+            .when(lambda: events.get_by_incident(conn, incident_id)) \
+            .then(_the_account_reads(["agent-invoked"]))
+
+
+@pytest.mark.integration
+def test_a_recorded_event_leaves_no_column_of_its_row_empty() -> None:
+    # `payload` is the record and the columns beside it are what the table is
+    # read by - which means an empty one is not a missing detail but a line of
+    # the account that no reader's query will reach. Said within a step, as a
+    # walk's lines are: one said outside any carries no step, as asserted above.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, some_alert, at=utc_now())
+
+        def it_is_said_within_a_step() -> None:
+            with within_step(SOME_STEP):
+                events.record(conn, AgentInvoked(
                     incident_id=incident_id, agent=Actor.INVESTIGATOR
                 ))
+
+        Scenario() \
+            .when(
+                it_is_said_within_a_step
             ) \
             .then(
                 no_column_is_empty(conn, "incident_event", "incident_id", incident_id)
@@ -544,6 +678,36 @@ def _record(conn: psycopg.Connection, *published: IncidentEvent) -> None:
         events.record(conn, event)
 
     conn.commit()
+
+
+def _said_within(conn: psycopg.Connection, step: int, *published: IncidentEvent) -> None:
+    """Publishes events as one step of a walk says them, and lets them land."""
+    with within_step(step):
+        _record(conn, *published)
+
+
+def _the_steps_said_are(conn: psycopg.Connection,
+                        incident_id: str,
+                        expected: list[int | None]) -> Assertion[Any]:
+    """The step each of the incident's lines carries, in the order said - read
+    with SQL of its own, since no reader of the account reads the column."""
+    def assertion(_result: Any) -> bool:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT walk_step FROM incident_event WHERE incident_id = %s ORDER BY seq",
+                (incident_id,)
+            )
+            said = [row[0] for row in cursor.fetchall()]
+
+        if said != expected:
+            raise AssertionError(
+                f"Expected the lines of [{incident_id}] to carry the steps {expected}, "
+                f"they carried {said}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _rewritten(conn: psycopg.Connection, event: IncidentEvent, assignment: str) -> None:

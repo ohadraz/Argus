@@ -130,7 +130,11 @@ def transition(
     A transition into a terminal status also stamps `ended_at`, in the same
     statement rather than in a second one: the two facts are one event, and a
     status written without its time would leave an incident that has ended
-    looking like one still running.
+    looking like one still running. A transition into any other status clears
+    it, for the same reason the other way round: a walk's step run again from
+    its checkpoint can take a different road than its interrupted attempt -
+    on from `disproven` to `mitigating` - and an incident still being worked
+    must not carry the end the first attempt wrote.
 
     `at` is the moment of the `StatusChanged` that narrates the move, so the
     end the row says and the end the account says are one instant: a duration
@@ -147,7 +151,7 @@ def transition(
     with conn.cursor() as cursor:
         cursor.execute(
             "UPDATE incident "
-            "   SET status = %s, ended_at = CASE WHEN %s THEN %s ELSE ended_at END "
+            "   SET status = %s, ended_at = CASE WHEN %s THEN %s ELSE NULL END "
             " WHERE id = %s AND status <> ALL(%s)",
             (to_status, ends_the_incident, at, incident_id, a_persons_endings)
         )

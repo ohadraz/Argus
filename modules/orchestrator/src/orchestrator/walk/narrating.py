@@ -17,6 +17,7 @@ from core.models import IncidentStatus, Meaning
 from incident_record import EndedByAPerson, WaitForPeople
 
 from orchestrator.walk.deltas import StateDelta
+from orchestrator.walk.discarding import Discard
 from orchestrator.walk.ports import TransitionIncident
 from orchestrator.walk.state import IncidentState, status_after
 
@@ -41,6 +42,7 @@ def with_status(
     max_rounds: int,
     transition_incident: TransitionIncident,
     ended_by_a_person: EndedByAPerson,
+    discard: Discard,
     stops_for: frozenset[IncidentStatus] = EVERY_PERSONS_ENDING,
     wait_for_people: WaitForPeople = waits_for_nobody,
 ) -> Callable[..., dict[str, Any]]:
@@ -126,6 +128,16 @@ def with_status(
     the state is what `stopping_when_a_person_ended_it` reads to route the walk
     where that ending sends it. No transition is written for it: the row
     already says it, and whoever ended the incident recorded that.
+
+    `discard` takes back what an interrupted attempt at this step wrote, and
+    runs once the ending has been asked and just before the node: a step a
+    person's ending stops runs nothing, so it keeps what its interrupted
+    attempt wrote - a change it made, or a write-up stored beside its line.
+    Required rather than defaulted, unlike the wait: a discard is the node's
+    own, so it cannot come from what the graph hands every node alike, and a
+    default would let a node registered without one keep its duplicates with
+    nothing noticing. The graph hands every node its own (`discarding`); a case
+    about something else hands `discards_nothing`.
     """
     def run(state: IncidentState) -> dict[str, Any]:
         ending = ended_by_a_person(state.incident_id)
@@ -133,6 +145,7 @@ def with_status(
         if ending in stops_for:
             return {"status": ending}
 
+        discard(state)
         delta = node(state)
         updates = delta.as_updates()
 

@@ -208,6 +208,12 @@ class IncidentState(BaseModel):
     # that reads it as an attempt (`Attempt.refuted_because`). `None` where
     # nothing was watched.
     action_because: str | None = None
+    # How many steps the walk has taken, counted by the wrapper every node runs
+    # in (`stepping.stepped`) rather than by any node. What a step's rows are
+    # stamped with, and so what a step run again from its checkpoint finds its
+    # interrupted attempt's rows by: the checkpoint carries the count from
+    # before the step, so both attempts read the same one.
+    steps: int = 0
 
 
 def status_after(state: IncidentState, max_rounds: int) -> IncidentStatus:

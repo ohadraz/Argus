@@ -47,7 +47,7 @@ from core.models import (
 from incident_memory import filing
 from incident_memory.composing import VERDICTS_THAT_JUDGE_AN_ACTION
 from incident_memory.records import RememberedIncident
-from incident_record import PublisherFor, publish_beside
+from incident_record import PublisherFor, publish_beside, the_current_step
 from incident_record.repository import (
     conversation,
     events,
@@ -90,8 +90,50 @@ class Records:
         self._publisher_for = publisher_for
 
     def hypothesis(self, hypothesis: Hypothesis, /) -> None:
+        """Writes a candidate the Investigator formed - refusing one formed
+        outside a step of the walk.
+
+        A node's candidate always belongs to a step, and a row carrying none is
+        one a step run again would never discard: the interrupted attempt's
+        candidates would stand beside the second attempt's, under the same
+        numbers. Refused here, by the walk's one writer of candidates, rather
+        than by the table, which rows written outside a walk reach too.
+        """
+        if the_current_step() is None:
+            raise RuntimeError(
+                f"candidate {hypothesis.id} of incident {hypothesis.incident_id} was "
+                f"formed outside any step of the walk"
+            )
+
         with unit_of_work(self._connections) as conn:
             hypotheses.record(conn, hypothesis)
+
+    def discard_the_interrupted_attempt(self,
+                                        incident_id: str,
+                                        step: int,
+                                        saying: IncidentEvent, /) -> bool:
+        """Takes back what an interrupted attempt at one step of the walk wrote,
+        says so where it wrote anything, and answers whether it had.
+
+        The lines it said and the candidates it formed - the rows a step run
+        again writes again. Nothing else: an action claimed is a change in the
+        world the step resumes from, the calls it made were spent, and memory
+        and a lead's weighing are written over by the second attempt anyway.
+
+        `saying` is published in the same write, and only where something was
+        taken back: a channel already carried the interrupted attempt's lines,
+        and the line is what tells it why the step is told again. Published
+        after the discard, separately, a worker stopping between the two would
+        leave the next attempt with nothing to discard - and so nothing to say.
+        """
+        with unit_of_work(self._connections) as conn:
+            taken_back = (events.delete_by_step(conn, incident_id, step)
+                          + hypotheses.delete_by_step(conn, incident_id, step))
+
+            if taken_back:
+                publish_beside(conn, saying, self._publisher_for(conn))
+
+        return taken_back > 0
 
     def outcome(self, hypothesis_id: str, tested: bool, result: str) -> None:
         with unit_of_work(self._connections) as conn:

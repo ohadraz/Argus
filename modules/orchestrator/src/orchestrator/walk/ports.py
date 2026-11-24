@@ -586,6 +586,19 @@ class TransitionIncident(Protocol):
     ) -> bool: ...
 
 
+class DiscardTheInterruptedAttempt(Protocol):
+    """Takes back what an interrupted attempt at one step of the walk wrote,
+    says `saying` in the same write where it wrote anything, and answers whether
+    it had.
+
+    The step is the walk's count of steps taken before it
+    (`IncidentState.steps`), which an attempt run again from its checkpoint
+    reads as the interrupted attempt read it.
+    """
+
+    def __call__(self, incident_id: str, step: int, saying: IncidentEvent, /) -> bool: ...
+
+
 class ProposeFix(Protocol):
     """A draft pull request proposing a permanent fix, or `None` where there is
     none to offer.
