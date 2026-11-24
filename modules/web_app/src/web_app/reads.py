@@ -2,9 +2,9 @@
 
 One place, because the incident page and the fragment it polls ask the same
 question and would otherwise ask it twice, in two slightly different ways. It
-reads through the repositories that own the tables and writes no SQL of its
-own: `web_app` holds no incident-domain logic (spec §7.9), and a query here
-would be the beginning of a second opinion about what an incident is.
+reads through the incident record's roles and writes no SQL of its own:
+`web_app` holds no incident-domain logic (spec §7.9), and a query here would be
+the beginning of a second opinion about what an incident is.
 """
 
 from __future__ import annotations
@@ -12,14 +12,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 
 import psycopg
-from incident_record.repository import (
-    events,
-    hypotheses,
-    incidents,
-    postmortems,
-    synopses,
-    taken_actions,
-)
+from incident_record import incident_reads_on, incidents_on_show_on
 from narration import ShownRevision
 from postmortem_rendering import (
     RenderedPostmortem,
@@ -48,14 +41,15 @@ def read_trace_context(conn: psycopg.Connection, incident_id: str) -> Mapping[st
     What a request acting on the incident continues, so that what it did is
     read in the incident's own trace.
     """
-    incident = incidents.get(conn, incident_id)
+    incident = incident_reads_on(conn).incident(incident_id)
 
     return incident.trace_context if incident is not None else None
 
 
 def read_history(conn: psycopg.Connection) -> list[IncidentSummary]:
     """Every incident, in the order the repository returns them."""
-    return [build_incident_summary(incident) for incident in incidents.get_recent(conn)]
+    return [build_incident_summary(incident)
+            for incident in incidents_on_show_on(conn).recent()]
 
 
 def read_incident(conn: psycopg.Connection,
@@ -75,15 +69,16 @@ def read_incident(conn: psycopg.Connection,
     page beside the walk holds, for its findings to lead to, and `revisions`
     the revisions it names short, for its candidates to say alike.
     """
-    incident = incidents.get(conn, incident_id)
+    reads = incident_reads_on(conn)
+    incident = reads.incident(incident_id)
     if incident is None:
         return None
 
     return build_incident_detail(
         incident,
-        candidates=hypotheses.get_all_by_incident(conn, incident_id),
-        attempts=taken_actions.get_by_incident(conn, incident_id),
-        account=events.get_by_incident(conn, incident_id),
+        candidates=reads.candidates(incident_id),
+        attempts=reads.actions(incident_id),
+        account=reads.account(incident_id),
         minutes=minutes,
         logged=logged,
         revisions=revisions or {}
@@ -98,12 +93,12 @@ def read_live_incident(conn: psycopg.Connection) -> LiveIncident | None:
     running, else the newest there is" is a question about the rows, and
     answering it here would be this page deciding what counts as current.
     """
-    incident = incidents.get_current(conn)
+    incident = incidents_on_show_on(conn).current()
 
     if incident is None:
         return None
 
-    return build_live_incident(incident, events.get_by_incident(conn, incident.id))
+    return build_live_incident(incident, incident_reads_on(conn).account(incident.id))
 
 
 def read_story(conn: psycopg.Connection, incident_id: str) -> Story:
@@ -113,7 +108,7 @@ def read_story(conn: psycopg.Connection, incident_id: str) -> Story:
     incident from before the stream existed, or one that escalated before
     anything looked at it.
     """
-    return build_story(events.get_by_incident(conn, incident_id))
+    return build_story(incident_reads_on(conn).account(incident_id))
 
 
 def read_postmortem(conn: psycopg.Connection,
@@ -125,12 +120,12 @@ def read_postmortem(conn: psycopg.Connection,
     PDF are handed the same document. `address_of` gives an incident's page by
     its full address, which only the request knows.
     """
-    postmortem = postmortems.get_by_incident(conn, incident.id)
+    reads = incident_reads_on(conn)
+    postmortem = reads.postmortem(incident.id)
     if postmortem is None:
         return None
 
-    return render(postmortem, incident.alert, events.get_by_incident(conn, incident.id),
-                  address_of)
+    return render(postmortem, incident.alert, reads.account(incident.id), address_of)
 
 
 def read_synopsis(conn: psycopg.Connection,
@@ -139,16 +134,17 @@ def read_synopsis(conn: psycopg.Connection,
     """The executive synopsis as it is read, where one was written and not
     given up - and so sent. `postmortem_at` is the full postmortem's address,
     which only the request knows."""
-    synopsis = synopses.get_by_incident(conn, incident.id)
-    postmortem = postmortems.get_by_incident(conn, incident.id)
+    reads = incident_reads_on(conn)
+    synopsis = reads.synopsis(incident.id)
+    postmortem = reads.postmortem(incident.id)
     if synopsis is None or synopsis.overview is None or postmortem is None:
         return None
 
     return the_synopsis(synopsis, postmortem, incident.alert,
-                        the_reported_resolution(events.get_by_incident(conn, incident.id)),
+                        the_reported_resolution(reads.account(incident.id)),
                         postmortem_at)
 
 
 def read_resolution(conn: psycopg.Connection, incident_id: str) -> ReportedResolution | None:
     """Who resolved the incident, where a person did."""
-    return the_reported_resolution(events.get_by_incident(conn, incident_id))
+    return the_reported_resolution(incident_reads_on(conn).account(incident_id))

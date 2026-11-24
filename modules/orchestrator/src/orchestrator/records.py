@@ -2,12 +2,12 @@
 
 Not the module's only door to it, and not meant to be. A walk being started, a
 withdrawal undoing what a walk did, and a finished incident being read back for
-its postmortem all reach `incident_record.repository` directly - none of them
+its postmortem all reach the incident record's roles directly - none of them
 happens inside a node, and each says at its own site why it reads what it does.
-Two more siblings reach the repositories for things that are not the incident
-record at all: the run queue and the exchange-rate cache. One write here is not
-the incident record either - what the incident tried, filed for long-term
-memory - and it is here because a node makes it.
+Two more siblings reach roles that are not the incident's story at all: the run
+queue and the exchange-rate cache. One write here is not the incident record
+either - what the incident tried, filed for long-term memory - and it is here
+because a node makes it.
 
 So the line this draws is the one a graph cares about. A node is handed its
 collaborators and has to be assertable with no database behind it; the process
@@ -47,15 +47,12 @@ from core.models import (
 from incident_memory import filing
 from incident_memory.composing import VERDICTS_THAT_JUDGE_AN_ACTION
 from incident_memory.records import RememberedIncident
-from incident_record import PublisherFor, publish_beside, the_current_step
-from incident_record.repository import (
-    conversation,
-    events,
-    hypotheses,
-    incidents,
-    postmortems,
-    synopses,
-    taken_actions,
+from incident_record import (
+    PublisherFor,
+    incident_reads_over,
+    publish_beside,
+    the_current_step,
+    the_walks_writes_on,
 )
 from postgres import Connections, unit_of_work
 from postmortem_writing import said_off_the_page
@@ -88,6 +85,7 @@ class Records:
                  publisher_for: PublisherFor) -> None:
         self._connections = connections
         self._publisher_for = publisher_for
+        self._reads = incident_reads_over(connections)
 
     def hypothesis(self, hypothesis: Hypothesis, /) -> None:
         """Writes a candidate the Investigator formed - refusing one formed
@@ -106,7 +104,7 @@ class Records:
             )
 
         with unit_of_work(self._connections) as conn:
-            hypotheses.record(conn, hypothesis)
+            the_walks_writes_on(conn).hypothesis(hypothesis)
 
     def discard_the_interrupted_attempt(self,
                                         incident_id: str,
@@ -127,8 +125,7 @@ class Records:
         leave the next attempt with nothing to discard - and so nothing to say.
         """
         with unit_of_work(self._connections) as conn:
-            taken_back = (events.delete_by_step(conn, incident_id, step)
-                          + hypotheses.delete_by_step(conn, incident_id, step))
+            taken_back = the_walks_writes_on(conn).take_back_step(incident_id, step)
 
             if taken_back:
                 publish_beside(conn, saying, self._publisher_for(conn))
@@ -137,7 +134,7 @@ class Records:
 
     def outcome(self, hypothesis_id: str, tested: bool, result: str) -> None:
         with unit_of_work(self._connections) as conn:
-            hypotheses.record_outcome(conn, hypothesis_id, tested=tested, result=result)
+            the_walks_writes_on(conn).outcome(hypothesis_id, tested=tested, result=result)
 
     def transition(
         self,
@@ -168,7 +165,8 @@ class Records:
         row it accounts for.
         """
         with unit_of_work(self._connections) as conn:
-            moved = incidents.transition(conn, incident_id, to_status, at=narrating.at)
+            moved = the_walks_writes_on(conn).transition(incident_id, to_status,
+                                                         at=narrating.at)
 
             if moved:
                 publish_beside(conn, narrating, self._publisher_for(conn))
@@ -186,8 +184,7 @@ class Records:
         planned: Planned[Any] | None = None
     ) -> ClaimAnswer:
         with unit_of_work(self._connections) as conn:
-            return taken_actions.claim(
-                conn,
+            return the_walks_writes_on(conn).claim(
                 incident_id,
                 hypothesis_id=hypothesis_id,
                 action_type=action_type,
@@ -217,8 +214,7 @@ class Records:
         never recorded against the action it was about.
         """
         with unit_of_work(self._connections) as conn:
-            taken_actions.complete(
-                conn,
+            the_walks_writes_on(conn).complete(
                 incident_id,
                 hypothesis_id=hypothesis_id,
                 outcome=outcome,
@@ -247,8 +243,7 @@ class Records:
         `None` for a resumed walk's answer, which was not there when it was made.
         """
         with unit_of_work(self._connections) as conn:
-            taken_actions.advance(
-                conn,
+            the_walks_writes_on(conn).advance(
                 incident_id,
                 hypothesis_id=hypothesis_id,
                 to=to,
@@ -268,8 +263,7 @@ class Records:
         change on it. Nothing said, as `advance_action` says nothing.
         """
         with unit_of_work(self._connections) as conn:
-            taken_actions.plan_the_claim(
-                conn,
+            the_walks_writes_on(conn).plan_the_claim(
                 incident_id,
                 hypothesis_id=hypothesis_id,
                 planned=planned
@@ -285,8 +279,7 @@ class Records:
         when the attempt completes.
         """
         with unit_of_work(self._connections) as conn:
-            taken_actions.owe_a_put_back(
-                conn,
+            the_walks_writes_on(conn).owe_a_put_back(
                 incident_id,
                 hypothesis_id=hypothesis_id,
                 because=because
@@ -308,9 +301,7 @@ class Records:
         does not own, and the two conversions this replaced disagreed about
         exactly that.
         """
-        with self._connections() as conn:
-            taken_action = taken_actions.get_action_for_hypothesis(
-                conn, incident_id, hypothesis_id)
+        taken_action = self._reads.action_for(incident_id, hypothesis_id)
 
         if taken_action is None:
             return None
@@ -336,8 +327,7 @@ class Records:
         claim is - one candidate's on one incident - so a line of another
         candidate's, or of another incident's, is no line of this claim's.
         """
-        with self._connections() as conn:
-            told = events.get_by_incident(conn, incident_id)
+        told = self._reads.account(incident_id)
 
         return any(isinstance(event, ActionTaken) and event.hypothesis_id == hypothesis_id
                    for event in told)
@@ -367,7 +357,7 @@ class Records:
         )
 
         with unit_of_work(self._connections) as conn:
-            postmortems.record(conn, incident_id, document, at=written.at)
+            the_walks_writes_on(conn).postmortem(incident_id, document, at=written.at)
             publish_beside(conn, written, self._publisher_for(conn))
 
     def synopsis(self, incident_id: str, synopsis: ExecutiveSynopsisDocument, /) -> None:
@@ -383,7 +373,7 @@ class Records:
                                            reason=synopsis.withheld_because or ""))
 
         with unit_of_work(self._connections) as conn:
-            synopses.record(conn, incident_id, synopsis, at=said.at)
+            the_walks_writes_on(conn).synopsis(incident_id, synopsis, at=said.at)
             publish_beside(conn, said, self._publisher_for(conn))
 
     def memory(self, record: RememberedIncident, /) -> None:
@@ -413,7 +403,7 @@ class Records:
             raise ValueError(f"lead {lead.message} carries no weighing to keep")
 
         with unit_of_work(self._connections) as conn:
-            conversation.weighed(conn, lead.message, lead.weighing)
+            the_walks_writes_on(conn).weighed(lead.message, lead.weighing)
             publish_beside(conn, LeadWeighed(
                 incident_id=lead.incident_id,
                 message=lead.message,
@@ -430,8 +420,7 @@ class Records:
         query against them would be a second place that knows where a lead
         lives.
         """
-        with self._connections() as conn:
-            return conversation.get_leads_by_incident(conn, incident_id)
+        return self._reads.leads(incident_id)
 
     def actions_taken(self, incident_id: str, /) -> list[TakenAction]:
         """Every action stored against this incident, with what each reached.
@@ -442,8 +431,7 @@ class Records:
         one query against one of these tables would be a second place that
         knows where an action lives.
         """
-        with self._connections() as conn:
-            return taken_actions.get_by_incident(conn, incident_id)
+        return self._reads.actions(incident_id)
 
     def what_argus_did(self, incident_id: str, /) -> list[WhatArgusDid]:
         """Every action this incident judged, in the order taken, with its

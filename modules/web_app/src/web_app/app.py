@@ -25,13 +25,14 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from incident_record import (
     events_into_connection,
+    incident_conversation_over,
+    incident_names_over,
     ingest_a_message,
     inside_the_incidents_trace,
     resolve_incident,
     start_incident,
     withdraw_incident,
 )
-from incident_record.repository import conversation, references
 from narration import said_as_a_confidence, said_as_a_share, said_as_a_time
 from oncall_source import OnCallUnavailable
 from oncall_source.platform import OnCallDeliveryUnverified, OnCallPlatform
@@ -523,8 +524,7 @@ class _TheChatRecord:
         return ingest_a_message(incident_id, message, person_id, text, self._connections)
 
     def message_written(self, incident_id: str, message: Reference) -> ThreadMessage | None:
-        with self._connections() as conn:
-            written = conversation.get(conn, message)
+        written = incident_conversation_over(self._connections).message(message)
 
         # A message is found by its own name, and belongs to one incident: a
         # press in one incident's thread on another's message ends neither.
@@ -559,13 +559,10 @@ class _TheIncidentRecord:
         return found[0].id if len(found) == 1 else None
 
     def incidents_known_as(self, kind: str, values: Sequence[str]) -> list[IncidentStanding]:
-        with self._connections() as conn:
-            return references.get_incidents_by_values(conn, kind, values)
+        return incident_names_over(self._connections).incidents_known_as(kind, values)
 
     def know_it_as(self, incident_id: str, reference: Reference) -> None:
-        with self._connections() as conn:
-            references.add(conn, incident_id, [reference])
-            conn.commit()
+        incident_names_over(self._connections).give(incident_id, [reference])
 
     def resolve(self, incident_id: str, reported: Report) -> bool:
         with self._connections() as conn:

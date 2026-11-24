@@ -29,16 +29,17 @@ from typing import Final
 from core.llm import LLMClient
 from core.models import (
     IncidentStatus,
-    Meaning,
-    OfferedEnding,
-    Reference,
     ThreadMessage,
 )
 from core.replay import Replay
-from incident_record import calls_into, events_into
-from incident_record.repository import conversation, events, incidents
+from incident_record import (
+    calls_into,
+    events_into,
+    incident_conversation_over,
+    incident_reads_over,
+)
 from narration import build_narration
-from postgres import Connections, unit_of_work
+from postgres import Connections
 
 from message_intent.answering import answer
 from message_intent.classifying import classify
@@ -105,33 +106,9 @@ def watch_forever(not_understood: NotUnderstood,
             time.sleep(pause)
 
 
-class _TheRecord:
-    """The incident record's conversation, as understanding a message writes to
-    it, over the connections this process holds."""
-
-    def __init__(self, connections: Connections) -> None:
-        self._connections = connections
-
-    def understood(self, message: Reference, meaning: Meaning) -> None:
-        with unit_of_work(self._connections) as conn:
-            conversation.understood(conn, message, meaning)
-
-    def named(self, message: Reference, person_name: str | None) -> None:
-        with unit_of_work(self._connections) as conn:
-            conversation.named(conn, message, person_name)
-
-    def offered(self, message: Reference, ending: OfferedEnding) -> None:
-        with unit_of_work(self._connections) as conn:
-            conversation.offered(conn, message, ending)
-
-
 def _not_understood(connections: Connections) -> NotUnderstood:
     """What a look asks, wired to the record."""
-    def not_understood(limit: int) -> list[ThreadMessage]:
-        with connections() as conn:
-            return conversation.get_not_understood(conn, limit)
-
-    return not_understood
+    return incident_conversation_over(connections).not_understood
 
 
 def _understanding(connections: Connections,
@@ -141,7 +118,8 @@ def _understanding(connections: Connections,
     the chat platform this process holds."""
     recorder = calls_into(connections)
     publisher = events_into(connections)
-    record = _TheRecord(connections)
+    record = incident_conversation_over(connections)
+    reads = incident_reads_over(connections)
 
     # Where a message was written is the platform its reference is filed under -
     # the name the chat platform's adapter gave it, which is the name a person
@@ -158,8 +136,7 @@ def _understanding(connections: Connections,
         # The incident's timeline as it stands when the question is answered,
         # read only for a question - the one meaning that needs it.
         def answered(question: str) -> str | None:
-            with connections() as conn:
-                story = build_narration(events.get_by_incident(conn, incident_id))
+            story = build_narration(reads.account(incident_id))
 
             return answer(question, story,
                           model_for(Replay(incident_id, recorder)),
@@ -168,8 +145,7 @@ def _understanding(connections: Connections,
         return answered
 
     def status_of(incident_id: str) -> IncidentStatus | None:
-        with connections() as conn:
-            incident = incidents.get(conn, incident_id)
+        incident = reads.incident(incident_id)
 
         return incident.status if incident is not None else None
 

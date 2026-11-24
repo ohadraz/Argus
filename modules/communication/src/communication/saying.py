@@ -34,7 +34,7 @@ from core.models import (
     a_chat_withdrawal_offer,
     the_place_of,
 )
-from incident_record.repository import events, references, synopses
+from incident_record import events_into, incident_names_over, incident_reads_over
 from narration import (
     NarrationLine,
     ShownRevision,
@@ -302,8 +302,7 @@ def _the_synopsis_line(connections: Connections,
     word of it. The walk stores the synopsis before it publishes that, so a
     record without one is a broken one, and refused.
     """
-    with connections() as conn:
-        synopsis = synopses.get_by_incident(conn, incident_id)
+    synopsis = incident_reads_over(connections).synopsis(incident_id)
 
     if synopsis is None or synopsis.overview is None:
         raise ValueError(f"incident [{incident_id}] has no synopsis to send")
@@ -333,9 +332,8 @@ def _sent_to(recipient: str,
 
         return Outcome.NEVER
 
-    with connections() as conn:
-        references.add(conn, incident_id,
-                       [a_chat_briefing(chat.name, recipient, posted.message)])
+    incident_names_over(connections).give(
+        incident_id, [a_chat_briefing(chat.name, recipient, posted.message)])
 
     return Outcome.SAID
 
@@ -460,13 +458,12 @@ def _write_the_gap_down(connections: Connections,
     decision here to join: nothing about the incident happened, and what is
     being written down is that something failed to be said about it.
     """
-    with connections() as conn:
-        events.record(conn, CommunicationFailed(
-            incident_id=incident_id,
-            channel=channel,
-            refusal=refusal,
-            about_kind=line.kind
-        ))
+    events_into(connections)(CommunicationFailed(
+        incident_id=incident_id,
+        channel=channel,
+        refusal=refusal,
+        about_kind=line.kind
+    ))
 
 
 def _the_names_read_by(connections: Connections,
@@ -474,8 +471,7 @@ def _the_names_read_by(connections: Connections,
     """Each revision the incident has read so far and each pull request it
     has opened, and how a line says each - read from the record each time,
     since the relay may be saying a line long after the event that named it."""
-    with connections() as conn:
-        recorded = events.get_by_incident(conn, incident_id)
+    recorded = incident_reads_over(connections).account(incident_id)
 
     return the_revisions(recorded), the_pull_requests(recorded)
 
@@ -495,8 +491,7 @@ def _the_messages_of(connections: Connections,
                      channel: str) -> list[str]:
     """Every message of one kind the incident remembers in this channel, as the
     platform named each - the thread it is told in, or the offers it made."""
-    with connections() as conn:
-        values = references.get_values_for(conn, incident_id, kind)
+    values = incident_names_over(connections).values_for(incident_id, kind)
 
     places = (the_place_of(value) for value in values)
 
@@ -516,8 +511,8 @@ def _remember_the_thread(connections: Connections,
     message is the price of at-least-once delivery; scattering the rest of the
     incident into a conversation nobody is reading is not.
     """
-    with connections() as conn:
-        references.add(conn, incident_id, [a_chat_thread(chat.name, channel, message)])
+    incident_names_over(connections).give(incident_id,
+                                          [a_chat_thread(chat.name, channel, message)])
 
 
 def _remember_the_offer(connections: Connections,
@@ -528,5 +523,5 @@ def _remember_the_offer(connections: Connections,
                         ending: IncidentStatus) -> None:
     """Records an offer Argus posted, as the kind of offer it is, so that the
     incident's endings can find its button again."""
-    with connections() as conn:
-        references.add(conn, incident_id, [_REMEMBERED_AS[ending](chat.name, channel, message)])
+    incident_names_over(connections).give(
+        incident_id, [_REMEMBERED_AS[ending](chat.name, channel, message)])

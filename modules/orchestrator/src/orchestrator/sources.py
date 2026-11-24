@@ -38,7 +38,7 @@ from core.models import (
     Reference,
 )
 from incident_cost import MoneySources, PayBand, RateTable
-from incident_record.repository import exchange_rates, incidents, references
+from incident_record import incident_names_on, incident_reads_on, rates_cache_on
 from oncall_source import OnCallUnavailable, engagement_with
 from oncall_source.platform import OnCallPlatform
 from pay_band_source import PayBandsRead, PayBandsUnavailable
@@ -140,8 +140,8 @@ def _todays_rates(connections: Connections,
     with connections() as conn:
         return todays_rates(
             base,
-            held_rates=partial(exchange_rates.get_latest_for, conn),
-            hold_rates=partial(exchange_rates.record, conn),
+            held_rates=rates_cache_on(conn).latest_for,
+            hold_rates=rates_cache_on(conn).keep,
             published=published
         )
 
@@ -218,7 +218,8 @@ def _the_others_paged_under(platform_incident: str,
     the one written last is the one that can say most.
     """
     with connections() as conn:
-        linked = references.get_incidents_by_values(conn, ON_CALL_INCIDENT, [platform_incident])
+        linked = incident_names_on(conn).incidents_known_as(ON_CALL_INCIDENT,
+                                                            [platform_incident])
 
     return len([incident for incident in linked if incident.id != incident_id])
 
@@ -238,9 +239,9 @@ def _the_platform_incidents_of(incident_id: str,
     recording them would be choosing.
     """
     with connections() as conn:
-        linked = references.get_values_for(conn, incident_id, ON_CALL_INCIDENT)
-        keys = references.get_values_for(conn, incident_id, NOTIFICATION_KEY)
-        incident = incidents.get(conn, incident_id)
+        linked = incident_names_on(conn).values_for(incident_id, ON_CALL_INCIDENT)
+        keys = incident_names_on(conn).values_for(incident_id, NOTIFICATION_KEY)
+        incident = incident_reads_on(conn).incident(incident_id)
 
     if linked:
         return linked
@@ -253,7 +254,7 @@ def _the_platform_incidents_of(incident_id: str,
 
     if len(found) == 1:
         with connections() as conn:
-            references.add(conn, incident_id, [
+            incident_names_on(conn).give(incident_id, [
                 Reference(source=platform.name, kind=ON_CALL_INCIDENT, value=found[0])
             ])
             conn.commit()

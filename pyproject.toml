@@ -542,6 +542,18 @@ protected_modules = ["vector_store_qdrant.indexing"]
 allowed_importers = ["apps.deliverer", "apps.indexer"]
 
 [[tool.importlinter.contracts]]
+name = "the incident record's tables are its own, reached through its roles"
+type = "protected"
+# What the record holds is reached by role - `IncidentReads`, `TheWalksWrites`,
+# `RunQueue` and their kin, each answering in domain values - and never by
+# table. A package that imported the repository would be asking for rows, and
+# building its own wrapper around them, as five packages once did; what a table
+# looks like is then a question only `incident_record` has to answer. Its own
+# modules reach the repository freely (`as_packages`, the default).
+protected_modules = ["incident_record.repository"]
+allowed_importers = ["incident_record"]
+
+[[tool.importlinter.contracts]]
 name = "no process's root reaches another's"
 type = "independence"
 # Each root is one extra of `apps`, and installs what that extra names. A root

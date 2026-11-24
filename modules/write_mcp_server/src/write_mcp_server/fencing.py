@@ -42,7 +42,7 @@ from contextlib import AbstractContextManager, ExitStack, contextmanager, suppre
 from typing import Any, Final
 
 from core import DatabaseSettings, Fence
-from incident_record.repository import runs
+from incident_record import ChangeInFlight, run_queue_on
 from mcp.server.mcpserver import Context
 from mcp.types import CallToolResult, InputRequiredResult
 from mcp_transport import (
@@ -169,7 +169,7 @@ class FencedMCPServer(TracedMCPServer):
 
         try:
             still_held = held_for_now.enter_context(self._hold_for_a_change(held))
-        except runs.ChangeInFlight as in_flight:
+        except ChangeInFlight as in_flight:
             # Refused without saying it left nothing, unlike the refusals
             # around it: what asks is this change asked again while the first
             # is still being made, and that one may well have changed the world.
@@ -202,7 +202,7 @@ def holds_in_the_database(
 ) -> Generator[HoldForAChange]:
     """The run asked after and kept on a connection of the change's own.
 
-    Kept by the session rather than by a transaction (`runs.hold_for_a_change`),
+    Kept by the session rather than by a transaction (`RunQueue.hold_for_a_change`),
     so the connection commits each statement as it is said and holds nothing
     the event log would wait behind. The database closes it if nothing is said
     on it for `idle`, which lets the run go, and a run already held is waited
@@ -229,7 +229,7 @@ def holds_in_the_database(
                 "autocommit": True,
                 "options": f"-c idle_session_timeout={idle} -c lock_timeout={wait}"
             }) as conn,
-            runs.hold_for_a_change(conn, held) as still_held
+            run_queue_on(conn).hold_for_a_change(held) as still_held
         ):
             yield still_held
 

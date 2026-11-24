@@ -32,13 +32,15 @@ from core.llm import ModelUnavailable
 from core.models import IncidentStatus
 from core.telemetry import ARGUS_RUN_ID
 from incident_record import (
+    NO_TRACE_CONTEXT,
     EndedByAPerson,
+    NoLongerOpen,
+    Run,
     events_into_connection,
+    incident_reads_on,
     inside_the_incidents_trace,
+    run_queue_on,
 )
-from incident_record.repository import incidents, runs, taken_actions
-from incident_record.repository.incidents import NO_TRACE_CONTEXT
-from incident_record.repository.taken_actions import NoLongerOpen
 from opentelemetry import baggage, context
 from opentelemetry.trace import Tracer
 from postgres import Connections, fence
@@ -108,7 +110,7 @@ class TryingAgain(BaseModel):
 
 
 @contextmanager
-def _the_claim_kept_alive(held: runs.Run,
+def _the_claim_kept_alive(held: Run,
                           lease: timedelta,
                           connections: Connections) -> Generator[None]:
     """Renews this run's claim for as long as the body is running.
@@ -213,7 +215,7 @@ def take_one_run(conn: psycopg.Connection,
     nothing written after it. `holding` is the process's own where the walk's
     connections are fenced by it, and nobody's otherwise.
     """
-    claimed = runs.claim(conn, claimed_by, lease)
+    claimed = run_queue_on(conn).claim(claimed_by, lease)
     # At once, and whether or not there was a run to take: a claim nobody else
     # can see yet is a run a second worker takes as well, and an empty claim
     # left open would hold this connection's transaction across the wait for
@@ -233,7 +235,7 @@ def take_one_run(conn: psycopg.Connection,
     # Read on a connection of its own, so that `conn` is the claim's, the
     # fence's and the settling's alone.
     with connections() as reading:
-        incident = incidents.get(reading, claimed.incident_id)
+        incident = incident_reads_on(reading).incident(claimed.incident_id)
 
     kept = incident.trace_context if incident is not None else NO_TRACE_CONTEXT
 
@@ -287,12 +289,12 @@ def _fenced(conn: psycopg.Connection, held: Fence) -> Generator[None]:
 
 
 def _requeue_to_try_again(conn: psycopg.Connection,
-                          held: runs.Run,
+                          held: Run,
                           failure: Exception,
                           trying_again: TryingAgain) -> None:
     """Requeues a run to be tried again, committed - or, where the run
     was taken back, does nothing and says so."""
-    if not runs.try_again_later(conn, held, trying_again.wait_after(held.retries)):
+    if not run_queue_on(conn).try_again_later(held, trying_again.wait_after(held.retries)):
         conn.rollback()
         _the_run_was_lost()
         return
@@ -303,7 +305,7 @@ def _requeue_to_try_again(conn: psycopg.Connection,
 
 
 def _settle_the_failure(conn: psycopg.Connection,
-                        held: runs.Run,
+                        held: Run,
                         failure: Exception,
                         unwind: Unwind,
                         ended_by_a_person: EndedByAPerson,
@@ -345,7 +347,7 @@ def _to_be_put_back(connections: Connections, incident_id: str) -> bool:
     """
     try:
         with connections() as reading:
-            incident = incidents.get(reading, incident_id)
+            incident = incident_reads_on(reading).incident(incident_id)
     except Exception:
         logger.exception("how the incident stood could not be read after a failed run, "
                          "so nothing was put back")
@@ -360,7 +362,7 @@ def _to_be_put_back(connections: Connections, incident_id: str) -> bool:
 
 
 def _settled_as_failed(conn: psycopg.Connection,
-                       held: runs.Run,
+                       held: Run,
                        failure: Exception) -> bool:
     """Settles a run whose walk failed, and answers whether this claim still
     held it to settle.
@@ -380,13 +382,13 @@ def _settled_as_failed(conn: psycopg.Connection,
     """
     try:
         with conn.transaction() as settling:
-            taken_actions.settle_claims(conn, held.incident_id)
+            run_queue_on(conn).settle_claims(held.incident_id)
             _the_incident_needs_a_person(conn, held.incident_id, failure)
             # After the escalation, which refuses an incident a person ended:
             # a withdrawal landing before it is then seen by this write, which
             # asks the incident's status itself.
             _no_longer_open_once_settled(conn, held.incident_id)
-            settled = runs.fail(conn, held, f"{type(failure).__name__}: {failure}")
+            settled = run_queue_on(conn).fail(held, f"{type(failure).__name__}: {failure}")
 
             if not settled:
                 raise psycopg.Rollback(settling)
@@ -399,7 +401,7 @@ def _settled_as_failed(conn: psycopg.Connection,
     return settled
 
 
-def _settled_as_finished(conn: psycopg.Connection, held: runs.Run) -> bool:
+def _settled_as_finished(conn: psycopg.Connection, held: Run) -> bool:
     """Settles a run walked to its end, and answers whether this claim still
     held it to settle - in one commit, or in none where it was taken back.
 
@@ -409,9 +411,9 @@ def _settled_as_finished(conn: psycopg.Connection, held: runs.Run) -> bool:
     """
     try:
         with conn.transaction() as settling:
-            taken_actions.settle_claims(conn, held.incident_id)
+            run_queue_on(conn).settle_claims(held.incident_id)
             _no_longer_open_once_settled(conn, held.incident_id)
-            settled = runs.finish(conn, held)
+            settled = run_queue_on(conn).finish(held)
 
             if not settled:
                 raise psycopg.Rollback(settling)
@@ -436,10 +438,10 @@ def _no_longer_open_once_settled(conn: psycopg.Connection, incident_id: str) -> 
     asked in the write, not read before it. Committing is the settling's.
     """
     at = utc_now()
-    taken_actions.no_longer_open(conn, incident_id, at,
-                                 which=NoLongerOpen.KINDS_WITH_NO_WAY_BACK)
-    taken_actions.no_longer_open(conn, incident_id, at,
-                                 which=NoLongerOpen.ROWS_OF_A_WITHDRAWN_INCIDENT)
+    run_queue_on(conn).no_longer_open(incident_id, at,
+                                      which=NoLongerOpen.KINDS_WITH_NO_WAY_BACK)
+    run_queue_on(conn).no_longer_open(incident_id, at,
+                                      which=NoLongerOpen.ROWS_OF_A_WITHDRAWN_INCIDENT)
 
 
 def _the_run_was_lost() -> None:
@@ -511,7 +513,7 @@ def _the_incident_needs_a_person(conn: psycopg.Connection,
                                       to_status=IncidentStatus.ESCALATED,
                                       detail=f"the walk stopped without finishing: "
                                              f"{type(failure).__name__}: {failure}")
-            escalated = incidents.escalate_unless_ended(conn, incident_id, at=narrating.at)
+            escalated = run_queue_on(conn).escalate_unless_ended(incident_id, at=narrating.at)
 
             if escalated:
                 publish(narrating, events_into_connection(conn))

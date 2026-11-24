@@ -85,17 +85,7 @@ from core.replay import Recorder, Replay
 from core.replay import nobody as records_nothing
 from executive_synopsis import the_response_priced, write_executive_synopsis
 from incident_cost import MoneySources
-from incident_record import when_it_was_taken
-from incident_record.repository import (
-    conversation,
-    events,
-    hypotheses,
-    incidents,
-    postmortems,
-    references,
-    replay,
-    taken_actions,
-)
+from incident_record import incident_names_on, incident_reads_on, when_it_was_taken
 from narration import (
     NarrationLine,
     build_narration,
@@ -202,7 +192,7 @@ def write_postmortem_for(incident_id: str,
 
     with connections() as conn:
         return document.model_copy(
-            update={"tokens_spent": replay.get_tokens_spent(conn, incident_id)}
+            update={"tokens_spent": incident_reads_on(conn).tokens_spent(incident_id)}
         )
 
 
@@ -236,9 +226,9 @@ def write_synopsis_for(incident_id: str,
     run.
     """
     with connections() as conn:
-        incident = incidents.get(conn, incident_id)
-        postmortem = postmortems.get_by_incident(conn, incident_id)
-        account = events.get_by_incident(conn, incident_id)
+        incident = incident_reads_on(conn).incident(incident_id)
+        postmortem = incident_reads_on(conn).postmortem(incident_id)
+        account = incident_reads_on(conn).account(incident_id)
 
     if incident is None or postmortem is None:
         raise ValueError(f"no postmortem for incident [{incident_id}] to write a synopsis of")
@@ -270,7 +260,7 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
     the incident is over, and a duration measured to "now" instead would be a
     different number every time anyone asked for one.
     """
-    incident = incidents.get(conn, incident_id)
+    incident = incident_reads_on(conn).incident(incident_id)
     if incident is None:
         raise ValueError(f"no incident [{incident_id}] to write a postmortem for")
 
@@ -282,10 +272,10 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
 
     # Read once, because two things are made of it - the candidates, and the
     # lines saying which of them each formed - and two reads could disagree.
-    considered = hypotheses.get_all_by_incident(conn, incident_id)
+    considered = incident_reads_on(conn).candidates(incident_id)
     # The account read once and told once, for the same reason: the timeline,
     # and where in it each action's line sits.
-    account = events.get_by_incident(conn, incident_id)
+    account = incident_reads_on(conn).account(incident_id)
     told = _the_account_told(account)
     reading = _the_reading_that_stands(account)
     changed = _what_changed(conn, incident_id)
@@ -317,7 +307,7 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         candidates=_what_was_considered(
             considered,
             {taken.hypothesis_id: taken
-             for taken in taken_actions.get_by_incident(conn, incident_id)
+             for taken in incident_reads_on(conn).actions(incident_id)
              if taken.hypothesis_id is not None}),
         actions=_what_was_done(conn, incident_id, account, told,
                                [hypothesis.id for hypothesis in considered]),
@@ -343,7 +333,7 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         # Off the record rather than the account: the account says a lead was
         # weighed, and the record is where its words and standing are kept
         # together - the latest standing, which is the one the walk acted on.
-        leads=conversation.get_leads_by_incident(conn, incident_id),
+        leads=incident_reads_on(conn).leads(incident_id),
         deploys_reading=_how_the_investigation_read(account, RetrievalChannel.CHANGES,
                                                     ChangesRetrieved),
         flags_reading=_how_the_flags_were_read(account),
@@ -362,7 +352,7 @@ def _when_people_were_first_told(conn: psycopg.Connection,
     record a line was said - the account records only a line that never will
     be (`CommunicationFailed`).
     """
-    thread = references.get_first_by_kind(conn, incident_id, CHAT_THREAD)
+    thread = incident_names_on(conn).first_of_kind(incident_id, CHAT_THREAD)
     if thread is None:
         return None
 
@@ -416,7 +406,7 @@ def _what_is_still_owed(conn: psycopg.Connection, incident_id: str) -> str | Non
     """
     recommended = [
         what_to_do(event.action_type, event.subject or "")
-        for event in events.get_by_incident(conn, incident_id)
+        for event in incident_reads_on(conn).account(incident_id)
         if isinstance(event, ActionRecommended)
     ]
 
@@ -438,7 +428,7 @@ def _what_was_proposed(conn: psycopg.Connection,
     is the proposal that stands rather than the one that was superseded.
     """
     proposed = [event.pull_request
-                for event in events.get_by_incident(conn, incident_id)
+                for event in incident_reads_on(conn).account(incident_id)
                 if isinstance(event, FixAttempted) and event.pull_request]
 
     return proposed[-1] if proposed else None
@@ -474,7 +464,7 @@ def _when_it_actually_began(conn: psycopg.Connection,
     then falls back to the alert's own time, which is late but real.
     """
     onsets = [event.onset
-              for event in events.get_by_incident(conn, incident_id)
+              for event in incident_reads_on(conn).account(incident_id)
               if isinstance(event, OnsetDetected)]
 
     return parse_iso(onsets[0]) if onsets else None
@@ -490,7 +480,7 @@ def _where_it_looked_from(conn: psycopg.Connection,
     never said when it fired, or one that never reached an investigation.
     """
     anchors = [event.minute
-               for event in events.get_by_incident(conn, incident_id)
+               for event in incident_reads_on(conn).account(incident_id)
                if isinstance(event, AnchoredOnTheAlarm)]
 
     return parse_iso(anchors[0]) if anchors else None
@@ -525,7 +515,7 @@ def _when_it_came_back(conn: psycopg.Connection,
     confirmation reached on a window with nothing in it to date.
     """
     recoveries = [event.recovered_minute
-                  for event in events.get_by_incident(conn, incident_id)
+                  for event in incident_reads_on(conn).account(incident_id)
                   if isinstance(event, RecoveryChecked)
                   and event.recovered_minute is not None]
 
@@ -586,7 +576,7 @@ def _it_was_watched_and_never_came_back(conn: psycopg.Connection,
     only answer there is.
     """
     looks = [event.recovered
-             for event in events.get_by_incident(conn, incident_id)
+             for event in incident_reads_on(conn).account(incident_id)
              if isinstance(event, RecoveryChecked)]
 
     return bool(looks) and not any(looks)
@@ -850,7 +840,7 @@ def _what_was_done(conn: psycopg.Connection,
                                 if taken_action.hypothesis_id in considered else None),
                      tried_before=_what_it_was_before(taken_action, before),
                      put_back=_whether_it_was_put_back(taken_action))
-        for taken_action in taken_actions.get_by_incident(conn, incident_id)
+        for taken_action in incident_reads_on(conn).actions(incident_id)
     ]
 
 
@@ -1025,7 +1015,7 @@ def _what_changed(conn: psycopg.Connection, incident_id: str) -> _ChangesRead:
     finds is the walk's own doing - already told as an action, and no cause of
     the incident it was acting on.
     """
-    recorded = events.get_by_incident(conn, incident_id)
+    recorded = incident_reads_on(conn).account(incident_id)
     read: list[ChangeEvent] = []
     for event in recorded:
         if isinstance(event, ChangesRetrieved):
@@ -1119,7 +1109,7 @@ def _what_each_deployment_changed(conn: psycopg.Connection,
     row per read would number the deployments by how often it happened to.
     """
     read: dict[str, DeploymentChangesRecord] = {}
-    for event in events.get_by_incident(conn, incident_id):
+    for event in incident_reads_on(conn).account(incident_id):
         if isinstance(event, DeploymentChangesRead) and event.revision not in read:
             read[event.revision] = DeploymentChangesRecord(
                 revision=event.revision,
@@ -1284,7 +1274,7 @@ def _what_was_read(conn: psycopg.Connection, incident_id: str) -> list[str]:
     the same line in one minute are two failures, and one read returns both.
     """
     kept: dict[str, int] = {}
-    for event in events.get_by_incident(conn, incident_id):
+    for event in incident_reads_on(conn).account(incident_id):
         if isinstance(event, LogsRetrieved):
             for line, copies in Counter(event.lines).items():
                 kept[line] = max(kept.get(line, 0), copies)

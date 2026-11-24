@@ -28,8 +28,13 @@ from core.models import (
     leaves_something_to_put_back,
     the_identity_recorded,
 )
-from incident_record import PublisherFor, events_into_connection, publish_beside
-from incident_record.repository import taken_actions
+from incident_record import (
+    PublisherFor,
+    events_into_connection,
+    incident_reads_over,
+    publish_beside,
+    the_walks_writes_on,
+)
 from mitigation import UndoAttempt
 from postgres import Connections
 
@@ -117,11 +122,7 @@ def _a_change_nothing_was_kept_to_undo(taken_action: TakenAction) -> UndoAttempt
 def taken_actions_from(connections: Connections) -> TakenActionsOf:
     """The incident's own changes, read through the connections given."""
 
-    def the_taken_actions_of(incident_id: str) -> list[TakenAction]:
-        with connections() as conn:
-            return taken_actions.get_by_incident(conn, incident_id)
-
-    return the_taken_actions_of
+    return incident_reads_over(connections).actions
 
 
 def undone_recorded_through(connections: Connections,
@@ -139,7 +140,7 @@ def undone_recorded_through(connections: Connections,
 
     def record_undone(action_id: str, said: ChangeUndone) -> None:
         with connections() as conn:
-            taken_actions.record_undone(conn, action_id, said.outcome)
+            the_walks_writes_on(conn).record_undone(action_id, said.outcome)
             publish_beside(conn, said, publisher_for(conn))
 
     return record_undone

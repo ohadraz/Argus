@@ -15,7 +15,7 @@ from datetime import timedelta
 from typing import Final
 
 from core import in_real_time
-from incident_record.repository import runs
+from incident_record import Run, run_queue_on
 from postgres import Connections, unit_of_work
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ def between_renewals(lease: timedelta) -> float:
     return in_real_time(lease.total_seconds() / RENEWALS_PER_LEASE)
 
 
-def keep_renewing(held: runs.Run,
+def keep_renewing(held: Run,
                   lease: timedelta,
                   connections: Connections,
                   stopped: Stopped) -> None:
@@ -64,7 +64,7 @@ def keep_renewing(held: runs.Run,
     while not stopped(every):
         try:
             with unit_of_work(connections) as renewing_conn:
-                still_held = runs.renew(renewing_conn, held, lease)
+                still_held = run_queue_on(renewing_conn).renew(held, lease)
         except Exception:
             # A thread of its own, outside the run's context, so the run is
             # named here rather than stamped.

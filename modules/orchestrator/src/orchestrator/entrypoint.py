@@ -27,8 +27,12 @@ from core.telemetry import (
     UNIT_SECONDS,
     UNIT_WALKS,
 )
-from incident_record import events_into_connection, publish_beside
-from incident_record.repository import incidents
+from incident_record import (
+    events_into_connection,
+    incident_reads_on,
+    publish_beside,
+    the_walks_writes_on,
+)
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph.state import CompiledStateGraph
 from opentelemetry import metrics, trace
@@ -146,7 +150,7 @@ def run_incident(incident_id: str,
     default to the process's own, no-ops until telemetry is started.
     """
     with connections() as conn:
-        incident = incidents.get(conn, incident_id)
+        incident = incident_reads_on(conn).incident(incident_id)
 
     if incident is None:
         raise LookupError(f"no incident [{incident_id}] to run")
@@ -229,8 +233,8 @@ def _taken_up(incident_id: str, connections: Connections) -> None:
                               detail="a worker took the incident up")
 
     with connections() as conn:
-        taken_up = incidents.transition(conn, incident_id, IncidentStatus.INVESTIGATING,
-                                        at=taking_up.at)
+        taken_up = the_walks_writes_on(conn).transition(
+            incident_id, IncidentStatus.INVESTIGATING, at=taking_up.at)
 
         if taken_up:
             # Beside the status, on the same connection, for the reason every
