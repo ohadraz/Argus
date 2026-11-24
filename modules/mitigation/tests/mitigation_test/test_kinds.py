@@ -560,7 +560,7 @@ def test_a_plan_refused_reaches_whoever_planned_it_as_the_tier_raised_it(
     Scenario() \
         .given(
             nothing_left_to_do := _a_collaborator_raising(
-                spec, ActionExhausted(an_exhausted_action(dont_care_refusal))
+                spec, ActionExhausted(an_exhausted_action(dont_care_refusal).words)
             )
         ) \
         .when(attempting(
@@ -1030,7 +1030,7 @@ def test_a_refusal_reaches_whoever_took_the_action_as_the_tier_raised_it(
     Scenario() \
         .given(
             nothing_left_to_do := _a_collaborator_raising(
-                spec, ActionExhausted(an_exhausted_action(dont_care_refusal))
+                spec, ActionExhausted(an_exhausted_action(dont_care_refusal).words)
             )
         ) \
         .when(attempting(
@@ -1054,7 +1054,7 @@ def test_a_refusal_of_an_action_with_no_plan_reaches_whoever_took_it_as_the_tier
     Scenario() \
         .given(
             nothing_left_to_do := _a_collaborator_raising(
-                spec, ActionExhausted(an_exhausted_action(dont_care_refusal))
+                spec, ActionExhausted(an_exhausted_action(dont_care_refusal).words)
             )
         ) \
         .when(attempting(
@@ -1081,7 +1081,7 @@ def test_a_change_made_since_the_plan_reaches_whoever_took_the_action_as_the_tie
     Scenario() \
         .given(
             somebody_has_been_in_there := _a_collaborator_raising(
-                spec, ChangedSince(a_change_made_since(dont_care_finding))
+                spec, ChangedSince(a_change_made_since(dont_care_finding).words)
             )
         ) \
         .when(attempting(
@@ -3326,7 +3326,7 @@ AN_ANSWER_NOBODY_COULD_READ = "the platform's answer could not be read"
 # change since the plan, and a refusal that says nothing of what is there.
 EVERY_REFUSAL_OF_A_READ = [
     pytest.param(lambda: ChangedSince(
-        a_change_made_since(SOMEBODY_CHANGED_IT_SINCE_THE_PLAN, None), None
+        a_change_made_since(SOMEBODY_CHANGED_IT_SINCE_THE_PLAN, None).words, None
     ), ChangedSince, id="changed-since"),
     pytest.param(lambda: McpToolError(AN_ANSWER_NOBODY_COULD_READ),
                  McpToolError, id="nobody-can-say")

@@ -37,9 +37,11 @@ from typing import Any, Final, Protocol
 from core import SettingsSlice
 from core.models import CACHE, CacheEntriesDiscarded
 from mcp_transport import (
+    ToolRefused,
     a_refusal_saying_what_it_left,
     an_exhausted_action,
     an_unreachable_platform,
+    with_what_it_left,
 )
 
 logger = logging.getLogger(__name__)
@@ -110,7 +112,7 @@ class StoreNotReached(Exception):
     """
 
 
-class NothingLeftToDiscard(Exception):
+class NothingLeftToDiscard(ToolRefused):
     """None of the entries named are in the store, so there is nothing to remove.
 
     Raised rather than answered with a count of zero, and this is the one judgement
@@ -126,13 +128,13 @@ class NothingLeftToDiscard(Exception):
     exhausted here, the walk moves on to another candidate, and no hypothesis is
     struck off on the strength of a change nobody made.
 
-    Marked as an exhausted action on the way out, which is what lets the walk tell
-    this from a store it could not reach. Both leave the shop unchanged and they
-    mean opposite things - here the tool worked and the store answered correctly.
+    Refused as an exhausted action, which is what lets the walk tell this from a
+    store it could not reach. Both leave the shop unchanged and they mean
+    opposite things - here the tool worked and the store answered correctly.
     """
 
 
-class EntriesNotDiscarded(Exception):
+class EntriesNotDiscarded(ToolRefused):
     """The store could not be reached, or went once the discard was on its way.
 
     Raised rather than reported as a count of zero, because the two mean opposite
@@ -217,11 +219,12 @@ def discard_cache_entries(
     way through - leaving a count that is honest about what went and no way to say
     which entries are still wrong.
 
-    Raises `EntriesNotDiscarded` where the store did not answer, marked so a
-    caller narrows itself rather than offering the same action again: a store that
-    is not there has taken every action through it away at once. Marked only
-    where it was not there before the discard: one that went after it may have
-    discarded the entries, and a store marked unreachable says nothing changed.
+    Raises `EntriesNotDiscarded` where the store did not answer, refused as an
+    unreachable store so a caller narrows itself rather than offering the same
+    action again: a store that is not there has taken every action through it
+    away at once. Refused so only where it was not there before the discard: one
+    that went after it may have discarded the entries, and a store said to be
+    unreachable says nothing changed.
     The message names the endpoint that was dialled, which is the whole diagnosis
     of this particular failure - a reader setting it against the address the
     deployment configured is doing the one comparison that explains it.
@@ -232,9 +235,9 @@ def discard_cache_entries(
     removal of nothing. That refusal would be reported as a store that errored,
     which is this module's word for a cache that could not be reached, and a walk
     would narrow itself away from every action on a store that is perfectly well.
-    Not marked unreachable, because nothing about the estate is unavailable: it is
-    a caller that has not said what to act on. And said to have left nothing,
-    because nothing was asked of the store.
+    Not refused as unreachable, because nothing about the estate is unavailable:
+    it is a caller that has not said what to act on. And said to have left
+    nothing, because nothing was asked of the store.
     """
     if not keys:
         logger.warning("no cache entries named")
@@ -255,13 +258,14 @@ def discard_cache_entries(
         ) from error
     except Exception as error:
         # The discard was on its way, and the entries may have gone with it.
-        # Unmarked, because a store marked unreachable says nothing was
-        # changed - and the walk would narrow away from one that may well have
-        # answered.
-        raise EntriesNotDiscarded(
+        # Unaccounted rather than unreachable, because a store said to be
+        # unreachable says nothing was changed - and the walk would narrow away
+        # from one that may well have answered.
+        raise EntriesNotDiscarded(with_what_it_left(
             f"could not discard {len(keys)} cache entries at "
-            f"[{settings.cache_url}]: {error}"
-        ) from error
+            f"[{settings.cache_url}]: {error}",
+            None
+        )) from error
 
     if not discarded:
         raise NothingLeftToDiscard(

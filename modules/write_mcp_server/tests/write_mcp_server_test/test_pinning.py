@@ -74,12 +74,7 @@ from deployment_platform import (
     PlatformRefused,
     PlatformUnreachable,
 )
-from mcp_transport import (
-    EXHAUSTED_ACTION_MARKER,
-    LEFT_BEHIND_MARKER,
-    UNREACHABLE_PLATFORM_MARKER,
-    what_was_left_behind,
-)
+from mcp_transport import ToolRefusalKind, ToolRefused
 from write_mcp_server.pinning import (
     AlreadyHeldStill,
     PinRefused,
@@ -105,7 +100,7 @@ from write_mcp_server_test.framework.putting_back import (
     the_suspension_is_said_to_stand,
 )
 from write_mcp_server_test.framework.refusals import (
-    it_is_marked_unreachable,
+    it_is_refused_as_unreachable,
     it_left_behind,
     it_was_refused_as,
     it_was_refused_as_changed_since,
@@ -379,7 +374,7 @@ def test_a_floor_already_past_what_argus_may_ask_for_is_refused() -> None:
 def test_an_autoscaler_with_no_room_refuses_in_a_way_a_caller_can_recognise() -> None:
     # The pin's half of the same claim. Both of this tier's exhaustion refusals
     # have to be recognisable, and they are two exceptions in two modules - so a
-    # marker applied to one and forgotten on the other is exactly the shape this
+    # kind applied to one and forgotten on the other is exactly the shape this
     # catches.
     platform = a_platform(floor=THE_CEILING, ceiling=THE_CEILING)
 
@@ -463,7 +458,7 @@ def test_bounds_the_platform_would_not_give_are_known_to_have_changed_nothing() 
         .when(attempting(lambda: plan_autoscaler_pin(SOME_APPLICATION, platform))) \
         .then(all_of(
             it_was_refused_as(PinRefused),
-            it_is_marked_unreachable(False),
+            it_is_refused_as_unreachable(False),
             what_it_left_is_known(True),
             it_left_behind(None)
         ))
@@ -480,7 +475,7 @@ def test_asking_whether_it_syncs_itself_is_a_read_and_changes_nothing() -> None:
         .given(platform) \
         .when(attempting(lambda: plan_autoscaler_pin(SOME_APPLICATION, platform))) \
         .then(all_of(
-            it_is_marked_unreachable(True),
+            it_is_refused_as_unreachable(True),
             what_it_left_is_known(True),
             it_left_behind(None)
         ))
@@ -641,7 +636,7 @@ def test_a_floor_somebody_set_since_the_plan_is_refused_before_anything_is_writt
         .then(all_of(
             it_was_refused_as_changed_since(),
             its_change_is_said_performed(False),
-            it_is_marked_unreachable(False),
+            it_is_refused_as_unreachable(False),
             it_left_behind(None),
             _nothing_was_changed(platform)
         ))
@@ -722,7 +717,7 @@ def test_a_plan_asking_for_no_higher_floor_than_it_found_is_refused_by_the_write
         .when(attempting(lambda: pin_autoscaler(a_plan, platform, SOME_MARK))) \
         .then(all_of(
             it_was_refused_as(PinRefused),
-            it_is_marked_unreachable(False),
+            it_is_refused_as_unreachable(False),
             what_it_left_is_known(True),
             it_left_behind(None),
             _nothing_was_changed(platform)
@@ -1162,7 +1157,7 @@ def test_a_suspension_whose_answer_was_lost_is_not_said_to_have_changed_nothing(
         .when(attempting(lambda: pin_autoscaler(a_plan, platform, SOME_MARK))) \
         .then(all_of(
             it_was_refused_as(PinRefused),
-            it_is_marked_unreachable(False),
+            it_is_refused_as_unreachable(False),
             what_it_left_is_known(False),
             it_left_behind(None)
         ))
@@ -1179,7 +1174,7 @@ def test_a_pin_rejected_after_sync_was_suspended_says_the_suspension_is_left() -
         .given(a_plan := _a_plan(was_syncing_itself=True)) \
         .when(attempting(lambda: pin_autoscaler(a_plan, platform, SOME_MARK))) \
         .then(all_of(
-            it_is_marked_unreachable(False),
+            it_is_refused_as_unreachable(False),
             what_it_left_is_known(True),
             it_left_behind(THE_SUSPENSION)
         ))
@@ -1198,7 +1193,7 @@ def test_a_pin_whose_answer_was_lost_carries_the_suspension_and_no_more() -> Non
         .given(a_plan := _a_plan(was_syncing_itself=True)) \
         .when(attempting(lambda: pin_autoscaler(a_plan, platform, SOME_MARK))) \
         .then(all_of(
-            it_is_marked_unreachable(False),
+            it_is_refused_as_unreachable(False),
             what_it_left_is_known(False),
             it_left_behind(THE_SUSPENSION)
         ))
@@ -1327,10 +1322,10 @@ def _it_is_reported_as_an_unreachable_platform() -> Assertion[Exception | None]:
                 f"{raised!r}."
             )
 
-        if UNREACHABLE_PLATFORM_MARKER not in str(raised):
+        if raised.refusal.kind is not ToolRefusalKind.PLATFORM_UNREACHABLE:
             raise AssertionError(
                 f"Expected the refusal to report a platform that could not be "
-                f"reached, and it reported [{raised}]."
+                f"reached, and it was [{raised.refusal.kind}]: [{raised}]."
             )
 
         return True
@@ -1346,7 +1341,7 @@ def _it_is_not_reported_as_an_unreachable_platform() -> Assertion[Exception | No
                 f"{raised!r}."
             )
 
-        if UNREACHABLE_PLATFORM_MARKER in str(raised):
+        if raised.refusal.kind is ToolRefusalKind.PLATFORM_UNREACHABLE:
             raise AssertionError(
                 f"Expected the refusal to be reported as this action's own, and "
                 f"it reported a platform that could not be reached: [{raised}]."
@@ -1358,19 +1353,21 @@ def _it_is_not_reported_as_an_unreachable_platform() -> Assertion[Exception | No
 
 
 def _the_refusal_says_the_action_is_exhausted() -> Assertion[Exception | None]:
-    """The refusal carries the marker the transport turns into a type.
+    """The refusal is of the kind the transport turns into a type.
 
-    Asserted against the marker rather than the sentence, because the sentence is
-    allowed to change and the marker is not. The kernel's suite proves a marked
-    refusal arrives as `ActionExhausted`; this proves this refusal is marked, and
+    Asserted against the kind rather than the sentence, because the sentence is
+    allowed to change and the kind is not. The kernel's suite proves an exhausted
+    refusal arrives as `ActionExhausted`; this proves this refusal is one, and
     this is the end that has to remember to apply it.
     """
     def assertion(refusal: Exception | None) -> bool:
-        if refusal is None or EXHAUSTED_ACTION_MARKER not in str(refusal):
+        kind = refusal.refusal.kind if isinstance(refusal, ToolRefused) else None
+
+        if kind is not ToolRefusalKind.EXHAUSTED:
             raise AssertionError(
-                f"Expected the refusal to carry [{EXHAUSTED_ACTION_MARKER}], so "
+                f"Expected the refusal to be [{ToolRefusalKind.EXHAUSTED}], so "
                 f"that a caller can tell an exhausted action from a broken "
-                f"platform, and it said [{refusal}]."
+                f"platform, and it was [{kind}]: [{refusal}]."
             )
 
         return True
@@ -1640,13 +1637,13 @@ def _it_says_what_it_left_behind(
     version would take the union and stop telling a pin's from a scale-out's.
     """
     def assertion(raised: Exception | None) -> bool:
-        if LEFT_BEHIND_MARKER not in str(raised):
+        carried = raised.refusal.left_behind if isinstance(raised, ToolRefused) else None
+
+        if carried is None:
             raise AssertionError(
                 f"Expected the refusal to say what it left behind, and it said "
                 f"[{raised}]."
             )
-
-        carried = what_was_left_behind(str(raised))
 
         if carried != expected:
             raise AssertionError(

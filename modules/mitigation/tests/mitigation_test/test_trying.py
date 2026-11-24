@@ -38,12 +38,6 @@ from core.models import (
     UndoDescriptor,
 )
 from mcp_transport import (
-    CHANGED_SINCE_MARKER,
-    EXHAUSTED_ACTION_MARKER,
-    LEFT_BEHIND_KNOWN_MARKER,
-    LEFT_BEHIND_MARKER,
-    PERFORMED_MARKER,
-    UNREACHABLE_PLATFORM_MARKER,
     ActionExhausted,
     ChangedSince,
     LostAfterSending,
@@ -222,8 +216,9 @@ THE_CEILING_REFUSED = (
 # The two refusals a pin can meet, in the words the write tier raises them with,
 # and quoted for the reason the ceiling's are. The pair is the point: one is an
 # estate with nothing left to hold still, the other a platform that would not
-# make the change - and they are told apart by the marker rather than by their
-# wording, so a case matching on the words would pass whichever verdict it got.
+# make the change - and they are told apart by the refusal's kind rather than by
+# their wording, so a case matching on the words would pass whichever verdict it
+# got.
 THE_AUTOSCALER_HAS_NO_ROOM_LEFT = (
     f"[{SOME_APPLICATION}]'s autoscaler may fall to [6] replicas and rise to "
     f"[6], and the highest floor Argus may ask for is [6] - so there is no room "
@@ -2308,7 +2303,7 @@ def test_an_autoscaler_with_no_room_left_is_not_attempted_rather_than_escalated(
     Scenario() \
         .given(
             the_autoscaler_is_already_held_still := _a_kind_that_cannot(
-                ActionExhausted(an_exhausted_action(THE_AUTOSCALER_HAS_NO_ROOM_LEFT)),
+                ActionExhausted(an_exhausted_action(THE_AUTOSCALER_HAS_NO_ROOM_LEFT).words),
                 intent=some_intent
             )
         ) \
@@ -2333,7 +2328,6 @@ def test_an_autoscaler_with_no_room_left_is_not_attempted_rather_than_escalated(
             _it_says_it_was_performed(False),
             _the_detail_mentions(f"did not {some_intent} - "),
             _the_detail_mentions(THE_AUTOSCALER_HAS_NO_ROOM_LEFT),
-            _the_detail_does_not_mention(EXHAUSTED_ACTION_MARKER),
             _there_is_nothing_to_put_back(),
             _what_it_left_is_known(True),
             _why_it_was_not_performed_is(THE_AUTOSCALER_HAS_NO_ROOM_LEFT)
@@ -2341,18 +2335,18 @@ def test_an_autoscaler_with_no_room_left_is_not_attempted_rather_than_escalated(
 
 
 @pytest.mark.unit
-def test_a_pin_refused_without_the_marker_still_escalates() -> None:
+def test_a_pin_refused_otherwise_than_as_exhausted_still_escalates() -> None:
     # The half that matters, and the one a single catch in the wrong order gets
     # wrong. `ActionExhausted` is an `McpToolError` like any other, so the broad
     # handler reached first swallows the exhausted case into an escalation - which
     # is the failure this pair is written around. This case is the other
-    # direction: an unmarked refusal must *not* become the new verdict.
+    # direction: an ordinary refusal must *not* become the new verdict.
     #
     # The distinction is not a taxonomy. The tier raises both, and only the one
-    # that changed nothing is marked: a refused patch can fire after sync was
-    # already suspended, so the estate is in a state nobody can name and a human
-    # has to look. Reading that as "nothing left to do" would move the walk on
-    # from a deployment it has half-changed.
+    # that changed nothing is refused as exhausted: a refused patch can fire
+    # after sync was already suspended, so the estate is in a state nobody can
+    # name and a human has to look. Reading that as "nothing left to do" would
+    # move the walk on from a deployment it has half-changed.
     some_intent = f"stop [{SOME_APPLICATION}]'s autoscaler scaling it down"
 
     Scenario() \
@@ -2425,7 +2419,6 @@ def test_a_rollback_whose_platform_was_not_there_is_neither_escalated_nor_exhaus
             _it_says_nothing_was_judged(),
             _it_says_it_was_performed(False),
             _the_detail_mentions(THE_PLATFORM_DID_NOT_ANSWER),
-            _the_detail_does_not_mention(UNREACHABLE_PLATFORM_MARKER),
             _there_is_nothing_to_put_back(),
             _what_it_left_is_known(True),
             # Named with the platform, as the tier names it to whoever reads it.
@@ -2497,8 +2490,7 @@ def test_a_rollback_refused_before_anything_changed_says_nothing_was_changed() -
             _it_says_it_was_performed(False),
             _what_it_left_is_known(True),
             _there_is_nothing_to_put_back(),
-            _the_detail_mentions(THE_ROLLBACK_WAS_REFUSED),
-            _the_detail_does_not_mention(LEFT_BEHIND_KNOWN_MARKER)
+            _the_detail_mentions(THE_ROLLBACK_WAS_REFUSED)
         ))
 
 
@@ -2531,9 +2523,7 @@ def test_a_rollback_refused_after_the_suspension_carries_what_it_left() -> None:
             the_verdict_is(Verdict.ESCALATED),
             _what_it_left_is_known(True),
             _it_carries_back(WHAT_THE_ROLLBACK_LEFT),
-            _the_detail_mentions(THE_ROLLBACK_WAS_REFUSED),
-            _the_detail_does_not_mention(LEFT_BEHIND_KNOWN_MARKER),
-            _the_detail_does_not_mention(LEFT_BEHIND_MARKER)
+            _the_detail_mentions(THE_ROLLBACK_WAS_REFUSED)
         ))
 
 
@@ -2564,8 +2554,7 @@ def test_a_rollback_whose_answer_was_lost_carries_the_suspension_and_is_not_know
         .then(all_of(
             the_verdict_is(Verdict.ESCALATED),
             _what_it_left_is_known(False),
-            _it_carries_back(WHAT_THE_ROLLBACK_LEFT),
-            _the_detail_does_not_mention(LEFT_BEHIND_MARKER)
+            _it_carries_back(WHAT_THE_ROLLBACK_LEFT)
         ))
 
 
@@ -2673,11 +2662,12 @@ def test_a_platform_lost_after_the_suspension_still_narrows_and_says_what_it_lef
 
 
 @pytest.mark.unit
-def test_what_a_person_reads_of_a_lost_platform_is_not_the_payload() -> None:
-    # The descriptor rides in the same string the detail is built from, and the
-    # detail is what appears in the timeline, the postmortem and a Slack line. A
-    # JSON object in the middle of a sentence tells a reader nothing the verdict
-    # beside it has not already said.
+def test_what_a_person_reads_of_a_lost_platform_is_the_refusal_s_words() -> None:
+    # The descriptor rides on the same failure the detail is built from, and the
+    # detail is what appears in the timeline, the postmortem and a Slack line. It
+    # ends with the refusal's own words and nothing after them: a JSON object in
+    # a sentence tells a reader nothing the verdict beside it has not already
+    # said.
     Scenario() \
         .given(
             the_platform_went_mid_rollback := _a_roller_that_lost_the_platform_mid_action(
@@ -2699,8 +2689,8 @@ def test_what_a_person_reads_of_a_lost_platform_is_not_the_payload() -> None:
             )
         ) \
         .then(all_of(
-            _the_detail_mentions(THE_PLATFORM_DID_NOT_ANSWER),
-            _the_detail_does_not_mention(LEFT_BEHIND_MARKER)
+            _the_detail_closes_with(f"{DEPLOYMENT_PLATFORM} {THE_PLATFORM_DID_NOT_ANSWER}"),
+            _why_it_was_not_performed_is(f"{DEPLOYMENT_PLATFORM} {THE_PLATFORM_DID_NOT_ANSWER}")
         ))
 
 
@@ -2783,13 +2773,14 @@ def test_a_change_made_since_the_plan_escalates_without_a_verdict() -> None:
 
 @pytest.mark.unit
 @pytest.mark.parametrize("performed", [False, True], ids=["not-landed", "landed"])
-def test_what_a_person_reads_of_a_change_made_since_carries_none_of_the_markers(
+def test_what_a_person_reads_of_a_change_made_since_is_the_refusal_s_words(
     performed: bool
 ) -> None:
-    # The markers classified the refusal, and the descriptor rides in the same
-    # string: none of it belongs in the sentence the timeline, the postmortem
-    # and a Slack line carry - whether or not this claim's own change landed,
-    # which is one more marker in the string where it did.
+    # The refusal's kind classified it, and the descriptor and whether this
+    # claim's own change landed ride on the same failure: none of them belongs
+    # in the sentence the timeline, the postmortem and a Slack line carry, which
+    # ends with the refusal's own words and nothing after them - whether or not
+    # the change landed.
     Scenario() \
         .given(
             somebody_scaled_it := _a_scaler_finding_it_changed_since(
@@ -2812,11 +2803,7 @@ def test_what_a_person_reads_of_a_change_made_since_carries_none_of_the_markers(
             )
         ) \
         .then(all_of(
-            _the_detail_mentions(SOMEBODY_SCALED_IT),
-            _the_detail_does_not_mention(CHANGED_SINCE_MARKER),
-            _the_detail_does_not_mention(PERFORMED_MARKER),
-            _the_detail_does_not_mention(LEFT_BEHIND_KNOWN_MARKER),
-            _the_detail_does_not_mention(LEFT_BEHIND_MARKER),
+            _the_detail_closes_with(SOMEBODY_SCALED_IT),
             _why_it_was_not_performed_is(None if performed else SOMEBODY_SCALED_IT)
         ))
 
@@ -2968,7 +2955,7 @@ def test_a_plan_refused_as_spent_is_not_attempted_as_a_spent_write_was(
     Scenario() \
         .given(
             nothing_left_to_do := _a_collaborator_raising(
-                spec, ActionExhausted(an_exhausted_action(refusal))
+                spec, ActionExhausted(an_exhausted_action(refusal).words)
             )
         ) \
         .when(
@@ -2982,8 +2969,7 @@ def test_a_plan_refused_as_spent_is_not_attempted_as_a_spent_write_was(
             _what_it_left_is_known(True),
             _there_is_nothing_to_put_back(),
             _why_it_was_not_performed_is(refusal),
-            _the_detail_mentions(f"did not {intent} - "),
-            _the_detail_does_not_mention(EXHAUSTED_ACTION_MARKER)
+            _the_detail_mentions(f"did not {intent} - ")
         ))
 
 
@@ -2997,7 +2983,7 @@ def test_a_plan_whose_platform_was_not_there_narrows_the_walk_as_a_write_s_did()
             the_platform_was_not_answering := _a_collaborator_raising(
                 RollbackPlanner,
                 PlatformUnreachable(
-                    an_unreachable_platform(DEPLOYMENT_PLATFORM, THE_PLATFORM_DID_NOT_ANSWER)
+                    an_unreachable_platform(DEPLOYMENT_PLATFORM, THE_PLATFORM_DID_NOT_ANSWER).words
                 )
             )
         ) \
@@ -3013,7 +2999,6 @@ def test_a_plan_whose_platform_was_not_there_narrows_the_walk_as_a_write_s_did()
             _it_says_nothing_was_judged(),
             _it_says_it_was_performed(False),
             _there_is_nothing_to_put_back(),
-            _the_detail_does_not_mention(UNREACHABLE_PLATFORM_MARKER),
             _why_it_was_not_performed_is(f"{DEPLOYMENT_PLATFORM} {THE_PLATFORM_DID_NOT_ANSWER}")
         ))
 
@@ -4666,11 +4651,8 @@ def _the_reason_is(expected: str | None) -> Assertion[Outcome]:
 def _the_detail_does_not_mention(forbidden: str) -> Assertion[Outcome]:
     """What a reader must not be shown, asserted rather than assumed.
 
-    The marker is how the transport classified this refusal, and it has done that
-    job by the time a detail is written. It reaches a timeline, a postmortem and a
-    Slack line, where `argus:action-exhausted` in the middle of a sentence tells a
-    person nothing the verdict beside it has not already said - and a stripping
-    step nobody asserts is one that quietly stops happening.
+    A detail reaches a timeline, a postmortem and a Slack line, and words there
+    saying what the outcome does not are read by a person as having happened.
     """
     def assertion(outcome: Outcome) -> bool:
         if forbidden in outcome.detail:
@@ -5015,14 +4997,14 @@ def _a_roller_that_cannot_reach_the_platform(failure: str) -> MagicMock:
     """Answers as the tier does when the platform was not there to be asked.
 
     `PlatformUnreachable` rather than a bare error, because that is what the
-    transport raises when a tool's failure carries the marker - a case raising
-    anything else would exercise a failure production cannot produce. Marked the
-    way the tier marks it rather than with the token written out here, so this
-    stays true if the token changes.
+    transport raises when a tool refuses as a platform that did not answer - a
+    case raising anything else would exercise a failure production cannot
+    produce. In the words of the refusal the tier builds rather than words
+    written out here, so this stays true if how those words are said changes.
     """
     roll_back: MagicMock = create_autospec(DeploymentRoller, instance=True)
     roll_back.side_effect = PlatformUnreachable(
-        an_unreachable_platform(DEPLOYMENT_PLATFORM, failure)
+        an_unreachable_platform(DEPLOYMENT_PLATFORM, failure).words
     )
 
     return roll_back
@@ -5031,9 +5013,9 @@ def _a_roller_that_cannot_reach_the_platform(failure: str) -> MagicMock:
 def _a_roller_that_cannot(failure: str) -> MagicMock:
     """Answers as the tier does when the rollback itself was refused.
 
-    Unmarked, which is the whole of what it stands for: the same tier raises
-    this and an unreachable platform, and only the one that means every action
-    through the platform is unavailable carries that marker.
+    An ordinary refusal, which is the whole of what it stands for: the same tier
+    raises this and an unreachable platform, and only the one that means every
+    action through the platform is unavailable is refused as that.
     """
     roll_back: MagicMock = create_autospec(DeploymentRoller, instance=True)
     roll_back.side_effect = McpToolError(failure)
@@ -5045,7 +5027,7 @@ def _a_pinner_that_cannot_reach_the_platform(failure: str) -> MagicMock:
     """The pin's version of `_a_roller_that_cannot_reach_the_platform`."""
     pin: MagicMock = create_autospec(AutoscalerPinner, instance=True)
     pin.side_effect = PlatformUnreachable(
-        an_unreachable_platform(DEPLOYMENT_PLATFORM, failure)
+        an_unreachable_platform(DEPLOYMENT_PLATFORM, failure).words
     )
 
     return pin
@@ -5079,11 +5061,11 @@ def _a_scaler_finding_it_changed_since(finding: str,
     show already landed - `None` where nothing of this claim's did - and
     whether this claim's own change was among it.
 
-    Marked the way the tier marks it rather than with the token written out
-    here, so this stays true if the token changes."""
+    In the words of the refusal the tier builds rather than words written out
+    here, so this stays true if how those words are said changes."""
     scale_out: MagicMock = create_autospec(DeploymentScaler, instance=True)
     scale_out.side_effect = ChangedSince(
-        a_change_made_since(finding, left_behind, performed=performed), left_behind,
+        a_change_made_since(finding, left_behind, performed=performed).words, left_behind,
         performed=performed
     )
 
@@ -5186,13 +5168,13 @@ def _a_pinner_with_no_room_left(refusal: str) -> MagicMock:
     """Answers as the tier does when there is nothing left to hold still.
 
     `ActionExhausted` rather than a bare error, because that is what the transport
-    raises when a tool's refusal carries the marker - a case raising anything else
-    would be exercising a failure production cannot produce. Marked the way the
-    tier marks it rather than with the token written out here, so this stays true
-    if the token changes.
+    raises when a tool refuses an action as exhausted - a case raising anything
+    else would be exercising a failure production cannot produce. In the words of
+    the refusal the tier builds rather than words written out here, so this stays
+    true if how those words are said changes.
     """
     pin: MagicMock = create_autospec(AutoscalerPinner, instance=True)
-    pin.side_effect = ActionExhausted(an_exhausted_action(refusal))
+    pin.side_effect = ActionExhausted(an_exhausted_action(refusal).words)
 
     return pin
 
@@ -5209,7 +5191,7 @@ def _a_roller_that_lost_the_platform_mid_action(failure: str) -> MagicMock:
     roll_back.side_effect = PlatformUnreachable(
         an_unreachable_platform(
             DEPLOYMENT_PLATFORM, failure, undo_descriptor=WHAT_THE_ROLLBACK_LEFT
-        ),
+        ).words,
         WHAT_THE_ROLLBACK_LEFT
     )
 
@@ -5223,7 +5205,7 @@ def _a_roller_refusing_saying_what_it_left(
     what it left: built as the transport builds it from that refusal."""
     roll_back: MagicMock = create_autospec(DeploymentRoller, instance=True)
     roll_back.side_effect = McpToolError(
-        a_refusal_saying_what_it_left(failure, left_behind),
+        a_refusal_saying_what_it_left(failure, left_behind).words,
         undo_descriptor=left_behind,
         left_behind_known=True
     )
@@ -5237,7 +5219,7 @@ def _a_roller_failing_with_what_it_left(failure: str,
     earlier change landed: what it knows it left, and not that it is all."""
     roll_back: MagicMock = create_autospec(DeploymentRoller, instance=True)
     roll_back.side_effect = McpToolError(
-        with_what_it_left(failure, left_behind),
+        with_what_it_left(failure, left_behind).words,
         undo_descriptor=left_behind,
         left_behind_known=False
     )
@@ -7390,7 +7372,8 @@ def _a_change_made_since_by_somebody(left_behind: UndoDescriptor,
     has scaled it since, carrying what this claim's marks show landed, and
     whether this claim's own change was among it."""
     return ChangedSince(
-        a_change_made_since(SOMEBODY_SCALED_IT, left_behind, performed=performed), left_behind,
+        a_change_made_since(SOMEBODY_SCALED_IT, left_behind, performed=performed).words,
+        left_behind,
         performed=performed
     )
 

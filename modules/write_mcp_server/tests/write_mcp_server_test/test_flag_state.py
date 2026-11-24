@@ -58,7 +58,7 @@ from argus_testkit import (
 from core import to_iso
 from core.models import FlagChange, FlagState, FlagUndo, Planned
 from flag_provider import FlagProviderUnavailable, FlagProviderWrites, FlagWriteFailed
-from mcp_transport import CHANGED_SINCE_MARKER, EXHAUSTED_ACTION_MARKER
+from mcp_transport import ToolRefusalKind, ToolRefused
 from write_mcp_server.flag_state import (
     FlagNotSet,
     plan_flag,
@@ -259,7 +259,7 @@ def test_a_change_to_the_state_the_plan_found_is_refused_before_anything_is_aske
         ))) \
         .then(all_of(
             it_was_refused_as(FlagNotSet),
-            _it_is_marked_changed_since(False),
+            _it_is_refused_as_changed_since(False),
             what_it_left_is_known(True),
             it_left_behind(None),
             _nothing_was_asked_of_the_provider(flags)
@@ -419,7 +419,7 @@ def test_a_flag_somebody_else_changed_since_the_plan_is_refused_as_changed_since
         ))) \
         .then(all_of(
             it_was_refused_as(FlagNotSet),
-            _it_is_marked_changed_since(True),
+            _it_is_refused_as_changed_since(True),
             what_it_left_is_known(True),
             it_left_behind(left_behind),
             its_change_is_said_performed(performed),
@@ -442,7 +442,7 @@ def test_a_flag_whose_change_nobody_could_attribute_is_refused_as_changing_nothi
         ))) \
         .then(all_of(
             it_was_refused_as(FlagNotSet),
-            _it_is_marked_changed_since(False),
+            _it_is_refused_as_changed_since(False),
             what_it_left_is_known(True),
             it_left_behind(None),
             _nothing_was_written(flags)
@@ -673,14 +673,16 @@ def _it_puts_back(flag: str, was_enabled: bool, written_at: datetime) -> Asserti
     return assertion
 
 
-def _it_is_marked_changed_since(expected: bool) -> Assertion[object]:
+def _it_is_refused_as_changed_since(expected: bool) -> Assertion[object]:
     """Both ways: a refusal of a change nobody could attribute is not a change
     somebody else made, and the walk does something different with each."""
     def assertion(raised: object) -> bool:
-        if (CHANGED_SINCE_MARKER in str(raised)) is not expected:
+        kind = raised.refusal.kind if isinstance(raised, ToolRefused) else None
+
+        if (kind is ToolRefusalKind.CHANGED_SINCE) is not expected:
             raise AssertionError(
                 f"Expected the refusal {'' if expected else 'not '}to say the flag was "
-                f"changed since it was read, and it said [{raised}]."
+                f"changed since it was read, and it was a [{kind}] refusal: [{raised}]."
             )
 
         return True
@@ -689,14 +691,16 @@ def _it_is_marked_changed_since(expected: bool) -> Assertion[object]:
 
 
 def _the_refusal_says_the_action_is_exhausted() -> Assertion[object]:
-    """Asserted against the marker rather than the sentence, because the
-    sentence is allowed to change and the marker is not."""
+    """Asserted against the kind rather than the sentence, because the
+    sentence is allowed to change and the kind is not."""
     def assertion(raised: object) -> bool:
-        if EXHAUSTED_ACTION_MARKER not in str(raised):
+        kind = raised.refusal.kind if isinstance(raised, ToolRefused) else None
+
+        if kind is not ToolRefusalKind.EXHAUSTED:
             raise AssertionError(
-                f"Expected the refusal to carry [{EXHAUSTED_ACTION_MARKER}], so that a "
-                f"caller can tell a spent action from a broken provider, and it said "
-                f"[{raised}]."
+                f"Expected the refusal to be [{ToolRefusalKind.EXHAUSTED}], so that a "
+                f"caller can tell a spent action from a broken provider, and it was "
+                f"[{kind}]: [{raised}]."
             )
 
         return True

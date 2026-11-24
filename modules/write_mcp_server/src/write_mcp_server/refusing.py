@@ -9,9 +9,9 @@ platform said - a read changes nothing, so a refusal there says it left nothing.
 At a change the platform answered it did not handle, what is left is what the
 earlier calls answered for, and that is known to be all of it. At one whose
 answer was lost, the earlier calls' changes are still carried, because they are
-in place either way - and nothing is said to be all of it, and nothing is marked:
-a platform marked unreachable narrows the walk onto other actions, judged against
-a service that may be recovering from this one.
+in place either way - and nothing is said to be all of it, and the platform is
+not said to be unreachable: a platform said so narrows the walk onto other
+actions, judged against a service that may be recovering from this one.
 
 Which of the platform's failures said the request was not applied is the
 adapter's to tell (`known_not_applied`); where in the action a failure fell is
@@ -24,6 +24,7 @@ from core.models import DEPLOYMENT_PLATFORM, UndoDescriptor
 from deployment_platform import DeploymentPlatformError, PlatformUnreachable
 from mcp_transport import (
     ACTION_META_KEY,
+    ToolRefusal,
     a_refusal_saying_what_it_left,
     an_unreachable_platform,
     with_what_it_left,
@@ -34,17 +35,17 @@ def a_platform_refusal(said: str,
                        error: DeploymentPlatformError,
                        *,
                        asked_to_change: bool,
-                       left_behind: UndoDescriptor | None = None) -> str:
-    """`said`, marked for what the failure leaves known about the estate.
+                       left_behind: UndoDescriptor | None = None) -> ToolRefusal:
+    """`said`, as the refusal the failure leaves known about the estate.
 
     `asked_to_change` is whether the call that failed was a change request
     rather than a read; `left_behind` is what the calls before it changed, as
     they answered for it.
 
-    The mark is what lets a caller tell every action through the platform
+    The kind is what lets a caller tell every action through the platform
     being unavailable from this one being refused, and a refusal that changed
     nothing from one nobody can account for, without reading the words of any
-    of them. Applied here rather than by the platform: what a response means is
+    of them. Decided here rather than by the platform: what a response means is
     the platform's to say, and what to raise about it is the action's own.
     """
     if asked_to_change and not error.known_not_applied:
@@ -56,13 +57,16 @@ def a_platform_refusal(said: str,
     return a_refusal_saying_what_it_left(said, left_behind)
 
 
-def no_claim_to_compare_with(the_change: str) -> str:
+def no_claim_to_compare_with(the_change: str) -> ToolRefusal:
     """What a read of whose a marked change is says where the call named no
     claim: the claim is the whole of whose a mark is, so nobody can say.
 
-    Unmarked, as a question nobody could answer: no evidence anybody acted, so
-    not changed since, and nothing it can vouch for about what landed. Names the
-    `_meta` key it found no claim under, as a marked write refused for the same
-    does (`marking`)."""
-    return (f"the call named no claim under [{ACTION_META_KEY}], so whether "
-            f"{the_change} was made under one's mark cannot be asked, and nobody can say")
+    Unaccounted, as a question nobody could answer: no evidence anybody acted,
+    so not changed since, and nothing it can vouch for about what landed. Names
+    the `_meta` key it found no claim under, as a marked write refused for the
+    same does (`marking`)."""
+    return with_what_it_left(
+        f"the call named no claim under [{ACTION_META_KEY}], so whether "
+        f"{the_change} was made under one's mark cannot be asked, and nobody can say",
+        None
+    )

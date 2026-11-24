@@ -1,22 +1,16 @@
 """How Argus reaches an MCP server and answers as one: the held client session,
-the traced server, and the words a refusal is recognised by on both sides.
+the traced server, and the refusal both sides read.
 
 A package of its own so the kernel installs no MCP SDK, no HTTP client and no
 ASGI server; the two tiers' clients, both servers, the Mitigator and the walk
 take it.
 """
 
+from mcp_transport.refusals import REFUSAL_KEY, ToolRefusal, ToolRefusalKind, ToolRefused
 from mcp_transport.transport import (
     ACTION_META_KEY,
-    CHANGED_SINCE_MARKER,
-    EXHAUSTED_ACTION_MARKER,
     FENCE_META_KEY,
-    LEFT_BEHIND_KNOWN_MARKER,
-    LEFT_BEHIND_MARKER,
-    PERFORMED_MARKER,
     PING_SECONDS,
-    RUN_LOST_MARKER,
-    UNREACHABLE_PLATFORM_MARKER,
     ActionExhausted,
     Asking,
     AskingBound,
@@ -36,22 +30,14 @@ from mcp_transport.transport import (
     an_unreachable_platform,
     every_tool_listed,
     serving_a_tool_call,
-    what_was_left_behind,
     with_what_it_left,
-    without_the_payload,
 )
 
 __all__ = [
     "ACTION_META_KEY",
-    "CHANGED_SINCE_MARKER",
-    "EXHAUSTED_ACTION_MARKER",
     "FENCE_META_KEY",
-    "LEFT_BEHIND_KNOWN_MARKER",
-    "LEFT_BEHIND_MARKER",
-    "PERFORMED_MARKER",
     "PING_SECONDS",
-    "RUN_LOST_MARKER",
-    "UNREACHABLE_PLATFORM_MARKER",
+    "REFUSAL_KEY",
     "ActionExhausted",
     "Asking",
     "AskingBound",
@@ -61,6 +47,9 @@ __all__ = [
     "McpToolError",
     "McpUnreachable",
     "PlatformUnreachable",
+    "ToolRefusal",
+    "ToolRefusalKind",
+    "ToolRefused",
     "TracedMCPServer",
     "WhichAsking",
     "a_change_made_since",
@@ -71,7 +60,5 @@ __all__ = [
     "an_unreachable_platform",
     "every_tool_listed",
     "serving_a_tool_call",
-    "what_was_left_behind",
-    "with_what_it_left",
-    "without_the_payload"
+    "with_what_it_left"
 ]

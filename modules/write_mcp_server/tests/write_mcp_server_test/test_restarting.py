@@ -33,11 +33,11 @@ from deployment_platform import (
     PlatformRefused,
     PlatformUnreachable,
 )
-from mcp_transport import UNREACHABLE_PLATFORM_MARKER
+from mcp_transport import ToolRefusalKind
 from write_mcp_server.restarting import ServiceNotRestarted, restart_service
 
 from write_mcp_server_test.framework.refusals import (
-    it_is_marked_unreachable,
+    it_is_refused_as_unreachable,
     it_left_behind,
     it_was_refused_as,
     what_it_left_is_known,
@@ -242,7 +242,7 @@ def test_a_platform_that_refused_the_read_is_known_to_have_changed_nothing() -> 
         .when(attempting(lambda: _restarting(platform))) \
         .then(all_of(
             it_was_refused_as(ServiceNotRestarted),
-            it_is_marked_unreachable(False),
+            it_is_refused_as_unreachable(False),
             what_it_left_is_known(True),
             it_left_behind(None)
         ))
@@ -260,7 +260,7 @@ def test_a_restart_the_platform_rejected_is_known_to_have_changed_nothing() -> N
         .given(platform) \
         .when(attempting(lambda: _restarting(platform))) \
         .then(all_of(
-            it_is_marked_unreachable(False),
+            it_is_refused_as_unreachable(False),
             what_it_left_is_known(True),
             it_left_behind(None)
         ))
@@ -277,7 +277,7 @@ def test_a_restart_whose_answer_was_lost_is_not_said_to_have_changed_nothing() -
         .given(platform) \
         .when(attempting(lambda: _restarting(platform))) \
         .then(all_of(
-            it_is_marked_unreachable(False),
+            it_is_refused_as_unreachable(False),
             what_it_left_is_known(False)
         ))
 
@@ -309,7 +309,7 @@ def test_a_platform_that_refused_the_action_is_not_reported_as_unreachable() -> 
 
 @pytest.mark.unit
 def test_a_restart_that_could_not_be_confirmed_is_not_reported_as_unreachable() -> None:
-    # The restriction the marker carries. The platform took the action and then
+    # The restriction the kind carries. The platform took the action and then
     # stopped answering, so a restart may well be rolling right now - and a walk
     # told only that the platform is unavailable would pass over the remaining
     # actions believing the estate untouched.
@@ -425,10 +425,10 @@ def _it_is_reported_as_an_unreachable_platform() -> Assertion[Exception | None]:
                 f"{raised!r}."
             )
 
-        if UNREACHABLE_PLATFORM_MARKER not in str(raised):
+        if raised.refusal.kind is not ToolRefusalKind.PLATFORM_UNREACHABLE:
             raise AssertionError(
                 f"Expected the refusal to report a platform that could not be "
-                f"reached, and it reported [{raised}]."
+                f"reached, and it was [{raised.refusal.kind}]: [{raised}]."
             )
 
         return True
@@ -444,7 +444,7 @@ def _it_is_not_reported_as_an_unreachable_platform() -> Assertion[Exception | No
                 f"{raised!r}."
             )
 
-        if UNREACHABLE_PLATFORM_MARKER in str(raised):
+        if raised.refusal.kind is ToolRefusalKind.PLATFORM_UNREACHABLE:
             raise AssertionError(
                 f"Expected the refusal to be reported as this action's own, and "
                 f"it reported a platform that could not be reached: [{raised}]."

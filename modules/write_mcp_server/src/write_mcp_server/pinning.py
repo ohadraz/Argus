@@ -71,9 +71,11 @@ from deployment_platform import (
     MarkFound,
 )
 from mcp_transport import (
+    ToolRefused,
     a_change_made_since,
     a_refusal_saying_what_it_left,
     an_exhausted_action,
+    with_what_it_left,
 )
 
 from write_mcp_server.refusing import a_platform_refusal, no_claim_to_compare_with
@@ -89,7 +91,7 @@ from write_mcp_server.sync_switch import (
 logger = logging.getLogger(__name__)
 
 
-class AlreadyHeldStill(Exception):
+class AlreadyHeldStill(ToolRefused):
     """There is no room left between the floor and the ceiling.
 
     Raised rather than answered with a no-op, and raised *before* anything is
@@ -106,14 +108,14 @@ class AlreadyHeldStill(Exception):
     """
 
 
-class PinRefused(Exception):
+class PinRefused(ToolRefused):
     """The platform would not report the bounds, or would not change them."""
 
 
 def _refusing(said: str, error: DeploymentPlatformError, *,
               asked_to_change: bool,
               left_behind: AutoscalerUndo | None = None) -> PinRefused:
-    """This module's refusal, marked as `a_platform_refusal` marks it.
+    """This module's refusal, of the kind `a_platform_refusal` decides.
 
     `left_behind` is what the failure cost, where it cost anything. Where the
     suspension landed and the floor did not move, that suspension travels on the
@@ -305,7 +307,7 @@ def still_argus_s(descriptor: AutoscalerUndo,
     if action_id is None:
         return ChangeFound(still_argus_s=None, found=no_claim_to_compare_with(
             f"the pin of [{application}]'s autoscaler"
-        ))
+        ).words)
 
     try:
         found = _what_is_there(application, platform)
@@ -619,10 +621,11 @@ def _where_the_autoscaler_is(application: str,
     autoscaler = platform.autoscaler_of(application)
 
     if autoscaler is None:
-        raise PinRefused(
+        raise PinRefused(with_what_it_left(
             f"[{application}] has no autoscaler among its resources, so there is "
-            f"no autoscaler here to hold still"
-        )
+            f"no autoscaler here to hold still",
+            None
+        ))
 
     return autoscaler
 

@@ -219,21 +219,22 @@ parsing prose for something the tier knew and threw away.
 - **THEN** it reports a failed action, and does not report the platform as
   unreachable
 
-### Requirement: It travels over the marker an exhausted action already travels over
-The tier SHALL carry the distinction to its callers by the mechanism that
-already carries an exhausted action: a marker in what the failing tool reports,
-recognised where a tool's reported error becomes an exception, and raised there
-as a typed exception of its own. That exception SHALL be a kind of the tier's
-general tool failure, so that a caller which does not know about it catches it
-as it always did. The recognition SHALL happen in that one place and SHALL NOT
-be repeated in the tier's typed client or in a calling agent.
+### Requirement: It travels as the kind of a refusal, as every refusal does
+The tier SHALL carry the distinction to its callers as every refusal travels: a
+refusal of the unreachable-platform kind, carried whole in the structured
+content of the failed call's result beside the words a person reads, recognised
+where a tool's reported error becomes an exception, and raised there as a typed
+exception of its own. That exception SHALL be a kind of the tier's general tool
+failure, so that a caller which does not know about it catches it as it always
+did. The recognition SHALL happen in that one place and SHALL NOT be repeated in
+the tier's typed client or in a calling agent.
 
-The protocol gives a tool one way to fail, so a second kind of failure is told
-from the first by what the failure says rather than by a channel of its own -
-which is the problem an exhausted action already solved, and solving it twice
-differently would leave two conventions for one shape of fact. Drawn where the
-error becomes an exception because any distinction drawn later is a second
-reading of the same field, and two readings drift.
+A refusal's kind, and what the refused call left behind, travel as a value
+rather than in the words, so that nothing a caller acts on is read out of a
+sentence somebody will rewrite, and nothing it acts on is in the sentence a
+person reads. Drawn where the error becomes an exception because any
+distinction drawn later is a second reading of the same field, and two readings
+drift.
 
 #### Scenario: A caller gets a typed exception rather than a message to parse
 - **GIVEN** a tool call that failed because its platform could not be reached

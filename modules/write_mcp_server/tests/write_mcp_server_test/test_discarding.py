@@ -37,7 +37,7 @@ from argus_testkit import (
     the_answer_was,
 )
 from core.models import CACHE, CacheEntriesDiscarded
-from mcp_transport import EXHAUSTED_ACTION_MARKER, UNREACHABLE_PLATFORM_MARKER
+from mcp_transport import ToolRefusalKind, ToolRefused
 from write_mcp_server.discarding import (
     DiscardEntries,
     DiscardSettings,
@@ -50,7 +50,7 @@ from write_mcp_server.discarding import (
 )
 
 from write_mcp_server_test.framework.refusals import (
-    it_is_marked_unreachable,
+    it_is_refused_as_unreachable,
     what_it_left_is_known,
 )
 
@@ -136,7 +136,7 @@ def test_a_store_that_held_none_of_them_refuses_rather_than_reporting_nothing() 
     # contradict it. The incident closes as mitigated over a shop whose figures
     # are still wrong.
     #
-    # So it is a refusal, marked as an exhausted action exactly as a deployment
+    # So it is a refusal, refused as an exhausted action exactly as a deployment
     # already at its largest is: the tool worked, the store answered correctly,
     # and the action Argus has for this cause has nothing left to do here. The
     # walk moves on to its next candidate rather than striking a hypothesis off
@@ -159,7 +159,7 @@ def test_a_store_that_held_none_of_them_refuses_rather_than_reporting_nothing() 
         .then(all_of(
             an_error_was_raised(NothingLeftToDiscard),
             _it_named(SOME_CACHE_URL),
-            _it_marked_the_action_exhausted()
+            _it_was_refused_as_exhausted()
         ))
 
 
@@ -188,14 +188,14 @@ def test_a_cache_that_could_not_be_reached_raises_and_says_which_one() -> None:
         .then(all_of(
             an_error_was_raised(EntriesNotDiscarded),
             _it_named(SOME_CACHE_URL),
-            _it_marked_the_platform_unreachable(),
+            _it_was_refused_as_the_platform_unreachable(),
             what_it_left_is_known(True)
         ))
 
 
 @pytest.mark.unit
 def test_a_cache_lost_once_the_discard_was_asked_for_is_not_said_to_have_changed_nothing() -> None:
-    # The entries may have gone: marked as a store that could not be reached,
+    # The entries may have gone: refused as a store that could not be reached,
     # the record would say nothing was changed and the walk would narrow away
     # from a store that may well have answered.
     Scenario() \
@@ -212,7 +212,7 @@ def test_a_cache_lost_once_the_discard_was_asked_for_is_not_said_to_have_changed
         .then(all_of(
             an_error_was_raised(EntriesNotDiscarded),
             _it_named(SOME_CACHE_URL),
-            it_is_marked_unreachable(False),
+            it_is_refused_as_unreachable(False),
             what_it_left_is_known(False)
         ))
 
@@ -255,7 +255,7 @@ def test_a_discard_naming_no_keys_never_reaches_the_store() -> None:
         .then(all_of(
             an_error_was_raised(EntriesNotDiscarded),
             _it_never_asked(discard),
-            it_is_marked_unreachable(False),
+            it_is_refused_as_unreachable(False),
             what_it_left_is_known(True)
         ))
 
@@ -535,20 +535,24 @@ def _it_never_asked(discard: Any) -> Assertion[Exception | None]:
     return assertion
 
 
-def _it_marked_the_platform_unreachable() -> Assertion[Exception | None]:
-    """The failure is marked so a caller narrows itself rather than retrying.
+def _it_was_refused_as_the_platform_unreachable() -> Assertion[Exception | None]:
+    """The failure is of the unreachable-platform kind, naming the store, so a
+    caller narrows itself rather than retrying.
 
     A store that did not answer takes every action through it away at once, and
-    the marker is how that travels: without it the walk reads this as one action
+    the kind is how that travels: without it the walk reads this as one action
     that failed and goes on offering the same action again.
     """
     def assertion(error: Exception | None) -> bool:
-        said = str(error)
+        refusal = error.refusal if isinstance(error, ToolRefused) else None
+        kind = refusal.kind if refusal is not None else None
+        platform = refusal.platform if refusal is not None else None
 
-        if UNREACHABLE_PLATFORM_MARKER not in said or CACHE not in said:
+        if kind is not ToolRefusalKind.PLATFORM_UNREACHABLE or platform != CACHE:
             raise AssertionError(
-                f"Expected the failure to be marked as the [{CACHE}] platform "
-                f"being unreachable, and it said [{said}]."
+                f"Expected the failure to be refused as the [{CACHE}] platform "
+                f"being unreachable, and it was [{kind}] naming [{platform}]: "
+                f"[{error}]."
             )
 
         return True
@@ -569,22 +573,22 @@ def _it_carries_exactly(fields: set[str]) -> Assertion[set[str]]:
     return assertion
 
 
-def _it_marked_the_action_exhausted() -> Assertion[Exception | None]:
-    """The refusal is marked as an action with nothing left to do.
+def _it_was_refused_as_exhausted() -> Assertion[Exception | None]:
+    """The refusal is of the kind of an action with nothing left to do.
 
     The other half of the pair this file is about. An exhausted action and an
     unreachable platform both leave the shop unchanged, and a walk does opposite
     things with them: one moves to the next candidate, the other stops offering
-    anything on that platform at all. The marker is how they are told apart, and
-    a refusal carrying neither reads as an error nobody classified.
+    anything on that platform at all. The kind is how they are told apart, and
+    a refusal of neither reads as an error nobody classified.
     """
     def assertion(error: Exception | None) -> bool:
-        said = str(error)
+        kind = error.refusal.kind if isinstance(error, ToolRefused) else None
 
-        if EXHAUSTED_ACTION_MARKER not in said:
+        if kind is not ToolRefusalKind.EXHAUSTED:
             raise AssertionError(
-                f"Expected the refusal to be marked as an exhausted action, and "
-                f"it said [{said}] - unmarked, a walk cannot tell a store with "
+                f"Expected the refusal to be of an exhausted action, and it was "
+                f"[{kind}]: [{error}] - otherwise, a walk cannot tell a store with "
                 f"nothing left to remove from one it could not reach."
             )
 

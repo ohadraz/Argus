@@ -29,7 +29,7 @@ import urllib.error
 import urllib.request
 import uuid
 from collections import Counter
-from collections.abc import Generator
+from collections.abc import Generator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from types import TracebackType
@@ -41,9 +41,12 @@ from core import Fence
 from core.models import DeploymentRollbackUndo
 from mcp.server.mcpserver import Context
 from mcp.server.streamable_http import MCP_SESSION_ID_HEADER
+from mcp.types import CallToolResult, InputRequiredResult, TextContent
 from mcp_transport import (
     ACTION_META_KEY,
     FENCE_META_KEY,
+    REFUSAL_KEY,
+    ToolRefused,
     TracedMCPServer,
     a_change_made_since,
     a_lost_run,
@@ -105,6 +108,8 @@ _held: Counter[str] = Counter()
 _token = ""
 # What a tool refusing as a lost run says, as a write tier refuses one.
 A_NEWER_CLAIM_HOLDS_THE_RUN: Final = "a newer claim holds this run"
+# What the refusal nobody can read says in words.
+AN_UNREADABLE_REFUSAL_SAYS: Final = "refused in a way no client here can read"
 _sessions_forgotten: set[bytes] = set()
 
 # How the session a request is made over is named - the SDK's own header - as
@@ -136,9 +141,29 @@ _A_SUSPENSION = DeploymentRollbackUndo(
 )
 
 
+class _AnsweringAnUnreadableRefusal(TracedMCPServer):
+    """A traced server that answers `refuse_unreadably` with a refusal no client
+    can read - a kind nobody has - as a server of another version might."""
+
+    async def answer(self,
+                     name: str,
+                     arguments: dict[str, Any],
+                     meta: Mapping[str, Any] | None,
+                     context: Context[Any, Any] | None) -> CallToolResult | InputRequiredResult:
+        if name != "refuse_unreadably":
+            return await super().answer(name, arguments, meta, context)
+
+        return CallToolResult(
+            content=[TextContent(type="text", text=AN_UNREADABLE_REFUSAL_SAYS)],
+            structured_content={REFUSAL_KEY: {"kind": "a-kind-nobody-has",
+                                              "said": AN_UNREADABLE_REFUSAL_SAYS}},
+            is_error=True
+        )
+
+
 def build_double(port: int) -> TracedMCPServer:
     """The server: one tool that answers, one that refuses, one that counts."""
-    server = TracedMCPServer("transport-double", host=_HOST, port=port)
+    server = _AnsweringAnUnreadableRefusal("transport-double", host=_HOST, port=port)
 
     @server.tool()
     def say_something() -> list[str]:
@@ -169,16 +194,16 @@ def build_double(port: int) -> TracedMCPServer:
     def refuse_as_exhausted() -> list[str]:
         """Refuses the way a tier refuses an action it has no room left to take.
 
-        Marked with the transport's own marker rather than said in words that
-        sound exhausted, because the marker is what a client recognises: a
-        refusal a caller had to read prose to classify would be one that
-        classified differently the day somebody rephrased it.
+        Refused as the exhausted kind rather than said in words that sound
+        exhausted, because the kind is what a client recognises: a refusal a
+        caller had to read prose to classify would be one that classified
+        differently the day somebody rephrased it.
 
         Raised through the server's own helper, so this double refuses exactly
         the way `argus-write-mcp` refuses rather than the way a test imagines it
         does.
         """
-        raise RuntimeError(an_exhausted_action("this tool has nothing left to do"))
+        raise ToolRefused(an_exhausted_action("this tool has nothing left to do"))
 
     @server.tool()
     def refuse_as_unreachable_platform() -> list[str]:
@@ -190,7 +215,7 @@ def build_double(port: int) -> TracedMCPServer:
         what is said, because naming it is the tier's job and a double that
         left it out would let a transport that dropped the name pass.
         """
-        raise RuntimeError(an_unreachable_platform(
+        raise ToolRefused(an_unreachable_platform(
             "some-deployment-platform", "did not answer"
         ))
 
@@ -203,7 +228,7 @@ def build_double(port: int) -> TracedMCPServer:
         what is reported is an unreachable platform *and* the descriptor that
         puts the suspension back.
         """
-        raise RuntimeError(an_unreachable_platform(
+        raise ToolRefused(an_unreachable_platform(
             "some-deployment-platform",
             "stopped answering after reconciliation was suspended",
             undo_descriptor=_A_SUSPENSION
@@ -213,7 +238,7 @@ def build_double(port: int) -> TracedMCPServer:
     def refuse_saying_it_left_nothing() -> list[str]:
         """Refuses the way a tier refuses before it has asked for any change -
         a read the platform answered with a no."""
-        raise RuntimeError(a_refusal_saying_what_it_left(
+        raise ToolRefused(a_refusal_saying_what_it_left(
             "could not read some-application"
         ))
 
@@ -221,7 +246,7 @@ def build_double(port: int) -> TracedMCPServer:
     def refuse_saying_what_it_left() -> list[str]:
         """Refuses the way a tier refuses an action's own write that the
         platform answered with a no, after suspending reconciliation."""
-        raise RuntimeError(a_refusal_saying_what_it_left(
+        raise ToolRefused(a_refusal_saying_what_it_left(
             "the rollback was refused after reconciliation was suspended",
             _A_SUSPENSION
         ))
@@ -231,7 +256,7 @@ def build_double(port: int) -> TracedMCPServer:
         """Refuses the way a tier refuses an action's own write whose answer was
         lost, after suspending reconciliation: what it left is carried, and not
         said to be all of it."""
-        raise RuntimeError(with_what_it_left(
+        raise ToolRefused(with_what_it_left(
             "the rollback's answer was lost after reconciliation was suspended",
             _A_SUSPENSION
         ))
@@ -247,7 +272,7 @@ def build_double(port: int) -> TracedMCPServer:
         global _times_refused
         _times_refused += 1
 
-        raise RuntimeError(a_lost_run(A_NEWER_CLAIM_HOLDS_THE_RUN))
+        raise ToolRefused(a_lost_run(A_NEWER_CLAIM_HOLDS_THE_RUN))
 
     @server.tool()
     def refuse_as_changed_since() -> list[str]:
@@ -258,7 +283,7 @@ def build_double(port: int) -> TracedMCPServer:
         Raised through the server's own helper for `refuse_as_exhausted`'s
         reason.
         """
-        raise RuntimeError(a_change_made_since(
+        raise ToolRefused(a_change_made_since(
             "some-application was changed by somebody else since it was planned",
             _A_SUSPENSION
         ))
@@ -268,7 +293,7 @@ def build_double(port: int) -> TracedMCPServer:
         """Refuses as `refuse_as_changed_since` does, where the earlier asking
         landed the change itself before somebody overtook it - so the refusal
         says it was performed."""
-        raise RuntimeError(a_change_made_since(
+        raise ToolRefused(a_change_made_since(
             "some-application was changed by somebody else after Argus changed it",
             _A_SUSPENSION,
             performed=True
@@ -334,7 +359,7 @@ def build_double(port: int) -> TracedMCPServer:
         tier turned away before it changed anything."""
         await _stalling_at_the_first_asking(seconds)
 
-        raise RuntimeError(a_refusal_saying_what_it_left(
+        raise ToolRefused(a_refusal_saying_what_it_left(
             "could not read some-application"
         ))
 
@@ -345,7 +370,7 @@ def build_double(port: int) -> TracedMCPServer:
         else acting on the service since the plan."""
         await _stalling_at_the_first_asking(seconds)
 
-        raise RuntimeError(a_change_made_since(
+        raise ToolRefused(a_change_made_since(
             "some-application was changed by somebody else since it was planned",
             _A_SUSPENSION
         ))
@@ -364,7 +389,7 @@ def build_double(port: int) -> TracedMCPServer:
         `refuse_as_lost_run` does - a second asking made after the run moved on."""
         await _stalling_at_the_first_asking(seconds)
 
-        raise RuntimeError(a_lost_run(A_NEWER_CLAIM_HOLDS_THE_RUN))
+        raise ToolRefused(a_lost_run(A_NEWER_CLAIM_HOLDS_THE_RUN))
 
     @server.tool()
     def times_asked_stalling_first() -> int:
@@ -411,6 +436,11 @@ def build_double(port: int) -> TracedMCPServer:
             "trace_id": format(span.get_span_context().trace_id, "032x"),
             "parent_span_id": format(parent.span_id, "016x") if parent is not None else ""
         }
+
+    @server.tool()
+    def refuse_unreadably() -> list[str]:
+        """Never run: the server answers it with a refusal nobody can read."""
+        return ["never answered"]
 
     return server
 

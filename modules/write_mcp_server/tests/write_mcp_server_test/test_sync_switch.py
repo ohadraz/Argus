@@ -165,7 +165,7 @@ def test_a_switch_not_to_suspend_is_left_alone(switch: Switch) -> None:
 @pytest.mark.unit
 def test_a_suspension_the_platform_would_not_take_is_the_action_s_own_refusal() -> None:
     # The action's refusal rather than the platform's error, so each action says
-    # in its own type, and with its own markers, what the failure left.
+    # in its own type, and with its own kind of refusal, what the failure left.
     platform = _a_platform()
     platform.suspend_sync.side_effect = PlatformRefused(SOME_PLATFORM_WORDS)
 

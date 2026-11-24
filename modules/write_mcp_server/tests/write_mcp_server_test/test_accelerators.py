@@ -59,12 +59,7 @@ from deployment_platform import (
     PlatformRefused,
     PlatformUnreachable,
 )
-from mcp_transport import (
-    EXHAUSTED_ACTION_MARKER,
-    LEFT_BEHIND_MARKER,
-    UNREACHABLE_PLATFORM_MARKER,
-    what_was_left_behind,
-)
+from mcp_transport import ToolRefusalKind, ToolRefused
 from write_mcp_server.accelerators import (
     AcceleratorPinRefused,
     AlreadyPinned,
@@ -89,7 +84,7 @@ from write_mcp_server_test.framework.putting_back import (
     the_suspension_is_said_to_stand,
 )
 from write_mcp_server_test.framework.refusals import (
-    it_is_marked_unreachable,
+    it_is_refused_as_unreachable,
     it_left_behind,
     it_was_refused_as,
     it_was_refused_as_changed_since,
@@ -318,7 +313,7 @@ def test_a_card_the_platform_would_not_name_is_known_to_have_changed_nothing() -
         )) \
         .then(all_of(
             it_was_refused_as(AcceleratorPinRefused),
-            it_is_marked_unreachable(False),
+            it_is_refused_as_unreachable(False),
             what_it_left_is_known(True),
             it_left_behind(None)
         ))
@@ -337,7 +332,7 @@ def test_asking_whether_it_syncs_itself_is_a_read_and_changes_nothing() -> None:
             lambda: plan_accelerator_pin(SOME_APPLICATION, THE_FLEETS_CARD, platform)
         )) \
         .then(all_of(
-            it_is_marked_unreachable(True),
+            it_is_refused_as_unreachable(True),
             what_it_left_is_known(True),
             it_left_behind(None)
         ))
@@ -504,7 +499,7 @@ def test_a_pin_somebody_changed_since_the_plan_is_refused_before_anything_is_wri
         .then(all_of(
             it_was_refused_as_changed_since(),
             its_change_is_said_performed(False),
-            it_is_marked_unreachable(False),
+            it_is_refused_as_unreachable(False),
             it_left_behind(None),
             _nothing_was_changed(platform)
         ))
@@ -552,7 +547,7 @@ def test_a_plan_pinning_the_pods_where_it_found_them_is_refused_by_the_write(
         .when(attempting(lambda: pin_to_accelerator(pinning_where_found, platform, SOME_MARK))) \
         .then(all_of(
             it_was_refused_as(AcceleratorPinRefused),
-            it_is_marked_unreachable(False),
+            it_is_refused_as_unreachable(False),
             what_it_left_is_known(True),
             it_left_behind(None),
             _nothing_was_changed(platform)
@@ -698,7 +693,7 @@ def test_a_suspension_whose_answer_was_lost_is_not_said_to_have_changed_nothing(
         .when(attempting(lambda: pin_to_accelerator(a_plan, platform, SOME_MARK))) \
         .then(all_of(
             it_was_refused_as(AcceleratorPinRefused),
-            it_is_marked_unreachable(False),
+            it_is_refused_as_unreachable(False),
             what_it_left_is_known(False),
             it_left_behind(None)
         ))
@@ -714,7 +709,7 @@ def test_a_pin_rejected_after_sync_was_suspended_says_the_suspension_is_left() -
         .given(a_plan := _a_plan(was_syncing_itself=True)) \
         .when(attempting(lambda: pin_to_accelerator(a_plan, platform, SOME_MARK))) \
         .then(all_of(
-            it_is_marked_unreachable(False),
+            it_is_refused_as_unreachable(False),
             what_it_left_is_known(True),
             it_left_behind(THE_SUSPENSION)
         ))
@@ -733,7 +728,7 @@ def test_a_pin_whose_answer_was_lost_carries_the_suspension_and_no_more() -> Non
         .given(a_plan := _a_plan(was_syncing_itself=True)) \
         .when(attempting(lambda: pin_to_accelerator(a_plan, platform, SOME_MARK))) \
         .then(all_of(
-            it_is_marked_unreachable(False),
+            it_is_refused_as_unreachable(False),
             what_it_left_is_known(False),
             it_left_behind(THE_SUSPENSION)
         ))
@@ -1211,11 +1206,13 @@ def _it_answered_with(expected: AcceleratorPinUndo) -> Assertion[AcceleratorPinU
 
 def _the_refusal_says_the_action_is_exhausted() -> Assertion[Exception | None]:
     def assertion(refusal: Exception | None) -> bool:
-        if refusal is None or EXHAUSTED_ACTION_MARKER not in str(refusal):
+        kind = refusal.refusal.kind if isinstance(refusal, ToolRefused) else None
+
+        if kind is not ToolRefusalKind.EXHAUSTED:
             raise AssertionError(
-                f"Expected the refusal to carry [{EXHAUSTED_ACTION_MARKER}], so "
+                f"Expected the refusal to be [{ToolRefusalKind.EXHAUSTED}], so "
                 f"that a caller can tell an exhausted action from a broken "
-                f"platform, and it said [{refusal}]."
+                f"platform, and it was [{kind}]: [{refusal}]."
             )
 
         return True
@@ -1231,10 +1228,10 @@ def _it_is_reported_as_an_unreachable_platform() -> Assertion[Exception | None]:
                 f"{raised!r}."
             )
 
-        if UNREACHABLE_PLATFORM_MARKER not in str(raised):
+        if raised.refusal.kind is not ToolRefusalKind.PLATFORM_UNREACHABLE:
             raise AssertionError(
                 f"Expected the refusal to report a platform that could not be "
-                f"reached, and it reported [{raised}]."
+                f"reached, and it was [{raised.refusal.kind}]: [{raised}]."
             )
 
         return True
@@ -1250,7 +1247,7 @@ def _it_is_not_reported_as_an_unreachable_platform() -> Assertion[Exception | No
                 f"{raised!r}."
             )
 
-        if UNREACHABLE_PLATFORM_MARKER in str(raised):
+        if raised.refusal.kind is ToolRefusalKind.PLATFORM_UNREACHABLE:
             raise AssertionError(
                 f"Expected the refusal to be reported as this action's own, and "
                 f"it reported a platform that could not be reached: [{raised}]."
@@ -1282,13 +1279,13 @@ def _it_says_what_it_left_behind(
 ) -> Assertion[Exception | None]:
     """The refusal carries the descriptor, and carries the right one."""
     def assertion(raised: Exception | None) -> bool:
-        if LEFT_BEHIND_MARKER not in str(raised):
+        left_behind = raised.refusal.left_behind if isinstance(raised, ToolRefused) else None
+
+        if left_behind is None:
             raise AssertionError(
                 f"Expected the refusal to say what it left behind, and it said "
                 f"[{raised}]."
             )
-
-        left_behind = what_was_left_behind(str(raised))
 
         if left_behind != expected:
             raise AssertionError(

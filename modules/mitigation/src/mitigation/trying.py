@@ -45,17 +45,11 @@ from core.models import (
     the_kind,
 )
 from mcp_transport import (
-    CHANGED_SINCE_MARKER,
-    EXHAUSTED_ACTION_MARKER,
-    LEFT_BEHIND_KNOWN_MARKER,
-    PERFORMED_MARKER,
-    UNREACHABLE_PLATFORM_MARKER,
     ActionExhausted,
     ChangedSince,
     LostAfterSending,
     McpToolError,
     PlatformUnreachable,
-    without_the_payload,
 )
 
 from mitigation.actions import (
@@ -594,10 +588,7 @@ def whether_it_was_made(action: Action,
                        extra={"action_type": action.action_type})
 
         return NobodyCanSay(
-            because=(
-                _without_the_platform_marker(error) if isinstance(error, PlatformUnreachable)
-                else _in_its_own_words(error)
-            ),
+            because=str(error),
             left_behind=error.undo_descriptor if isinstance(error, McpToolError) else None
         )
 
@@ -638,7 +629,7 @@ def _changed_since(changed: ChangedSince, intent: str) -> Outcome:
     marks show an earlier asking of it left, a suspension standing, which the
     row this outcome writes is the only record of.
     """
-    words = _in_the_words_of_a_change_made_since(changed)
+    words = str(changed)
 
     logger.warning("the service was changed since the action was planned",
                    extra={"performed": changed.performed})
@@ -662,18 +653,6 @@ def _changed_since(changed: ChangedSince, intent: str) -> Outcome:
         judged=False,
         performed=False
     )
-
-
-def _in_the_words_of_a_change_made_since(changed: ChangedSince) -> str:
-    """The refusal's own words, without the tokens that classified it and without
-    the descriptor it carried - `_without_the_platform_marker`'s reasoning, for
-    the markers a changed-since refusal carries."""
-    said = str(changed)
-
-    for marker in (CHANGED_SINCE_MARKER, LEFT_BEHIND_KNOWN_MARKER, PERFORMED_MARKER):
-        said = said.replace(marker, "")
-
-    return without_the_payload(said).strip()
 
 
 def _not_performed(error: Exception,
@@ -719,8 +698,8 @@ def _not_performed(error: Exception,
         return Outcome(
             verdict=Verdict.NOT_ATTEMPTED,
             left_behind_known=True,
-            detail=f"did not {intent} - {_without_the_marker(error)}",
-            not_performed_because=_without_the_marker(error),
+            detail=f"did not {intent} - {error}",
+            not_performed_because=str(error),
             # The same thing the paragraph above says in words, said where the
             # candidate's row can read it: nothing was tested, so nothing about
             # this explanation may be recorded as having been.
@@ -755,11 +734,11 @@ def _not_performed(error: Exception,
         # always at a plan.
         return Outcome(
             verdict=Verdict.PLATFORM_UNREACHABLE,
-            # Known, as every marked platform failure is: one that may have
-            # changed more than it carries is never marked.
+            # Known, as every platform-unreachable refusal is: one that may
+            # have changed more than it carries is never refused as this.
             left_behind_known=error.left_behind_known or not could_have_written,
-            detail=f"did not {intent} - {_without_the_platform_marker(error)}",
-            not_performed_because=_without_the_platform_marker(error),
+            detail=f"did not {intent} - {error}",
+            not_performed_because=str(error),
             undo_descriptor=error.undo_descriptor if could_have_written else None,
             # The action was not taken, so the service was never watched for it.
             # The candidate is passed over on this walk and the platform is what
@@ -784,8 +763,8 @@ def _not_performed(error: Exception,
         left_behind_known=(
             told.left_behind_known if told is not None else not could_have_written
         ),
-        detail=f"could not {intent}: {_in_its_own_words(error)}",
-        not_performed_because=_in_its_own_words(error),
+        detail=f"could not {intent}: {error}",
+        not_performed_because=str(error),
         undo_descriptor=told.undo_descriptor if told is not None else None,
         # Nothing was performed and so nothing was watched. This is the broadest
         # of the three and the one most likely to be reached by something nobody
@@ -794,60 +773,6 @@ def _not_performed(error: Exception,
         judged=False,
         performed=False
     )
-
-
-def _without_the_marker(exhausted: ActionExhausted) -> str:
-    """The refusal's own words, without the token that classified it.
-
-    The marker is how the transport tells an exhausted action from any other
-    refusal, and it has done that job by the time this reads the message. What
-    goes into the detail is read by a person - in the timeline, in the postmortem,
-    in a Slack line - and `argus:action-exhausted` in the middle of a sentence
-    tells them nothing the verdict beside it has not already said.
-
-    Removed rather than left for the reader to skip, and removed here rather than
-    at the source: the transport is right to carry it, since a caller that wanted
-    to match on the token still can.
-    """
-    return str(exhausted).replace(EXHAUSTED_ACTION_MARKER, "").strip()
-
-
-def _without_the_platform_marker(unreachable: PlatformUnreachable) -> str:
-    """The failure's own words, without the token that classified it and without
-    the descriptor it carried.
-
-    `_without_the_marker`'s reasoning, for the other marker, and one more thing
-    to take out. This failure may carry what the action left behind, and that
-    travels as JSON in the same string - so a detail built from it raw would put
-    an object in the middle of a sentence a person reads in the timeline, the
-    postmortem and a Slack line. The descriptor is on the outcome, where
-    something can act on it; here it is noise.
-
-    The payload is removed by `mcp_transport` rather than here,
-    because the shape of it is that module's and a caller cannot strip what it
-    was never told the shape of.
-
-    Kept as its own function rather than one taking a token, because the two are
-    typed on what they strip: a single helper would take an `McpToolError` and
-    could then be handed either exception with either marker, which is precisely
-    the mix-up the two branches above exist to prevent.
-    """
-    return without_the_payload(
-        str(unreachable).replace(UNREACHABLE_PLATFORM_MARKER, "")
-    ).strip()
-
-
-def _in_its_own_words(failure: Exception) -> str:
-    """A failure that was no answer of a kind, in its own words: without the
-    token that says the tier knows what it left, and without what it left.
-
-    `_without_the_platform_marker`'s reasoning, for the ordinary refusal. Taking
-    any exception rather than a tool's alone, because the branch it serves
-    catches everything - and a failure carrying neither leaves here as it
-    came."""
-    return without_the_payload(
-        str(failure).replace(LEFT_BEHIND_KNOWN_MARKER, "")
-    ).strip()
 
 
 class _Settled(NamedTuple):

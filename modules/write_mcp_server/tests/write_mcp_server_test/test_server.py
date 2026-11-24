@@ -65,7 +65,13 @@ from deployment_platform import (
 from flag_provider import FlagProviderUnavailable, FlagProviderWrites
 from mcp.client import Client
 from mcp.types import CallToolResult, RequestParamsMeta, TextContent
-from mcp_transport import ACTION_META_KEY, CHANGED_SINCE_MARKER, FENCE_META_KEY
+from mcp_transport import (
+    ACTION_META_KEY,
+    FENCE_META_KEY,
+    REFUSAL_KEY,
+    ToolRefusal,
+    ToolRefusalKind,
+)
 from pydantic import BaseModel, TypeAdapter
 from write_mcp_server.discarding import DiscardSettings
 from write_mcp_server.fencing import FencedMCPServer, HoldForAChange
@@ -856,11 +862,21 @@ def _the_words_of(result: CallToolResult) -> str:
     return " ".join(block.text for block in result.content if isinstance(block, TextContent))
 
 
+def _refused_as_changed_since(result: CallToolResult) -> bool:
+    """Whether the result is a refusal of the changed-since kind, read off the
+    refusal it carries beside its words."""
+    carried = (result.structured_content or {}).get(REFUSAL_KEY)
+    refusal = ToolRefusal.model_validate(carried) if carried is not None else None
+
+    return (result.is_error and refusal is not None
+            and refusal.kind is ToolRefusalKind.CHANGED_SINCE)
+
+
 def _it_was_refused_as_changed_since(expected: bool) -> Assertion[CallToolResult]:
     """Refused as a change made since the plan, or answered - `expected` says
     which."""
     def assertion(result: CallToolResult) -> bool:
-        refused = result.is_error and CHANGED_SINCE_MARKER in _the_words_of(result)
+        refused = _refused_as_changed_since(result)
 
         if expected and not refused:
             raise AssertionError(
@@ -1375,8 +1391,7 @@ def test_a_platform_change_made_is_found_made_and_dated_holding_no_run_and_writi
     ("meta", "came_back", "saying"),
     [
         pytest.param(_acting_for(SOME_ACTION_ID), MADE, None, id="the-claim-that-marked-it"),
-        pytest.param(_acting_for(ANOTHER_CLAIM), CHANGED_SINCE, CHANGED_SINCE_MARKER,
-                     id="another-claim"),
+        pytest.param(_acting_for(ANOTHER_CLAIM), CHANGED_SINCE, None, id="another-claim"),
         pytest.param(None, NOBODY_CAN_SAY, ACTION_META_KEY, id="no-claim")
     ]
 )
@@ -1533,15 +1548,15 @@ def test_whether_a_flip_was_made_is_the_provider_s_history_since_the_plan(
 
 def _it_came_back(expected: str, saying: str | None = None) -> Assertion[CallToolResult]:
     """Which of the four ways the read came back - and, for a refusal, in its own
-    words: a changed-since refusal carries the marker, and one nobody can answer
-    for says why, in `saying`, and carries no marker."""
+    words: a changed-since refusal is of that kind, and one nobody can answer for
+    says why, in `saying`, and is of another."""
     def assertion(result: CallToolResult) -> bool:
         words = _the_words_of(result)
 
         answered = (result.structured_content or {}).get("result", result.structured_content)
 
         if result.is_error:
-            came_back = CHANGED_SINCE if CHANGED_SINCE_MARKER in words else NOBODY_CAN_SAY
+            came_back = CHANGED_SINCE if _refused_as_changed_since(result) else NOBODY_CAN_SAY
         elif isinstance(answered, dict) and "made_at" in answered:
             came_back = MADE
         elif isinstance(answered, dict) and "left_behind" in answered:

@@ -33,6 +33,7 @@ from typing import Final
 
 from core.models import RestartedService
 from deployment_platform import DeploymentPlatformError, DeploymentPlatformWrites
+from mcp_transport import ToolRefused, with_what_it_left
 
 from write_mcp_server.refusing import a_platform_refusal
 
@@ -51,7 +52,7 @@ _SECONDS_BETWEEN_ATTEMPTS: Final = 1.0
 Sleeper = Callable[[float], None]
 
 
-class ServiceNotRestarted(Exception):
+class ServiceNotRestarted(ToolRefused):
     """The service did not come back under a new process, whatever the reason.
 
     One exception for an unreachable platform, a rejected credential, a
@@ -66,10 +67,10 @@ class ServiceNotRestarted(Exception):
 
 def _not_restarted(said: str, error: DeploymentPlatformError, *,
                    asked_to_change: bool) -> ServiceNotRestarted:
-    """This module's failure, marked as `a_platform_refusal` marks it.
+    """This module's failure, of the kind `a_platform_refusal` decides.
 
     One exception still, because what a caller does about this restart is
-    unchanged: it did not happen. What the mark adds is about the estate and
+    unchanged: it did not happen. What the kind adds is about the estate and
     the other actions - whether anything was changed, and whether the platform
     they share is answering at all.
 
@@ -144,9 +145,9 @@ def _wait_until_a_new_process_serves(service: str,
         try:
             started_at = platform.newest_pod_started_at(service)
         except DeploymentPlatformError as error:
-            raise ServiceNotRestarted(
-                f"could not confirm [{service}] restarted: {error}"
-            ) from error
+            raise ServiceNotRestarted(with_what_it_left(
+                f"could not confirm [{service}] restarted: {error}", None
+            )) from error
 
         if started_at is not None and started_at != was_started_at:
             return started_at
@@ -156,7 +157,8 @@ def _wait_until_a_new_process_serves(service: str,
 
     logger.warning("restart not confirmed in time", extra={"service": service})
 
-    raise ServiceNotRestarted(
+    raise ServiceNotRestarted(with_what_it_left(
         f"[{service}] was accepted for restart but is still served by the "
-        f"process that was running before"
-    )
+        f"process that was running before",
+        None
+    ))

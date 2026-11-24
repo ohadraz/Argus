@@ -24,7 +24,7 @@ from typing import Any
 
 from argus_testkit import Assertion
 from core.models import ChangeFound, Made, NotMade, UndoDescriptor
-from mcp_transport import CHANGED_SINCE_MARKER
+from mcp_transport import ToolRefusalKind, ToolRefused
 
 
 def it_was_made(descriptor: UndoDescriptor, made_at: datetime | None) -> Assertion[Any]:
@@ -89,10 +89,11 @@ def it_refused_as_the_write_does(write: Callable[[], object]) -> Assertion[Excep
         try:
             write()
         except Exception as by_the_write:
-            if (type(by_the_write), str(by_the_write)) != (type(refused), str(refused)):
+            if (type(by_the_write), _said(by_the_write)) != (type(refused), _said(refused)):
                 raise AssertionError(
                     f"Expected the read refused as the write is, [{type(by_the_write).__name__}: "
-                    f"{by_the_write}], got [{type(refused).__name__}: {refused}]."
+                    f"{_said(by_the_write)!r}], got [{type(refused).__name__}: "
+                    f"{_said(refused)!r}]."
                 ) from None
 
             return True
@@ -109,9 +110,17 @@ def it_is_not_said_changed_since() -> Assertion[Exception | None]:
     """Refused, and not as a change made since: a question nobody could answer
     is no evidence anybody acted."""
     def assertion(refused: Exception | None) -> bool:
-        if refused is None or CHANGED_SINCE_MARKER in str(refused):
+        if refused is None:
             raise AssertionError(
-                f"Expected a refusal saying nobody can say, not changed since, got [{refused}]."
+                "Expected a refusal saying nobody can say, not changed since, got an answer."
+            )
+
+        if isinstance(refused, ToolRefused) and (
+            refused.refusal.kind is ToolRefusalKind.CHANGED_SINCE
+        ):
+            raise AssertionError(
+                f"Expected a refusal saying nobody can say, not changed since, got "
+                f"{_said(refused)!r}."
             )
 
         return True
@@ -189,3 +198,10 @@ def what_was_found_does_not_say(words: str) -> Assertion[ChangeFound]:
         return True
 
     return assertion
+
+
+def _said(refused: Exception) -> object:
+    """What a refusal says: the whole of a write tool's refusal - its kind, its
+    words, what it left behind and whether its change had landed - and the words
+    of anything else."""
+    return refused.refusal if isinstance(refused, ToolRefused) else str(refused)

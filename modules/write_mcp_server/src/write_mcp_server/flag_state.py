@@ -30,15 +30,17 @@ from core import parse_iso
 from core.models import ChangeFound, FlagChange, FlagUndo, Made, NotMade, Planned
 from flag_provider import FlagProviderUnavailable, FlagProviderWrites, FlagWriteFailed
 from mcp_transport import (
+    ToolRefused,
     a_change_made_since,
     a_refusal_saying_what_it_left,
     an_exhausted_action,
+    with_what_it_left,
 )
 
 logger = logging.getLogger(__name__)
 
 
-class FlagNotSet(Exception):
+class FlagNotSet(ToolRefused):
     """The flag did not reach the requested state, whatever the reason.
 
     One exception for an unreachable provider, a rejected credential and a
@@ -139,7 +141,8 @@ def set_flag(planned: Planned[FlagUndo], enabled: bool, flags: FlagProviderWrite
 
         raise FlagNotSet(
             a_refusal_saying_what_it_left(said, failure.left_behind)
-            if failure.known_not_applied or failure.left_behind is not None else said
+            if failure.known_not_applied or failure.left_behind is not None
+            else with_what_it_left(said, None)
         ) from failure
 
     logger.info("flag set", extra={"flag": flag, "enabled": enabled})

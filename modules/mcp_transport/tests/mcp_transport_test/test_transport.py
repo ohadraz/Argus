@@ -59,8 +59,6 @@ from mcp.types import (
     Tool,
 )
 from mcp_transport import (
-    LEFT_BEHIND_KNOWN_MARKER,
-    LEFT_BEHIND_MARKER,
     PING_SECONDS,
     ActionExhausted,
     Asking,
@@ -71,6 +69,7 @@ from mcp_transport import (
     McpToolError,
     McpUnreachable,
     PlatformUnreachable,
+    ToolRefusal,
     TracedMCPServer,
     WhichAsking,
     a_refusal_saying_what_it_left,
@@ -78,7 +77,6 @@ from mcp_transport import (
     an_unreachable_platform,
     every_tool_listed,
     serving_a_tool_call,
-    what_was_left_behind,
 )
 from opentelemetry import baggage
 from opentelemetry.sdk.trace import ReadableSpan
@@ -92,7 +90,11 @@ from mcp_transport_test.framework.traced_caller import (
     TracedSpan,
     asked_from_a_traced_process,
 )
-from mcp_transport_test.framework.transport_double import RunningDouble, a_running_double
+from mcp_transport_test.framework.transport_double import (
+    AN_UNREADABLE_REFUSAL_SAYS,
+    RunningDouble,
+    a_running_double,
+)
 
 # Long enough that the call has certainly reached the server, which takes
 # milliseconds - and short enough that the test does not sit here.
@@ -244,7 +246,7 @@ def test_the_tools_a_server_lists_come_back_in_its_order_as_it_declares_them(
                     STALLING_THEN_LEAVING_NOTHING_TOOL, STALLING_THEN_CHANGED_SINCE_TOOL,
                     STALLING_THEN_ANSWERING_TOOL, STALLING_THEN_LOST_RUN_TOOL,
                     "times_asked_stalling_first", ENDING_THE_SERVER_TOOL,
-                    FORGETTING_AFTER_A_PING_TOOL, "the_trace_i_am_in"
+                    FORGETTING_AFTER_A_PING_TOOL, "the_trace_i_am_in", "refuse_unreadably"
                 ]),
                 _the_tool_listed_requires("dawdle", ["seconds"]),
                 _the_tool_listed_is_described("refuse_as_exhausted",
@@ -338,15 +340,15 @@ def test_a_refusal_without_a_word_still_says_whose_it_was(
 
 
 @pytest.mark.component
-def test_a_refusal_the_server_marked_as_exhausted_says_so_to_the_caller() -> None:
+def test_a_refusal_the_server_gave_as_exhausted_says_so_to_the_caller() -> None:
     """A tool refusing because there is nothing left to do is its own answer.
 
     The distinction a walk acts on. A tier that cannot make a deployment larger
     than it already is has not failed - it has answered - and a caller that read
     that as a failure would wake a human while the explanation that actually
-    caused the incident sat untried further down the list. So the marker crosses
-    the wire and arrives as a type, because the alternative is matching on the
-    words of a sentence somebody will rewrite.
+    caused the incident sat untried further down the list. So the refusal's kind
+    crosses the wire and arrives as a type, because the alternative is matching
+    on the words of a sentence somebody will rewrite.
     """
     with a_running_double() as double:
         Scenario() \
@@ -492,7 +494,7 @@ def test_a_call_made_while_no_action_is_taken_names_none(running_double: Running
 
 
 @pytest.mark.component
-def test_a_refusal_the_server_marked_as_a_lost_run_says_so_and_is_not_asked_again(
+def test_a_refusal_the_server_gave_as_a_lost_run_says_so_and_is_not_asked_again(
     running_double: RunningDouble
 ) -> None:
     # The walk stops on it, writing nothing more - so it arrives as the walk's
@@ -535,13 +537,13 @@ def test_an_ordinary_refusal_is_not_read_as_a_lost_run(
     [("refuse_as_changed_since", False), ("refuse_as_changed_since_after_the_change", True)],
     ids=["suspension-alone", "change-landed"]
 )
-def test_a_refusal_the_server_marked_as_changed_since_says_so_with_what_it_left(
+def test_a_refusal_the_server_gave_as_changed_since_says_so_with_what_it_left(
     tool: str, performed: bool
 ) -> None:
     """A tool refusing because somebody else changed the estate since the plan.
 
     The distinction the walk hands an incident to a person on: somebody is
-    acting on the service now, and Argus does not act beside them. The marker
+    acting on the service now, and Argus does not act beside them. The kind
     crosses the wire and arrives as a type, for the reason an exhausted action
     does. What an earlier asking of the action left travels with it, because it
     is recorded nowhere else - and whether that included the change itself, since
@@ -1192,14 +1194,14 @@ def test_a_server_that_cannot_be_reached_is_reported_as_unreachable() -> None:
 
 
 @pytest.mark.component
-def test_a_refusal_the_server_marked_as_an_unreachable_platform_says_so() -> None:
+def test_a_refusal_the_server_gave_as_an_unreachable_platform_says_so() -> None:
     """A tool that could not reach the platform it acts through is its own answer.
 
     The distinction the walk narrows itself on. Five of the seven generic
     mitigations act through one deployment platform, so a platform that is not
     answering has taken five actions away at once - and a caller that read that
     as this one action failing would escalate while a flag it could revert in
-    seconds sat untried. The marker crosses the wire and arrives as a type, for
+    seconds sat untried. The kind crosses the wire and arrives as a type, for
     the reason an exhausted action does: the alternative is matching on the words
     of a sentence somebody will rewrite.
     """
@@ -1284,10 +1286,9 @@ def test_a_platform_lost_after_something_landed_carries_what_it_left_behind() ->
     caller has to be told both: it narrows itself on the first, and something has
     to put back the second.
 
-    Carried on the failure because there is nowhere else. A tool that failed
-    returns no structured content, so the one string a failure may carry is the
-    only channel there is - which is the problem the marker already solved, doing
-    a little more work.
+    Carried on the refusal, beside its words, as part of what the server
+    answers the failed call with - and on the failure the caller raises, where
+    the walk reads it.
     """
     with a_running_double() as double:
         Scenario() \
@@ -1337,9 +1338,9 @@ def test_a_descriptor_recording_that_there_was_nothing_before_survives_the_cross
 
     Scenario() \
         .given(left_behind) \
-        .when(lambda: what_was_left_behind(
+        .when(lambda: _across_the_wire(
             an_unreachable_platform(PLATFORM, WHAT_THE_TIER_SAID, left_behind)
-        )) \
+        ).left_behind) \
         .then(_it_came_back_as(left_behind))
 
 
@@ -1424,9 +1425,9 @@ def test_an_ordinary_refusal_is_not_known_to_have_changed_nothing(
     "tool", ["refuse_as_exhausted", "refuse_as_unreachable_platform"],
     ids=["exhausted", "unreachable platform"]
 )
-def test_a_refusal_marked_for_its_kind_is_known_to_say_what_it_left(tool: str) -> None:
-    """Both markers already promise it: an exhausted action is spent before
-    anything is touched, and a platform is only marked unreachable where the
+def test_a_refusal_of_its_own_kind_is_known_to_say_what_it_left(tool: str) -> None:
+    """Both kinds already promise it: an exhausted action is spent before
+    anything is touched, and a platform is only said to be unreachable where the
     tier can say what it left behind."""
     with a_running_double() as double:
         Scenario() \
@@ -1436,27 +1437,53 @@ def test_a_refusal_marked_for_its_kind_is_known_to_say_what_it_left(tool: str) -
 
 
 @pytest.mark.unit
-def test_a_refusal_says_it_is_known_before_the_descriptor_it_carries() -> None:
-    # The descriptor runs to the end of the message, which is how it is read
-    # back: anything after it would be read as part of it.
+def test_a_refusal_crosses_the_wire_whole() -> None:
+    # Read back on the far side as the value it was on this one: its kind, its
+    # words and what it left behind - the caller acts on all three.
+    refusal = a_refusal_saying_what_it_left(WHAT_THE_TIER_SAID, WHAT_WAS_LEFT_BEHIND)
+
     Scenario() \
-        .given(WHAT_WAS_LEFT_BEHIND) \
-        .when(lambda: a_refusal_saying_what_it_left(WHAT_THE_TIER_SAID, WHAT_WAS_LEFT_BEHIND)) \
+        .given(refusal) \
+        .when(lambda: _across_the_wire(refusal)) \
+        .then(the_answer_was(refusal))
+
+
+@pytest.mark.component
+def test_a_refusal_no_client_can_read_is_one_nobody_accounted_for(
+    running_double: RunningDouble,
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    """A refusal whose kind the client does not know - a server of another
+    version - is read as a failure that said nothing about the estate, not as
+    one that left nothing; and said so in the log, since what was meant is lost.
+    """
+    caplog.set_level(logging.WARNING)
+
+    Scenario() \
+        .given(running_double) \
+        .when(_asking(running_double, _refusing_with("refuse_unreadably"))) \
         .then(all_of(
-            _the_marker_comes_before_the_payload(),
-            _it_reads_back_as(WHAT_WAS_LEFT_BEHIND)
+            _what_was_raised_was(McpToolError),
+            _what_was_raised_was_not(ActionExhausted),
+            _what_was_raised_was_not(PlatformUnreachable),
+            _what_it_left_behind_is_known(False),
+            _it_left_nothing_behind(),
+            _what_was_said_names(AN_UNREADABLE_REFUSAL_SAYS),
+            one_record_was_logged(caplog, "mcp_transport.transport", logging.WARNING,
+                                  "a refusal could not be read",
+                                  values={"tool": "refuse_unreadably"})
         ))
 
 
 @pytest.mark.component
 def test_what_a_person_reads_is_not_the_payload() -> None:
-    """The descriptor travels in the words and must not be read as words.
+    """What the refusal left behind travels beside its words, never in them.
 
-    Whatever encodes it is in the same string a human is shown - the timeline,
-    the postmortem, a Slack line - so the sentence has to survive being carried
-    on. Asserted here rather than left to whoever strips the marker, because the
-    encoding is this module's and a caller cannot strip what it was never told
-    about.
+    The words are what a human is shown - the timeline, the postmortem, a Slack
+    line - so the sentence has to arrive as the tier said it, the platform it
+    could not reach named, and nothing encoded in it. Said exactly, because
+    whatever its kind, the caller raises a refusal with its words and nothing
+    else.
     """
     with a_running_double() as double:
         Scenario() \
@@ -1464,10 +1491,7 @@ def test_what_a_person_reads_is_not_the_payload() -> None:
             .when(_asking(
                 double, _refusing_as_an_unreachable_platform_that_changed_something
             )) \
-            .then(all_of(
-                _what_was_said_names(PLATFORM),
-                _what_was_said_names(WHAT_THE_TIER_SAID)
-            ))
+            .then(_what_was_raised_said(f"{PLATFORM} {WHAT_THE_TIER_SAID}"))
 
 
 @pytest.mark.component
@@ -2926,27 +2950,10 @@ def _its_change_is_said_performed(expected: bool) -> Assertion[_Attempt]:
     return assertion
 
 
-def _the_marker_comes_before_the_payload() -> Assertion[str]:
-    def assertion(said: str) -> bool:
-        marker = said.find(LEFT_BEHIND_KNOWN_MARKER)
-        payload = said.find(LEFT_BEHIND_MARKER)
-
-        if marker < 0 or payload < 0 or marker > payload:
-            raise AssertionError(
-                f"Expected [{LEFT_BEHIND_KNOWN_MARKER}] and then "
-                f"[{LEFT_BEHIND_MARKER}], and the refusal said [{said}]."
-            )
-
-        return True
-
-    return assertion
-
-
-def _it_reads_back_as(expected: UndoDescriptor) -> Assertion[str]:
-    def assertion(said: str) -> bool:
-        return _it_came_back_as(expected)(what_was_left_behind(said))
-
-    return assertion
+def _across_the_wire(refusal: ToolRefusal) -> ToolRefusal:
+    """`refusal` as the far side reads it: written as JSON, as a server answers
+    with it, and read back from that."""
+    return ToolRefusal.model_validate_json(refusal.model_dump_json())
 
 
 def _it_came_back_as(

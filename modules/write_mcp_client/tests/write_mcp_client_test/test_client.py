@@ -623,7 +623,7 @@ def test_an_unreachable_platform_arrives_as_its_own_type_through_the_client(
     running_write_mcp_over_a_platform: type[FakeDeploymentPlatformHandler]
 ) -> None:
     # The whole of what the typed client owes this change, which is nothing. The
-    # marker is recognised once, where a tool's reported error becomes an
+    # refusal's kind is read once, where a tool's reported error becomes an
     # exception, so by the time the call returns here the type is already right
     # and the client has only to stay out of the way. A client that re-read the
     # failure to classify it would be a second reading of the same field, and

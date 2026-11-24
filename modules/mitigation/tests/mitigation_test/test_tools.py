@@ -700,11 +700,11 @@ def _the_write_tier_was_asked_for(*tools: str) -> Assertion[list[str]]:
 
 def _a_session_refusing_the_flag_as_already_as_asked() -> Mock:
     """The write tier refusing every question as an action already spent - the
-    plan of a flag already in the state asked for, in the tier's own words and
-    marked the way the tier marks it."""
+    plan of a flag already in the state asked for, in the words of the refusal
+    the tier builds, as the transport raises it."""
     client: Mock = create_autospec(McpClient, instance=True)
     client.call.side_effect = ActionExhausted(
-        an_exhausted_action(f"flag [{SOME_FLAG}] is already OFF")
+        an_exhausted_action(f"flag [{SOME_FLAG}] is already OFF").words
     )
 
     return client

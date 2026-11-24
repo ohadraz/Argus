@@ -1084,7 +1084,7 @@ call the failure happened to land on.
 was not applied.** A refused connection, a 4xx and a 503 say the request was not
 handled; a timeout, a 500 and a gateway that lost the answer say nothing either
 way, and the change may be landing as the failure is read. Such a failure is not
-marked as an unreachable platform, and carries only what the calls before it
+refused as an unreachable platform, and carries only what the calls before it
 answered for. A restart the platform accepted and then stopped confirming is the
 same case. What it costs is not only an unrecorded change but an unreliable
 verification: every measurement afterwards is taken against a service that may

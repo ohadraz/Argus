@@ -57,6 +57,7 @@ from deployment_platform import (
     MarkFound,
 )
 from mcp_transport import (
+    ToolRefused,
     a_change_made_since,
     a_refusal_saying_what_it_left,
     an_exhausted_action,
@@ -74,7 +75,7 @@ from write_mcp_server.sync_switch import (
 logger = logging.getLogger(__name__)
 
 
-class AlreadyPinned(Exception):
+class AlreadyPinned(ToolRefused):
     """The deployment is already held to the card it was to be pinned to.
 
     Raised rather than answered with a no-op, and raised *before* anything is
@@ -88,7 +89,7 @@ class AlreadyPinned(Exception):
     """
 
 
-class AcceleratorPinRefused(Exception):
+class AcceleratorPinRefused(ToolRefused):
     """The platform would not say which card the pods are held to, or would not
     change it."""
 
@@ -96,7 +97,7 @@ class AcceleratorPinRefused(Exception):
 def _refusing(said: str, error: DeploymentPlatformError, *,
               asked_to_change: bool,
               left_behind: AcceleratorPinUndo | None = None) -> AcceleratorPinRefused:
-    """This module's refusal, marked as `a_platform_refusal` marks it.
+    """This module's refusal, of the kind `a_platform_refusal` decides.
 
     `left_behind` is what the failure cost, where it cost anything: a suspension
     that landed before the pin did not travels on the failure, so a caller still
@@ -269,7 +270,7 @@ def still_argus_s(descriptor: AcceleratorPinUndo,
     if action_id is None:
         return ChangeFound(still_argus_s=None, found=no_claim_to_compare_with(
             f"the pin of [{application}] to a card"
-        ))
+        ).words)
 
     try:
         found = _what_is_there(application, platform)

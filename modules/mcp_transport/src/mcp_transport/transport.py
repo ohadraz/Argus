@@ -45,13 +45,12 @@ this one's child and the trace runs unbroken to the server.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import threading
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable, Generator, Mapping
 from concurrent.futures import Future
-from contextlib import asynccontextmanager, contextmanager, suppress
+from contextlib import asynccontextmanager, contextmanager
 from enum import Enum
 from types import TracebackType
 from typing import Any, Final, Self
@@ -60,7 +59,7 @@ from urllib.parse import urlsplit
 import httpx2
 import uvicorn
 from core import Holding, RunLost
-from core.models import UndoDescriptor, parse_undo_descriptor
+from core.models import UndoDescriptor
 from core.telemetry import (
     ERROR_TYPE,
     GEN_AI_EXECUTE_TOOL_OPERATION,
@@ -91,7 +90,9 @@ from mcp.types import (
 from opentelemetry import context, metrics, propagate, trace
 from opentelemetry.metrics import Meter
 from opentelemetry.trace import Span, SpanKind, Status, StatusCode, Tracer
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
+
+from mcp_transport.refusals import REFUSAL_KEY, ToolRefusal, ToolRefusalKind, ToolRefused
 
 logger = logging.getLogger(__name__)
 
@@ -153,64 +154,6 @@ SESSION_GONE_CODE: Final = INVALID_REQUEST
 SESSION_NOT_FOUND_WORDS: Final = "Session not found"
 SESSION_TERMINATED_WORDS: Final = "Session terminated"
 
-
-# What a server puts at the front of a refusal it wants recognised as an answer
-# rather than as a fault - see `an_exhausted_action`. A token rather than a
-# phrasing, because the alternative is every caller matching on the words of a
-# sentence somebody will rewrite; and prefixed with the project's own name so that
-# nothing a tool says by accident can be read as saying this.
-EXHAUSTED_ACTION_MARKER: Final = "argus:action-exhausted"
-
-# The same convention for the other thing a write tool can report without having
-# failed at what it was asked: that the platform it acts through was not there to
-# be asked. Its own token rather than a second reading of the one above, because
-# the two mean opposite things to a caller - one action is spent, against every
-# action through that platform being unavailable.
-UNREACHABLE_PLATFORM_MARKER: Final = "argus:platform-unreachable"
-
-# What precedes the description of a change a failing action left behind, where
-# it left one. Its own token rather than a position in the sentence, because what
-# follows the marker above is prose somebody will rewrite and a payload found by
-# counting words is a payload lost the first time one is added.
-#
-# The descriptor follows it as plain JSON, read out of the content block's own
-# text rather than out of the `repr` of it that the failure's message is built
-# from. The distinction is not cosmetic: a `repr` escapes a quote, so a revision
-# message with an apostrophe in it arrives as `o\'brien` and no longer parses -
-# and the payload is only ever inside a `repr` because one line below chose to
-# display it that way. Read where it is structured and the problem is not there
-# to be encoded around.
-LEFT_BEHIND_MARKER: Final = "argus:left-behind="
-
-# What a write tool puts in an ordinary refusal to say the refusal is the tier's own
-# and says the whole of what it left behind - nothing, where no descriptor
-# follows. Its own token because the absence of it means something too: a tool
-# that raised for a reason nobody foresaw, or a change request whose answer was
-# lost, has said nothing about the estate, and is not to be read as having said
-# it was untouched. The two markers above promise it already, so neither needs
-# this beside it.
-LEFT_BEHIND_KNOWN_MARKER: Final = "argus:left-behind-known"
-
-# What a write tool puts at the front of a refusal of a change asked for by a
-# claim the run has moved past (`core.fencing`). Its own token, because it
-# means something no other refusal does: the caller's walk is somebody else's
-# now, and the caller is to stop rather than try anything else.
-RUN_LOST_MARKER: Final = "argus:run-lost"
-
-# What a write tool puts at the front of a refusal of a change somebody else has
-# made to the estate since the change was planned. Its own token, because the
-# walk does something with it no other refusal asks: an exhausted action is
-# spent and an unreachable platform narrows every action through it, where this
-# says somebody is acting on the service now, and Argus is not to act beside
-# them.
-CHANGED_SINCE_MARKER: Final = "argus:changed-since"
-
-# What a changed-since refusal carries beside its marker where this claim's own
-# change - the value, not only a suspension before it - is marked as having
-# landed. Its own token, because the walk records the two differently: an action
-# whose change landed and was overtaken was performed, and one that never landed
-# was not, whatever a suspension before it left behind.
-PERFORMED_MARKER: Final = "argus:performed"
 
 # What a server puts in front of the words of a tool that raised, the tool's
 # name in it; the words after it are the tool's. The MCP SDK's own spelling,
@@ -281,8 +224,8 @@ class ActionExhausted(McpToolError):
     point where `is_error` becomes an exception, and a distinction drawn anywhere
     later would be a second reading of the same field.
 
-    What it left behind is known, and is nothing: the marker is only ever
-    applied to a refusal raised before anything was touched.
+    What it left behind is known, and is nothing: a refusal of this kind is
+    only ever raised before anything was touched.
     """
 
     def __init__(self, said: str) -> None:
@@ -307,10 +250,10 @@ class PlatformUnreachable(McpToolError):
 
     Carries no platform of its own. Which platform an action acts through is a
     property of its kind (`core.models.action`), so a caller holding the
-    action it just attempted can already say it - and a name parsed back out of
-    a marker would be a second source for a fact that is already derivable, free
-    to disagree with the first. The platform is named in what is *said*, for
-    whoever reads the failure.
+    action it just attempted can already say it - and the name the refusal
+    carries, read back onto this, would be a second source for a fact that is
+    already derivable, free to disagree with the first. The platform is named in
+    what is *said*, for whoever reads the failure.
 
     It does carry `undo_descriptor`, and that is the one thing a caller cannot
     derive. Four of the five actions through the deployment platform suspend its
@@ -338,9 +281,9 @@ class PlatformUnreachable(McpToolError):
     point where `is_error` becomes an exception, and a distinction drawn anywhere
     later would be a second reading of the same field.
 
-    What it left behind is known, whatever it carries: a marked failure says
-    what it left, and one that may have changed more is not marked at all
-    (`an_unreachable_platform`).
+    What it left behind is known, whatever it carries: a refusal of this kind
+    says what it left, and a failure that may have changed more is never
+    refused as this (`an_unreachable_platform`).
     """
 
     def __init__(self, said: str,
@@ -371,8 +314,8 @@ class ChangedSince(McpToolError):
     point where `is_error` becomes an exception, and a distinction drawn anywhere
     later would be a second reading of the same field.
 
-    What it left behind is known, whatever it carries: the marker is only ever
-    applied to a refusal raised before anything was written (`a_change_made_since`).
+    What it left behind is known, whatever it carries: a refusal of this kind
+    is only ever raised before anything was written (`a_change_made_since`).
 
     `performed` is whether this claim's own change - the value, under this
     claim's mark - had landed before somebody overtook it. A suspension alone is
@@ -489,52 +432,47 @@ def _never_sent(failed: Exception) -> bool:
     )
 
 
-def an_exhausted_action(said: str) -> str:
-    """`said`, marked so a caller recognises a refusal that is an answer.
+def an_exhausted_action(said: str) -> ToolRefusal:
+    """A refusal that is an answer: the action is spent.
 
-    For a server to wrap the words of a refusal it raises *before changing
-    anything*, when what it is reporting is that the action is spent. Only then:
-    a failure that arrives after something was written has left the estate
-    changed, and a caller told the action was merely unavailable would be told
-    nothing about the state it is now in.
-
-    Here rather than in the server that uses it, because the marker it applies and
-    the exception it becomes are two halves of one convention, and two packages
-    holding a copy each is how a wire word comes to be spelled two ways.
+    For a server to refuse with *before changing anything*, when what it is
+    reporting is that the action is spent. Only then: a failure that arrives
+    after something was written has left the estate changed, and a caller told
+    the action was merely unavailable would be told nothing about the state it
+    is now in.
     """
-    return f"{EXHAUSTED_ACTION_MARKER} {said}"
+    return ToolRefusal(kind=ToolRefusalKind.EXHAUSTED, said=said)
 
 
 def an_unreachable_platform(platform: str, said: str,
-                            undo_descriptor: UndoDescriptor | None = None) -> str:
-    """`said`, marked so a caller recognises a platform that was not there.
+                            undo_descriptor: UndoDescriptor | None = None) -> ToolRefusal:
+    """A refusal saying the platform the action acts through was not there.
 
-    For a tool to wrap the words of a failure it raises when the platform it acts
-    through did not answer. Unlike `an_exhausted_action`, this is *not* restricted
-    to a failure that changed nothing: an action that suspended reconciliation and
-    then lost the platform passes what it left behind as `undo_descriptor`, and
-    the caller is told both facts. Restricting it would mean the walk narrowed
-    itself or not depending on which call the outage happened to land on.
+    Unlike `an_exhausted_action`, this is *not* restricted to a failure that
+    changed nothing: an action that suspended reconciliation and then lost the
+    platform passes what it left behind as `undo_descriptor`, and the caller is
+    told both facts. Restricting it would mean the walk narrowed itself or not
+    depending on which call the outage happened to land on.
 
     Two clauses replace that restriction, and the second is the load-bearing one.
-    A marked failure **says what it left behind**. And an action that may have
-    taken effect, and whose effect cannot be established, **does not mark at all**
-    - not for want of a descriptor, but because every verification after it is
-    unreliable: a service that may be restarting makes the next action's recovery
-    unattributable, and a hypothesis confirmed against it would be confirmed
-    wrongly.
+    A refusal of this kind **says what it left behind**. And an action that may
+    have taken effect, and whose effect cannot be established, **is not refused
+    as this at all** - not for want of a descriptor, but because every
+    verification after it is unreliable: a service that may be restarting makes
+    the next action's recovery unattributable, and a hypothesis confirmed
+    against it would be confirmed wrongly.
 
-    `platform` is named in the message rather than carried on the exception, for
-    the reason `PlatformUnreachable` gives: what a caller branches on comes from
-    the action's kind, and this is what a person reads.
+    `platform` is said in the words rather than carried on the exception the
+    caller raises, for the reason `PlatformUnreachable` gives: what a caller
+    branches on comes from the action's kind, and this is what a person reads.
     """
-    return with_what_it_left(f"{UNREACHABLE_PLATFORM_MARKER} {platform} {said}",
-                             undo_descriptor)
+    return ToolRefusal(kind=ToolRefusalKind.PLATFORM_UNREACHABLE, said=said, platform=platform,
+                       left_behind=undo_descriptor)
 
 
 def a_refusal_saying_what_it_left(said: str,
-                                  left_behind: UndoDescriptor | None = None) -> str:
-    """`said`, marked as a refusal that says the whole of what it left behind.
+                                  left_behind: UndoDescriptor | None = None) -> ToolRefusal:
+    """A refusal that says the whole of what it left behind.
 
     For a write tool's own refusal where it can say so: one raised before any
     change was asked for, which left nothing, and one at a change request the
@@ -542,96 +480,53 @@ def a_refusal_saying_what_it_left(said: str,
     answered for. Not for a change request whose answer was lost - that one may
     have changed more, and `with_what_it_left` carries what it knows without
     saying it is all.
-
-    The marker goes first and the descriptor last, for `what_was_left_behind`:
-    the descriptor runs to the end of the message.
     """
-    return with_what_it_left(f"{LEFT_BEHIND_KNOWN_MARKER} {said}", left_behind)
+    return ToolRefusal(kind=ToolRefusalKind.LEFT_BEHIND_KNOWN, said=said,
+                       left_behind=left_behind)
 
 
-def with_what_it_left(said: str, left_behind: UndoDescriptor | None) -> str:
-    """`said`, carrying what a failure left behind where it left anything, and
+def with_what_it_left(said: str, left_behind: UndoDescriptor | None) -> ToolRefusal:
+    """A refusal carrying what a failure left behind where it left anything, and
     saying nothing about whether that is all of it.
 
-    The spelling every marked failure carries its descriptor in, and the whole
-    of what an unmarked one says: a change request whose answer was lost after
-    an earlier change landed has that change to report, and no more it can
-    vouch for. Appended last, because nothing may follow the descriptor.
+    A change request whose answer was lost after an earlier change landed has
+    that change to report, and no more it can vouch for.
     """
-    if left_behind is None:
-        return said
-
-    return f"{said} {LEFT_BEHIND_MARKER}{left_behind.model_dump_json()}"
+    return ToolRefusal(kind=ToolRefusalKind.UNACCOUNTED, said=said, left_behind=left_behind)
 
 
 def a_change_made_since(said: str,
                         left_behind: UndoDescriptor | None = None,
-                        performed: bool = False) -> str:
-    """`said`, marked as a refusal of a change somebody else made since the plan.
+                        performed: bool = False) -> ToolRefusal:
+    """A refusal of a change somebody else made since the plan.
 
-    For a write tool to wrap the words of a refusal it raises *before writing
-    anything*, when the estate is neither as the plan found it nor as the plan
-    asked for under this claim's own mark. What it left behind is known, and is
-    `left_behind`: nothing this call wrote, and whatever this claim's marks show
-    an earlier asking of it landed. `performed` says the change itself was among
-    what landed, marked so (`PERFORMED_MARKER`).
+    For a write tool to refuse with *before writing anything*, when the estate
+    is neither as the plan found it nor as the plan asked for under this claim's
+    own mark. What it left behind is known, and is `left_behind`: nothing this
+    call wrote, and whatever this claim's marks show an earlier asking of it
+    landed. `performed` says the change itself was among what landed.
     """
-    markers = f"{CHANGED_SINCE_MARKER} {LEFT_BEHIND_KNOWN_MARKER}"
-
-    if performed:
-        markers = f"{markers} {PERFORMED_MARKER}"
-
-    return with_what_it_left(f"{markers} {said}", left_behind)
+    return ToolRefusal(kind=ToolRefusalKind.CHANGED_SINCE, said=said, left_behind=left_behind,
+                       performed=performed)
 
 
-def a_lost_run(said: str) -> str:
-    """`said`, marked so a caller recognises a change refused for a lost run.
+def a_lost_run(said: str) -> ToolRefusal:
+    """A refusal of a change asked for by a lost run.
 
-    For a write tier to wrap the words of a refusal it raises *before changing
-    anything*, when the claim the call was made for is one the run has moved
-    past. Only then: a call that named no run, or one whose run could not be
-    asked after, is an ordinary refusal that says it left nothing - neither says
-    the run was lost, and a walk told it was would stop where it should have
-    reached a human.
+    For a write tier to refuse with *before changing anything*, when the claim
+    the call was made for is one the run has moved past. Only then: a call that
+    named no run, or one whose run could not be asked after, is an ordinary
+    refusal that says it left nothing - neither says the run was lost, and a
+    walk told it was would stop where it should have reached a human.
     """
-    return f"{RUN_LOST_MARKER} {said}"
-
-
-def what_was_left_behind(spoken: str) -> UndoDescriptor | None:
-    """The descriptor a failure carried, or `None` where it carried none.
-
-    Given what the tool actually *said* - the content block's own text - and not
-    a `repr` of it. A `repr` escapes the quotes inside, so a revision message
-    with an apostrophe would arrive as `o\\'brien` and stop being JSON.
-
-    The descriptor runs to the end of the message, because JSON is not
-    self-terminating in a way a split can find: an object with a space inside it
-    would be cut in half by taking the first word. Nothing follows it, which is
-    what makes that safe, and what `with_what_it_left` guarantees by appending it
-    last.
-
-    A payload that will not parse is treated as no payload rather than raised on.
-    What is in hand at this point is already a failure, and replacing a caller's
-    "the platform did not answer" with "the descriptor did not parse" would lose
-    the fact the caller acts on in order to report one it cannot.
-    """
-    _, _, payload = spoken.partition(LEFT_BEHIND_MARKER)
-
-    if not payload:
-        return None
-
-    with suppress(Exception):
-        return parse_undo_descriptor(json.loads(payload))
-
-    return None
+    return ToolRefusal(kind=ToolRefusalKind.RUN_LOST, said=said)
 
 
 def _the_words_of(result: CallToolResult) -> str:
     """Everything the tool said, joined, with nothing escaped on the way.
 
     A failed call comes back as content blocks rather than as a string, and only
-    the text ones carry words. Anything else it returned is not a sentence and
-    has no marker in it.
+    the text ones carry words.
     """
     return " ".join(
         block.text for block in result.content if isinstance(block, TextContent)
@@ -650,19 +545,32 @@ def _the_tools_own_words(name: str, spoken: str) -> str:
     return own if own else f"[{name}] failed and said nothing"
 
 
-def without_the_payload(said: str) -> str:
-    """`said` with the encoded descriptor taken out of it.
+def _the_refusal_in(name: str, result: CallToolResult) -> ToolRefusal | None:
+    """The refusal a failed call carried in its structured content, or `None`
+    where it carried none - a tool that raised for a reason nobody foresaw.
 
-    Because the same string is what a person reads - in the timeline, in the
-    postmortem, in a Slack line - and a paragraph of base64 in the middle of a
-    sentence tells them nothing the outcome beside it has not already said.
+    One that will not read is no refusal, and said so in the log: what is in
+    hand is already a failure, and it is read as one nobody accounted for
+    rather than as one that left nothing."""
+    structured = result.structured_content
 
-    Here rather than at each caller, because the encoding is this module's and a
-    caller cannot strip what it was never told the shape of.
-    """
-    before, _, _ = said.partition(LEFT_BEHIND_MARKER)
+    if structured is None or REFUSAL_KEY not in structured:
+        return None
 
-    return before.strip()
+    try:
+        return ToolRefusal.model_validate(structured[REFUSAL_KEY])
+    except ValidationError:
+        logger.warning("a refusal could not be read", exc_info=True, extra={"tool": name})
+
+        return None
+
+
+def _a_refusing_answer(refusal: ToolRefusal) -> CallToolResult:
+    """The error result a refused call is answered with: the refusal's words for
+    whoever reads the content, and the refusal whole for the caller to act on."""
+    return CallToolResult(content=[TextContent(type="text", text=refusal.words)],
+                          structured_content={REFUSAL_KEY: refusal.model_dump(mode="json")},
+                          is_error=True)
 
 
 class McpClient:
@@ -1285,36 +1193,37 @@ async def every_tool_listed(
 def _answered(name: str, result: CallToolResult) -> object:
     """What the tool said, unwrapped, or the error it reported instead.
 
-    An error is raised saying what the tool said and nothing else, because a
-    person reads it - in an escalation's reason, the timeline, the postmortem
-    and a Slack line - and the content blocks it arrived in are this
-    transport's business. The markers are looked for in the same words, and a
-    descriptor is read out of them: one reading of one string.
+    An error is raised saying what a person reads - in an escalation's reason,
+    the timeline, the postmortem and a Slack line - and carrying what the
+    caller acts on, both from the refusal the server answered with
+    (`_the_refusal_in`). A failure that carried none is a tool that raised for
+    a reason nobody foresaw, which said nothing about the estate.
     """
     if result.is_error:
-        spoken = _the_words_of(result)
-        said = _the_tools_own_words(name, spoken)
+        refusal = _the_refusal_in(name, result)
 
-        # The walk's own exception rather than a kind of tool error, because
-        # what it means is not about the tool: the walk is to stop.
-        if RUN_LOST_MARKER in spoken:
-            raise RunLost(said)
+        if refusal is None:
+            raise McpToolError(_the_tools_own_words(name, _the_words_of(result)))
 
-        if EXHAUSTED_ACTION_MARKER in spoken:
-            raise ActionExhausted(said)
+        said = refusal.words
 
-        if UNREACHABLE_PLATFORM_MARKER in spoken:
-            raise PlatformUnreachable(said, what_was_left_behind(spoken))
-
-        if CHANGED_SINCE_MARKER in spoken:
-            raise ChangedSince(said, what_was_left_behind(spoken),
-                               performed=PERFORMED_MARKER in spoken)
-
-        # Any refusal may carry what it left, the unmarked ones too: a change
-        # request whose answer was lost still reports the suspension before it.
-        raise McpToolError(said,
-                           undo_descriptor=what_was_left_behind(spoken),
-                           left_behind_known=LEFT_BEHIND_KNOWN_MARKER in spoken)
+        match refusal.kind:
+            # The walk's own exception rather than a kind of tool error,
+            # because what it means is not about the tool: the walk is to stop.
+            case ToolRefusalKind.RUN_LOST:
+                raise RunLost(said)
+            case ToolRefusalKind.EXHAUSTED:
+                raise ActionExhausted(said)
+            case ToolRefusalKind.PLATFORM_UNREACHABLE:
+                raise PlatformUnreachable(said, refusal.left_behind)
+            case ToolRefusalKind.CHANGED_SINCE:
+                raise ChangedSince(said, refusal.left_behind, performed=refusal.performed)
+            case _:
+                # Any refusal may carry what it left, the unaccounted ones too:
+                # a change request whose answer was lost still reports the
+                # suspension before it.
+                raise McpToolError(said, undo_descriptor=refusal.left_behind,
+                                   left_behind_known=refusal.left_behind_known)
 
     structured = result.structured_content
 
@@ -1426,13 +1335,17 @@ class TracedMCPServer(MCPServer):
         """Calls the tool, once every call before it has ended, inside a span
         continuing whatever trace the request carried.
 
-        A tool that crashed is answered as the SDK answered it until mcp 2.1:
-        its own words, behind `TOOL_ERROR_PREFIX` - the SDK now withholds them,
-        and they are the sentence a person is told a change was refused with,
-        and the markers a refusal is recognised by. Answered here, outside the
-        span, so the span and the log line have seen it fail first. A tool's
-        deliberate `ToolError`, and anything this server refuses itself, the
-        SDK answers in words already.
+        A refusal - this server's own, raised bare, or a tool's, which the SDK
+        wraps as the cause of an `UnexpectedToolError` - is answered with the
+        error result that carries it (`_a_refusing_answer`): its words for
+        whoever reads them, and the refusal whole for the caller to act on.
+
+        Any other crash is answered as the SDK answered it until mcp 2.1: its
+        own words, behind `TOOL_ERROR_PREFIX` - the SDK now withholds them, and
+        they are what a person reads of why a change failed. Both are answered
+        here, outside the span, so the span and the log line have seen the
+        call fail first. A tool's deliberate `ToolError` the SDK answers in
+        words already.
         """
         meta = _the_meta_of(context)
 
@@ -1440,7 +1353,12 @@ class TracedMCPServer(MCPServer):
             try:
                 with serving_a_tool_call(name, meta):
                     return await self.answer(name, arguments, meta, context)
+            except ToolRefused as refused:
+                return _a_refusing_answer(refused.refusal)
             except UnexpectedToolError as crashed:
+                if isinstance(crashed.__cause__, ToolRefused):
+                    return _a_refusing_answer(crashed.__cause__.refusal)
+
                 return CallToolResult(
                     content=[TextContent(
                         type="text",

@@ -1,23 +1,18 @@
-"""What a write tool's refusal says, read as the transport reads it.
+"""What a write tool's refusal says, read as the server answers it.
 
 Shared because every action that can change the estate refuses under one rule,
 and each action's suite asserts which of its steps the rule was applied at. Read
-off the words through the transport's own reading, so what is asserted is what a
-caller would be told rather than the spelling of a marker.
+off the refusal the tool raised - its kind, what it left behind and whether its
+change had landed - which is what the server answers the call with whole, so
+what is asserted is what a caller would be told rather than a sentence, which is
+allowed to change.
 """
 
 from __future__ import annotations
 
 from argus_testkit import Assertion
 from core.models import UndoDescriptor
-from mcp_transport import (
-    CHANGED_SINCE_MARKER,
-    EXHAUSTED_ACTION_MARKER,
-    LEFT_BEHIND_KNOWN_MARKER,
-    PERFORMED_MARKER,
-    UNREACHABLE_PLATFORM_MARKER,
-    what_was_left_behind,
-)
+from mcp_transport import ToolRefusal, ToolRefusalKind, ToolRefused
 
 
 def it_was_refused_as(refusal: type[Exception]) -> Assertion[object]:
@@ -34,30 +29,24 @@ def it_was_refused_as(refusal: type[Exception]) -> Assertion[object]:
 
 
 def it_was_refused_as_changed_since() -> Assertion[object]:
-    """The refusal carries the changed-since marker, and neither of the others.
+    """The refusal is of the changed-since kind.
 
-    Its own marker because the walk does something different with each: a
+    Its own kind because the walk does something different with each: a
     changed-since refusal escalates - somebody is acting on the service now, and
     Argus hands it to a person rather than act beside them - an exhausted one is
-    spent, and an unreachable platform narrows every action through it. Asserted
-    against the marker rather than the sentence, which is allowed to change.
+    spent, and an unreachable platform narrows every action through it.
     """
+    return its_kind_is(ToolRefusalKind.CHANGED_SINCE)
+
+
+def its_kind_is(expected: ToolRefusalKind) -> Assertion[object]:
     def assertion(raised: object) -> bool:
-        said = str(raised)
+        refusal = _the_refusal_of(raised)
 
-        if raised is None or CHANGED_SINCE_MARKER not in said:
+        if refusal.kind is not expected:
             raise AssertionError(
-                f"Expected the refusal to carry [{CHANGED_SINCE_MARKER}], and it "
-                f"said [{raised}]."
-            )
-
-        others = [marker for marker in (EXHAUSTED_ACTION_MARKER, UNREACHABLE_PLATFORM_MARKER)
-                  if marker in said]
-
-        if others:
-            raise AssertionError(
-                f"Expected a changed-since refusal to carry no other marker, and it "
-                f"carried {others}: [{raised}]."
+                f"Expected a [{expected}] refusal, and it was a [{refusal.kind}] one: "
+                f"[{refusal.words}]."
             )
 
         return True
@@ -71,10 +60,13 @@ def its_change_is_said_performed(expected: bool) -> Assertion[object]:
     records the action performed where it had and not performed where it had not,
     and a suspension alone is not the change."""
     def assertion(raised: object) -> bool:
-        if (PERFORMED_MARKER in str(raised)) is not expected:
+        refusal = _the_refusal_of(raised)
+
+        if refusal.performed is not expected:
             raise AssertionError(
                 f"Expected the refusal to say this claim's change "
-                f"{'had' if expected else 'had not'} landed, and it said [{raised}]."
+                f"{'had' if expected else 'had not'} landed, and it said it "
+                f"{'had' if refusal.performed else 'had not'}: [{refusal.words}]."
             )
 
         return True
@@ -82,12 +74,16 @@ def its_change_is_said_performed(expected: bool) -> Assertion[object]:
     return assertion
 
 
-def it_is_marked_unreachable(expected: bool) -> Assertion[object]:
+def it_is_refused_as_unreachable(expected: bool) -> Assertion[object]:
     def assertion(raised: object) -> bool:
-        if (UNREACHABLE_PLATFORM_MARKER in str(raised)) is not expected:
+        refusal = _the_refusal_of(raised)
+        unreachable = refusal.kind is ToolRefusalKind.PLATFORM_UNREACHABLE
+
+        if unreachable is not expected:
             raise AssertionError(
                 f"Expected the refusal {'' if expected else 'not '}to report a "
-                f"platform that could not be reached, and it said [{raised}]."
+                f"platform that could not be reached, and it was a [{refusal.kind}] "
+                f"one: [{refusal.words}]."
             )
 
         return True
@@ -96,16 +92,15 @@ def it_is_marked_unreachable(expected: bool) -> Assertion[object]:
 
 
 def what_it_left_is_known(expected: bool) -> Assertion[object]:
-    """Known where a marker says it: the unreachable platform's own, which
-    promises it, or the ordinary refusal's."""
+    """Known for every refusal but one that cannot vouch for the estate."""
     def assertion(raised: object) -> bool:
-        said = str(raised)
-        known = LEFT_BEHIND_KNOWN_MARKER in said or UNREACHABLE_PLATFORM_MARKER in said
+        refusal = _the_refusal_of(raised)
 
-        if known is not expected:
+        if refusal.left_behind_known is not expected:
             raise AssertionError(
                 f"Expected the refusal to say what it left behind is "
-                f"{'known' if expected else 'not known'}, and it said [{said}]."
+                f"{'known' if expected else 'not known'}, and it was a [{refusal.kind}] "
+                f"one: [{refusal.words}]."
             )
 
         return True
@@ -117,7 +112,7 @@ def it_left_behind(expected: UndoDescriptor | None) -> Assertion[object]:
     """Compared as a value: a descriptor that arrived with a field lost would put
     back something other than what was changed."""
     def assertion(raised: object) -> bool:
-        carried = what_was_left_behind(str(raised))
+        carried = _the_refusal_of(raised).left_behind
 
         if carried != expected:
             raise AssertionError(
@@ -128,3 +123,16 @@ def it_left_behind(expected: UndoDescriptor | None) -> Assertion[object]:
         return True
 
     return assertion
+
+
+def _the_refusal_of(raised: object) -> ToolRefusal:
+    """The refusal a tool raised, or the refusal itself where one is answered
+    rather than raised - as `a_platform_refusal` answers what a tool raises."""
+    if isinstance(raised, ToolRefusal):
+        return raised
+
+    if not isinstance(raised, ToolRefused):
+        raise AssertionError(f"Expected the action to be refused, and what was raised was "
+                             f"{raised!r}.")
+
+    return raised.refusal

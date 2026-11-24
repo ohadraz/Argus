@@ -90,6 +90,7 @@ from deployment_platform import (
     MarkFound,
 )
 from mcp_transport import (
+    ToolRefused,
     a_change_made_since,
     a_refusal_saying_what_it_left,
     an_exhausted_action,
@@ -119,7 +120,7 @@ logger = logging.getLogger(__name__)
 THE_MOST_REPLICAS_ARGUS_MAY_ASK_FOR: Final = 12
 
 
-class AlreadyAtItsLargest(Exception):
+class AlreadyAtItsLargest(ToolRefused):
     """The deployment is already as large as Argus may make it.
 
     Raised rather than answered with a no-op, and raised *before* anything is
@@ -135,14 +136,14 @@ class AlreadyAtItsLargest(Exception):
     """
 
 
-class ScaleRefused(Exception):
+class ScaleRefused(ToolRefused):
     """The platform would not report the size, or would not change it."""
 
 
 def _refusing(said: str, error: DeploymentPlatformError, *,
               asked_to_change: bool,
               left_behind: ReplicaUndo | None = None) -> ScaleRefused:
-    """This module's refusal, marked as `a_platform_refusal` marks it.
+    """This module's refusal, of the kind `a_platform_refusal` decides.
 
     `left_behind` is what the failure cost, where it cost anything. This is the
     action most likely to fail part-way - it reads, suspends, and only then acts
@@ -368,7 +369,7 @@ def still_argus_s(descriptor: ReplicaUndo,
     if action_id is None:
         return ChangeFound(still_argus_s=None, found=no_claim_to_compare_with(
             f"the scale-out of [{application}]"
-        ))
+        ).words)
 
     if asked_for is None:
         return ChangeFound(

@@ -73,12 +73,7 @@ from deployment_platform import (
     SyncPhase,
     SyncRun,
 )
-from mcp_transport import (
-    EXHAUSTED_ACTION_MARKER,
-    LEFT_BEHIND_MARKER,
-    UNREACHABLE_PLATFORM_MARKER,
-    what_was_left_behind,
-)
+from mcp_transport import ToolRefusalKind, ToolRefused
 from write_mcp_server.rolling_back import (
     NoEarlierRevision,
     RollbackRefused,
@@ -104,7 +99,7 @@ from write_mcp_server_test.framework.putting_back import (
     the_suspension_is_said_to_stand,
 )
 from write_mcp_server_test.framework.refusals import (
-    it_is_marked_unreachable,
+    it_is_refused_as_unreachable,
     it_left_behind,
     it_was_refused_as,
     it_was_refused_as_changed_since,
@@ -661,7 +656,7 @@ def test_a_history_the_platform_would_not_give_is_known_to_have_changed_nothing(
         .when(attempting(lambda: plan_rollback(SOME_APPLICATION, platform))) \
         .then(all_of(
             it_was_refused_as(RollbackRefused),
-            it_is_marked_unreachable(False),
+            it_is_refused_as_unreachable(False),
             what_it_left_is_known(True),
             it_left_behind(None)
         ))
@@ -680,7 +675,7 @@ def test_asking_whether_it_syncs_itself_is_a_read_and_changes_nothing() -> None:
         .given(platform) \
         .when(attempting(lambda: plan_rollback(SOME_APPLICATION, platform))) \
         .then(all_of(
-            it_is_marked_unreachable(True),
+            it_is_refused_as_unreachable(True),
             what_it_left_is_known(True),
             it_left_behind(None)
         ))
@@ -886,7 +881,7 @@ def test_a_rollback_is_not_asked_while_the_platform_runs_a_sync_of_its_own() -> 
         )) \
         .then(all_of(
             it_was_refused_as(RollbackRefused),
-            it_is_marked_unreachable(False),
+            it_is_refused_as_unreachable(False),
             what_it_left_is_known(True),
             it_left_behind(None),
             _no_write_was_asked(platform)
@@ -1059,7 +1054,7 @@ def test_a_plan_the_tier_s_own_rule_does_not_give_is_refused_by_the_write(
         )) \
         .then(all_of(
             it_was_refused_as(RollbackRefused),
-            it_is_marked_unreachable(False),
+            it_is_refused_as_unreachable(False),
             what_it_left_is_known(True),
             it_left_behind(None),
             _no_write_was_asked(platform)
@@ -1223,7 +1218,7 @@ def test_a_revision_somebody_deployed_since_the_plan_is_not_rolled_back() -> Non
         .then(all_of(
             it_was_refused_as_changed_since(),
             its_change_is_said_performed(False),
-            it_is_marked_unreachable(False),
+            it_is_refused_as_unreachable(False),
             what_it_left_is_known(True),
             it_left_behind(None),
             _no_write_was_asked(platform)
@@ -1280,7 +1275,7 @@ def test_a_sync_switch_changed_since_the_plan_refuses_the_rollback(
         .then(all_of(
             it_was_refused_as_changed_since(),
             its_change_is_said_performed(False),
-            it_is_marked_unreachable(False),
+            it_is_refused_as_unreachable(False),
             what_it_left_is_known(True),
             it_left_behind(None),
             _no_write_was_asked(platform)
@@ -1320,7 +1315,7 @@ def test_a_rollback_that_could_not_read_the_platform_writes_nothing(read: str) -
             lambda: roll_back_deployment(planned, platform, SOME_MARK, SOME_ARGUS_ACCOUNT)
         )) \
         .then(all_of(
-            it_is_marked_unreachable(True),
+            it_is_refused_as_unreachable(True),
             what_it_left_is_known(True),
             it_left_behind(None),
             _no_write_was_asked(platform)
@@ -1882,7 +1877,7 @@ def test_a_suspension_whose_answer_was_lost_is_not_said_to_have_changed_nothing(
         )) \
         .then(all_of(
             it_was_refused_as(RollbackRefused),
-            it_is_marked_unreachable(False),
+            it_is_refused_as_unreachable(False),
             what_it_left_is_known(False),
             it_left_behind(None)
         ))
@@ -1903,7 +1898,7 @@ def test_a_rollback_rejected_after_sync_was_suspended_says_the_suspension_is_lef
             lambda: roll_back_deployment(planned, platform, SOME_MARK, SOME_ARGUS_ACCOUNT)
         )) \
         .then(all_of(
-            it_is_marked_unreachable(False),
+            it_is_refused_as_unreachable(False),
             what_it_left_is_known(True),
             it_left_behind(THE_SUSPENSION)
         ))
@@ -1924,7 +1919,7 @@ def test_a_rollback_whose_answer_was_lost_carries_the_suspension_and_no_more() -
             lambda: roll_back_deployment(planned, platform, SOME_MARK, SOME_ARGUS_ACCOUNT)
         )) \
         .then(all_of(
-            it_is_marked_unreachable(False),
+            it_is_refused_as_unreachable(False),
             what_it_left_is_known(False),
             it_left_behind(THE_SUSPENSION)
         ))
@@ -2056,10 +2051,10 @@ def _it_is_reported_as_an_unreachable_platform() -> Assertion[Exception | None]:
                 f"{raised!r}."
             )
 
-        if UNREACHABLE_PLATFORM_MARKER not in str(raised):
+        if raised.refusal.kind is not ToolRefusalKind.PLATFORM_UNREACHABLE:
             raise AssertionError(
                 f"Expected the refusal to report a platform that could not be "
-                f"reached, and it reported [{raised}]."
+                f"reached, and it was [{raised.refusal.kind}]: [{raised}]."
             )
 
         return True
@@ -2075,7 +2070,7 @@ def _it_is_not_reported_as_an_unreachable_platform() -> Assertion[Exception | No
                 f"{raised!r}."
             )
 
-        if UNREACHABLE_PLATFORM_MARKER in str(raised):
+        if raised.refusal.kind is ToolRefusalKind.PLATFORM_UNREACHABLE:
             raise AssertionError(
                 f"Expected the refusal to be reported as this action's own, and "
                 f"it reported a platform that could not be reached: [{raised}]."
@@ -2270,14 +2265,16 @@ def _the_sync_policy_was_not_touched(platform: Any) -> Assertion[object]:
 
 
 def _the_refusal_says_the_action_is_exhausted() -> Assertion[Exception | None]:
-    """The refusal carries the marker the transport turns into a type - asserted
-    against the marker rather than the sentence, which is allowed to change."""
+    """The refusal is of the kind the transport turns into a type - asserted
+    against the kind rather than the sentence, which is allowed to change."""
     def assertion(refusal: Exception | None) -> bool:
-        if refusal is None or EXHAUSTED_ACTION_MARKER not in str(refusal):
+        kind = refusal.refusal.kind if isinstance(refusal, ToolRefused) else None
+
+        if kind is not ToolRefusalKind.EXHAUSTED:
             raise AssertionError(
-                f"Expected the refusal to carry [{EXHAUSTED_ACTION_MARKER}], so "
+                f"Expected the refusal to be [{ToolRefusalKind.EXHAUSTED}], so "
                 f"that a caller can tell an exhausted action from a broken "
-                f"platform, and it said [{refusal}]."
+                f"platform, and it was [{kind}]: [{refusal}]."
             )
 
         return True
@@ -2325,13 +2322,13 @@ def _it_says_what_it_left_behind(
     what was changed - and would satisfy every assertion short of this one.
     """
     def assertion(raised: Exception | None) -> bool:
-        if LEFT_BEHIND_MARKER not in str(raised):
+        carried = raised.refusal.left_behind if isinstance(raised, ToolRefused) else None
+
+        if carried is None:
             raise AssertionError(
                 f"Expected the refusal to say what it left behind, and it said "
                 f"[{raised}]."
             )
-
-        carried = what_was_left_behind(str(raised))
 
         if carried != expected:
             raise AssertionError(

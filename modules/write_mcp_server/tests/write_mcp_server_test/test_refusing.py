@@ -6,8 +6,8 @@ was not applied. Before any change is asked for, the estate is known as it was
 found, whatever the platform said. At a change the platform answered it did not
 handle, what is left is what the earlier calls answered for, and that is known to
 be all of it. At one whose answer was lost, the earlier calls' changes are still
-carried, and nothing is said to be all of it - and nothing is marked, because a
-platform marked unreachable narrows the walk onto an estate that may have moved.
+carried, and nothing is said to be all of it - and it is not refused as an
+unreachable platform, which narrows the walk onto an estate that may have moved.
 """
 
 from __future__ import annotations
@@ -16,10 +16,11 @@ import pytest
 from argus_testkit import Assertion, Scenario, all_of
 from core.models import DeploymentRollbackUndo
 from deployment_platform import DeploymentPlatformError, PlatformRefused, PlatformUnreachable
+from mcp_transport import ToolRefusal
 from write_mcp_server.refusing import a_platform_refusal
 
 from write_mcp_server_test.framework.refusals import (
-    it_is_marked_unreachable,
+    it_is_refused_as_unreachable,
     it_left_behind,
     what_it_left_is_known,
 )
@@ -50,7 +51,7 @@ def test_a_platform_gone_before_any_change_was_asked_for_is_unreachable_and_left
     Scenario() \
         .when(lambda: a_platform_refusal(SOME_REFUSAL, error, asked_to_change=False)) \
         .then(all_of(
-            it_is_marked_unreachable(True),
+            it_is_refused_as_unreachable(True),
             what_it_left_is_known(True),
             it_left_behind(None)
         ))
@@ -73,7 +74,7 @@ def test_a_platform_that_said_no_before_any_change_was_asked_for_left_nothing(
     Scenario() \
         .when(lambda: a_platform_refusal(SOME_REFUSAL, error, asked_to_change=False)) \
         .then(all_of(
-            it_is_marked_unreachable(False),
+            it_is_refused_as_unreachable(False),
             what_it_left_is_known(True),
             it_left_behind(None)
         ))
@@ -90,7 +91,7 @@ def test_a_platform_gone_at_a_change_it_did_not_handle_is_unreachable_with_what_
         .when(lambda: a_platform_refusal(SOME_REFUSAL, error, asked_to_change=True,
                                          left_behind=A_SUSPENSION)) \
         .then(all_of(
-            it_is_marked_unreachable(True),
+            it_is_refused_as_unreachable(True),
             what_it_left_is_known(True),
             it_left_behind(A_SUSPENSION)
         ))
@@ -107,7 +108,7 @@ def test_a_change_the_platform_rejected_says_it_left_only_what_came_before() -> 
         .when(lambda: a_platform_refusal(SOME_REFUSAL, error, asked_to_change=True,
                                          left_behind=A_SUSPENSION)) \
         .then(all_of(
-            it_is_marked_unreachable(False),
+            it_is_refused_as_unreachable(False),
             what_it_left_is_known(True),
             it_left_behind(A_SUSPENSION)
         ))
@@ -122,10 +123,10 @@ def test_a_change_the_platform_rejected_says_it_left_only_what_came_before() -> 
     ],
     ids=["timed out", "faulted"]
 )
-def test_a_change_whose_answer_was_lost_is_not_marked_and_carries_what_came_before(
+def test_a_change_whose_answer_was_lost_is_not_unreachable_and_carries_what_came_before(
     error: DeploymentPlatformError
 ) -> None:
-    # The rollback may be landing this second. Marked unreachable, the walk
+    # The rollback may be landing this second. Refused as unreachable, the walk
     # would narrow onto another action and judge it against a service that may
     # be recovering from this one; said known, the record would say nothing
     # changed beyond the suspension.
@@ -133,7 +134,7 @@ def test_a_change_whose_answer_was_lost_is_not_marked_and_carries_what_came_befo
         .when(lambda: a_platform_refusal(SOME_REFUSAL, error, asked_to_change=True,
                                          left_behind=A_SUSPENSION)) \
         .then(all_of(
-            it_is_marked_unreachable(False),
+            it_is_refused_as_unreachable(False),
             what_it_left_is_known(False),
             it_left_behind(A_SUSPENSION)
         ))
@@ -147,7 +148,7 @@ def test_a_first_change_whose_answer_was_lost_carries_nothing_and_is_not_known()
     Scenario() \
         .when(lambda: a_platform_refusal(SOME_REFUSAL, error, asked_to_change=True)) \
         .then(all_of(
-            it_is_marked_unreachable(False),
+            it_is_refused_as_unreachable(False),
             what_it_left_is_known(False),
             it_left_behind(None)
         ))
@@ -163,11 +164,11 @@ def test_a_refusal_is_said_in_its_own_words() -> None:
         .then(_it_says(SOME_REFUSAL))
 
 
-def _it_says(expected: str) -> Assertion[str]:
-    def assertion(said: str) -> bool:
-        if expected not in said:
+def _it_says(expected: str) -> Assertion[ToolRefusal]:
+    def assertion(refusal: ToolRefusal) -> bool:
+        if expected not in refusal.words:
             raise AssertionError(
-                f"Expected the refusal to say [{expected}], and it said [{said}]."
+                f"Expected the refusal to say [{expected}], and it said [{refusal.words}]."
             )
 
         return True

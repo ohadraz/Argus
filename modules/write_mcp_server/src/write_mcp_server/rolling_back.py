@@ -83,6 +83,7 @@ from deployment_platform import (
     SyncRun,
 )
 from mcp_transport import (
+    ToolRefused,
     a_change_made_since,
     a_refusal_saying_what_it_left,
     an_exhausted_action,
@@ -128,7 +129,7 @@ class RollbackStanding(Enum):
     UNDER_WAY = auto()
 
 
-class NoEarlierRevision(Exception):
+class NoEarlierRevision(ToolRefused):
     """The application has nothing to roll back to.
 
     Raised rather than answered with a no-op, and raised *before* anything is
@@ -143,7 +144,7 @@ class NoEarlierRevision(Exception):
     """
 
 
-class RollbackRefused(Exception):
+class RollbackRefused(ToolRefused):
     """The platform would not perform the rollback."""
 
 
@@ -151,7 +152,7 @@ def _refusing(said: str, error: DeploymentPlatformError, *,
               asked_to_change: bool,
               left_behind: DeploymentRollbackUndo | None = None
               ) -> RollbackRefused:
-    """This module's refusal, marked as `a_platform_refusal` marks it.
+    """This module's refusal, of the kind `a_platform_refusal` decides.
 
     `left_behind` is what the failure cost, where it cost anything. A platform
     that refuses after reconciliation was suspended has left this application
@@ -267,8 +268,8 @@ def roll_back_deployment(planned: Planned[DeploymentRollbackUndo],
     With no `argus_account` to look for, Argus's own entries cannot be told from
     anybody's. Where no named account has deployed or asked for a sync since the
     plan, the rollback is written as above; where one has, nobody can say whose
-    it was, and the refusal says nothing it cannot establish - not marked as
-    known, and carrying the suspension where this claim's still stands.
+    it was, and the refusal says nothing it cannot establish - not said to be
+    all it left, and carrying the suspension where this claim's still stands.
 
     The answer is the plan dated, on the platform's own clock, by when the
     change was made: the rollback's answer, for one written here; for one

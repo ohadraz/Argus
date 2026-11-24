@@ -40,9 +40,10 @@ from mcp.types import CallToolResult, InputRequiredResult, RequestParamsMeta, Te
 from mcp_transport import (
     ACTION_META_KEY,
     FENCE_META_KEY,
-    LEFT_BEHIND_KNOWN_MARKER,
-    RUN_LOST_MARKER,
-    UNREACHABLE_PLATFORM_MARKER,
+    REFUSAL_KEY,
+    ToolRefusal,
+    ToolRefusalKind,
+    ToolRefused,
     an_unreachable_platform,
 )
 from pydantic import TypeAdapter
@@ -132,7 +133,7 @@ def test_a_change_naming_no_run_is_refused_but_not_as_a_lost_run(
         ) \
         .then(all_of(
             _refused(as_a_lost_run=False),
-            _refused_with(LEFT_BEHIND_KNOWN_MARKER),
+            _refused_as(ToolRefusalKind.LEFT_BEHIND_KNOWN),
             _the_change_was_made(made, times=0),
             _the_run_was_asked_about(asked, [])
         ))
@@ -154,7 +155,7 @@ def test_a_change_whose_run_could_not_be_checked_is_refused_but_not_as_a_lost_ru
         ) \
         .then(all_of(
             _refused(as_a_lost_run=False),
-            _refused_with(LEFT_BEHIND_KNOWN_MARKER),
+            _refused_as(ToolRefusalKind.LEFT_BEHIND_KNOWN),
             _the_change_was_made(made, times=0)
         ))
 
@@ -177,7 +178,7 @@ def test_a_change_while_another_for_its_run_is_in_flight_is_refused_but_not_as_l
         ) \
         .then(all_of(
             _refused(as_a_lost_run=False),
-            _not_refused_with(LEFT_BEHIND_KNOWN_MARKER),
+            _refused_as(ToolRefusalKind.UNACCOUNTED),
             _the_change_was_made(made, times=0)
         ))
 
@@ -231,7 +232,7 @@ def test_a_change_asked_while_another_is_being_made_waits_for_the_run_to_be_let_
 def test_a_change_that_failed_is_answered_with_its_own_failure_and_lets_the_run_go(
     caplog: pytest.LogCaptureFixture
 ) -> None:
-    # The walk tells one failure from another by its marker - a platform that
+    # The walk tells one failure from another by its kind - a platform that
     # was not there is passed over, a lost run stops the walk - so the change's
     # own failure has to come back as itself. And the run is let go on the way
     # out, as after a change that was made.
@@ -246,7 +247,7 @@ def test_a_change_that_failed_is_answered_with_its_own_failure_and_lets_the_run_
             lambda: _asked(server, "make_a_change_the_platform_misses", _sent(SOME_FENCE))
         ) \
         .then(all_of(
-            _refused_with(UNREACHABLE_PLATFORM_MARKER),
+            _refused_as(ToolRefusalKind.PLATFORM_UNREACHABLE),
             _refused(as_a_lost_run=False),
             _happened_in_order(made, ["held", "let go"]),
             _nothing_was_logged_saying("the change was made and its run could not be let go",
@@ -374,7 +375,7 @@ def test_a_marked_change_naming_no_action_is_refused_before_the_run_is_asked_aft
         ) \
         .then(all_of(
             _refused(as_a_lost_run=False),
-            _refused_with(LEFT_BEHIND_KNOWN_MARKER),
+            _refused_as(ToolRefusalKind.LEFT_BEHIND_KNOWN),
             _the_change_was_made(made, times=0),
             _the_run_was_asked_about(asked, [])
         ))
@@ -514,7 +515,7 @@ def _a_tier_making(made: list[str], hold: HoldForAChange) -> FencedMCPServer:
 
     @server.change()
     def make_a_change_the_platform_misses() -> list[str]:
-        raise RuntimeError(an_unreachable_platform("some-platform", "did not answer"))
+        raise ToolRefused(an_unreachable_platform("some-platform", "did not answer"))
 
     @server.tool()
     def read_something() -> list[str]:
@@ -744,14 +745,28 @@ def _every_call_answered_with(expected: list[str],
     return assertion
 
 
+def _the_refusal_in(result: CallToolResult) -> ToolRefusal | None:
+    """The refusal an error result carries beside its words, where it carries one."""
+    carried = (result.structured_content or {}).get(REFUSAL_KEY)
+
+    return ToolRefusal.model_validate(carried) if carried is not None else None
+
+
+def _the_kind_in(result: CallToolResult) -> ToolRefusalKind | None:
+    refusal = _the_refusal_in(result)
+
+    return refusal.kind if refusal is not None else None
+
+
 def _refused(as_a_lost_run: bool) -> Assertion[CallToolResult]:
     def assertion(result: CallToolResult) -> bool:
-        said = _the_words_of(result)
+        kind = _the_kind_in(result)
 
-        if not result.is_error or (RUN_LOST_MARKER in said) is not as_a_lost_run:
+        if not result.is_error or (kind is ToolRefusalKind.RUN_LOST) is not as_a_lost_run:
             raise AssertionError(
                 f"Expected the call refused {"as" if as_a_lost_run else "but not as"} a "
-                f"lost run, got [{said}] (an error: {result.is_error})."
+                f"lost run, got a [{kind}] refusal saying [{_the_words_of(result)}] (an "
+                f"error: {result.is_error})."
             )
 
         return True
@@ -759,29 +774,14 @@ def _refused(as_a_lost_run: bool) -> Assertion[CallToolResult]:
     return assertion
 
 
-def _refused_with(marker: str) -> Assertion[CallToolResult]:
+def _refused_as(expected: ToolRefusalKind) -> Assertion[CallToolResult]:
     def assertion(result: CallToolResult) -> bool:
-        said = _the_words_of(result)
+        kind = _the_kind_in(result)
 
-        if not result.is_error or marker not in said:
+        if not result.is_error or kind is not expected:
             raise AssertionError(
-                f"Expected the call refused with [{marker}], got [{said}] (an error: "
-                f"{result.is_error})."
-            )
-
-        return True
-
-    return assertion
-
-
-def _not_refused_with(marker: str) -> Assertion[CallToolResult]:
-    def assertion(result: CallToolResult) -> bool:
-        said = _the_words_of(result)
-
-        if marker in said:
-            raise AssertionError(
-                f"Expected the call answered without [{marker}], got [{said}] (an error: "
-                f"{result.is_error})."
+                f"Expected the call refused as [{expected}], got a [{kind}] refusal saying "
+                f"[{_the_words_of(result)}] (an error: {result.is_error})."
             )
 
         return True
