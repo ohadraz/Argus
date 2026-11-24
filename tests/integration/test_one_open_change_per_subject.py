@@ -48,7 +48,13 @@ from orchestrator.records import Records
 from orchestrator.walk import ports
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.mitigating import mitigation_node
-from orchestrator.walk.state import IncidentState
+from orchestrator.walk.state import (
+    ActionInFlight,
+    CandidateCursor,
+    IncidentState,
+    RoundEvidence,
+    WhatWasLearnt,
+)
 from postgres import connect_from_env
 
 # The flag both incidents blame.
@@ -165,8 +171,10 @@ def _an_incident_reverting_the_flag(candidate: Hypothesis) -> IncidentState:
     return IncidentState(incident_id=candidate.incident_id,
                          alert=DONT_CARE_ALERT,
                          status=IncidentStatus.MITIGATING,
-                         hypothesis=candidate,
-                         proposed_action=_the_revert())
+                         cursor=CandidateCursor(hypothesis=candidate),
+                         evidence=RoundEvidence(),
+                         history=WhatWasLearnt(),
+                         action=ActionInFlight(proposed_action=_the_revert()))
 
 
 def _mitigating(state: IncidentState,

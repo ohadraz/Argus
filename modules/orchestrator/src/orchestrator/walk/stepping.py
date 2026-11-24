@@ -42,7 +42,7 @@ def stepped(
         with within_step(state.steps):
             result = node(state)
 
-        updates = result.as_updates() if isinstance(result, StateDelta) else result
+        updates = result.as_updates(state) if isinstance(result, StateDelta) else result
 
         return {**updates, "steps": state.steps + 1}
 

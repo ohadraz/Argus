@@ -26,7 +26,7 @@ from argus_testkit import (
 from core.models import Alert, IncidentStatus
 from incident_record import the_current_step
 from orchestrator.walk.deltas import StateDelta
-from orchestrator.walk.state import IncidentState
+from orchestrator.walk.state import CandidateCursor, IncidentState
 from orchestrator.walk.stepping import stepped
 
 from orchestrator_test.framework.builders import an_incident_state
@@ -96,7 +96,7 @@ def test_a_delta_a_node_returned_is_merged_as_what_it_set_with_one_step_more() -
                 StateDelta(candidate_index=SOME_CANDIDATE_INDEX))
         ) \
         .when(lambda: stepped(a_node_returning_a_delta)(_a_state_after(SOME_STEPS_TAKEN))) \
-        .then(the_answer_was({"candidate_index": SOME_CANDIDATE_INDEX,
+        .then(the_answer_was({"cursor": CandidateCursor(candidate_index=SOME_CANDIDATE_INDEX),
                               "steps": SOME_STEPS_TAKEN + 1}))
 
 

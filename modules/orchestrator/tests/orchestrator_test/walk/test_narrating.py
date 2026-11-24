@@ -37,10 +37,11 @@ from incident_record.waiting import WaitForPeople
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.discarding import Discard, discards_nothing
 from orchestrator.walk.narrating import with_status
-from orchestrator.walk.state import IncidentState
+from orchestrator.walk.state import CandidateCursor, IncidentState
 
 from orchestrator_test.framework.builders import (
     a_person_ended_the_incident,
+    an_incident_state,
     nobody_ended_the_incident,
 )
 
@@ -192,7 +193,7 @@ def test_the_narration_never_reaches_the_graphs_state(
             discard=discards_nothing
         )(an_incident_mitigating)
         ) \
-        .then(_the_updates_are({"proposed_action": None}))
+        .then(_the_updates_are({"action": None}))
 
 
 @pytest.mark.unit
@@ -203,8 +204,9 @@ def test_the_derived_status_is_returned_with_the_nodes_work(
     # who put it there.
     Scenario() \
         .given(
+            some_candidate := a_candidate(),
             an_investigation_that_found_something := _a_node_returning(
-                {"candidates": [a_candidate()], "candidate_index": 0}
+                {"candidates": [some_candidate], "candidate_index": 0}
             ),
             an_incident_being_investigated := _an_incident_being_investigated()
         ) \
@@ -218,7 +220,8 @@ def test_the_derived_status_is_returned_with_the_nodes_work(
         ) \
         .then(all_of(
             the_updates_carry("status", IncidentStatus.MITIGATING),
-            the_updates_carry("candidate_index", 0))
+            the_updates_carry("cursor", CandidateCursor(candidates=[some_candidate],
+                                                        candidate_index=0)))
         )
 
 
@@ -333,7 +336,7 @@ def test_the_node_that_runs_after_a_resolution_runs_on_a_resolved_incident(
         )(a_resolved_incident)) \
         .then(all_of(
             _the_node_ran(ran),
-            _the_updates_are({"proposed_action": None}),
+            _the_updates_are({"action": None}),
             _the_incident_was_not_moved(transition_incident)
         ))
 
@@ -803,23 +806,17 @@ def _it_happened_in_order(happened: list[str], expected: list[str]) -> Assertion
 
 
 def _an_incident_being_investigated() -> IncidentState:
-    return IncidentState(incident_id=DONT_CARE_INCIDENT_ID,
-                         alert=DONT_CARE_ALERT,
-                         status=IncidentStatus.INVESTIGATING)
+    return _an_incident_in(IncidentStatus.INVESTIGATING)
 
 
 def _an_incident_in(status: IncidentStatus) -> IncidentState:
-    return IncidentState(incident_id=DONT_CARE_INCIDENT_ID,
-                         alert=DONT_CARE_ALERT,
-                         status=status)
+    return an_incident_state(DONT_CARE_ALERT, status, incident_id=DONT_CARE_INCIDENT_ID)
 
 
 def _an_incident_mitigating() -> IncidentState:
-    return IncidentState(incident_id=DONT_CARE_INCIDENT_ID,
-                         alert=DONT_CARE_ALERT,
-                         status=IncidentStatus.MITIGATING,
-                         candidates=[a_candidate()],
-                         candidate_index=0)
+    return _an_incident_in(IncidentStatus.MITIGATING).model_copy(update={
+        "cursor": CandidateCursor(candidates=[a_candidate()], candidate_index=0)
+    })
 
 
 def a_candidate() -> Hypothesis:

@@ -61,7 +61,7 @@ def remembering_node(state: IncidentState,
         state.incident_id,
         state.alert,
         actions_taken(state.incident_id),
-        what_it_looked_like(state.alert, state.hypothesis)
+        what_it_looked_like(state.alert, state.cursor.hypothesis)
     )
 
     if record is None:

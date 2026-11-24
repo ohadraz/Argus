@@ -58,7 +58,7 @@ def next_candidate_node(state: IncidentState,
     attached to the attempt that produced it, rather than being reconstructed
     later from a timeline.
     """
-    attempts = [*state.attempts, *_what_was_just_tried(state)]
+    attempts = [*state.history.attempts, *_what_was_just_tried(state)]
     # The same history the round was reasoned from, and the same question
     # asked of it. What disqualifies a candidate is that the action answering
     # it has already been taken, so the candidates have to be asked what they
@@ -71,22 +71,23 @@ def next_candidate_node(state: IncidentState,
     # would discard the same entries once per wording.
     next_up = the_next_worth_trying(
         what_each_would_do(
-            state.candidates,
+            state.cursor.candidates,
             the_circumstances(
-                state.alert, state.flag_changes, state.deployments, state.placement,
-                deployment_changes=state.deployment_changes, onset=state.onset
+                state.alert, state.evidence.flag_changes, state.evidence.deployments,
+                state.evidence.placement,
+                deployment_changes=state.history.deployment_changes, onset=state.history.onset
             )
         ),
         attempts,
-        start=state.candidate_index + 1,
+        start=state.cursor.candidate_index + 1,
         # What an earlier attempt found was not answering. Passed in rather than
         # asked here, because the fact was learnt by an action and only the node
         # that took one could know it - and a candidate on a platform that is
         # down is not worth an experiment for the same reason one already tried
         # is not: the answer is known before it is asked.
-        unreachable_platforms=state.unreachable_platforms
+        unreachable_platforms=state.history.unreachable_platforms
     )
-    next_index = next_up[0] if next_up is not None else len(state.candidates)
+    next_index = next_up[0] if next_up is not None else len(state.cursor.candidates)
     next_candidate = next_up[1] if next_up is not None else None
 
     if next_candidate is not None:
@@ -125,20 +126,21 @@ def next_candidate_node(state: IncidentState,
     # sentence stale. A reader told only that a platform is down has to work out
     # which of Argus's seven went with it, which is what saying anything here is
     # for.
-    if state.unreachable_platforms:
+    if state.history.unreachable_platforms:
         return StateDelta(
             attempts=attempts,
             candidate_index=next_index,
             narration=Narration(
                 action="no explanation left that Argus can still act on",
-                detail=_what_the_platforms_took_away(state.unreachable_platforms)
+                detail=_what_the_platforms_took_away(state.history.unreachable_platforms)
             )
         )
 
     # Asked of the state as this node leaves it, the attempt just made
     # included, which is what `status_after` will be asked of.
-    if another_round_is_bought(state.model_copy(update={"attempts": attempts}),
-                               max_rounds):
+    if another_round_is_bought(
+            state.model_copy(update=StateDelta(attempts=attempts).as_updates(state)),
+            max_rounds):
         # Not "every explanation was refuted": a candidate the gate refused or
         # the tier could not act on was never tested, and a line saying it was
         # refuted puts a measurement in the record that never happened.
@@ -230,21 +232,21 @@ def _what_was_just_tried(state: IncidentState) -> list[Attempt]:
     dated here, the two disagreed by the length of that wait, and the round
     read two changes where there was one.
     """
-    action = state.proposed_action
+    action = state.action
 
-    if action is None or state.acted_at is None:
+    if action is None or action.acted_at is None:
         return []
 
     return [
         Attempt(
-            identity=the_identity_of(action),
-            enabled=action.direction,
-            occurred_at=to_iso(state.acted_at),
+            identity=the_identity_of(action.proposed_action),
+            enabled=action.proposed_action.direction,
+            occurred_at=to_iso(action.acted_at),
             # Always a refutation's reason here: this node is reached after a
             # refuted action, and an escalated one ends the walk before it.
             # `None` only where the walk resumed from a claim, whose recorded
             # outcome carries the verdict and not the reason.
-            refuted_because=state.action_because
+            refuted_because=action.action_because
         )
     ]
 

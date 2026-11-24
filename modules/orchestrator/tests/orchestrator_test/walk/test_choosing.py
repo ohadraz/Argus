@@ -32,6 +32,7 @@ from core import to_iso
 from core.events import CandidateSelected, IncidentEvent
 from core.models import (
     DEPLOYMENT_PLATFORM,
+    Action,
     Alert,
     Attempt,
     DiscardCacheEntries,
@@ -56,7 +57,14 @@ from orchestrator.walk.routes import (
     INVESTIGATING_ROUTE,
     MITIGATING_ROUTE,
 )
-from orchestrator.walk.state import IncidentState, status_after
+from orchestrator.walk.state import (
+    ActionInFlight,
+    CandidateCursor,
+    IncidentState,
+    RoundEvidence,
+    WhatWasLearnt,
+    status_after,
+)
 
 from orchestrator_test.framework.assertions import the_updates_carry
 from orchestrator_test.framework.builders import (
@@ -285,8 +293,9 @@ def test_a_spent_list_with_nothing_tried_since_its_round_looks_for_a_fix() -> No
                 incident_id,
                 [a_determined_hypothesis(incident_id)],
                 index=0,
-                rounds=1
-            ).model_copy(update={"acted_at": None})
+                rounds=1,
+                acted_at=None
+            )
         ) \
         .when(lambda: next_candidate_node(a_walk_that_changed_nothing, SOME_ROUND_BUDGET)) \
         .then(_the_walk_goes_to(FIXING_ROUTE, a_walk_that_changed_nothing))
@@ -333,9 +342,9 @@ def test_a_walk_that_looks_for_a_fix_says_how_many_actions_it_took(
             a_walk := _a_walk_at(incident_id,
                                  [a_determined_hypothesis(incident_id)],
                                  index=0,
-                                 rounds=_every_round()).model_copy(
-                update={"attempts": _earlier_attempts(earlier), "acted_at": acted_at}
-            )
+                                 rounds=_every_round(),
+                                 attempts=_earlier_attempts(earlier),
+                                 acted_at=acted_at)
         ) \
         .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
         .then(all_of(
@@ -355,8 +364,9 @@ def test_a_walk_that_looks_for_a_fix_does_not_say_its_actions_were_undone() -> N
             a_walk := _a_walk_that_restarted_the_service(
                 incident_id,
                 [_a_leak_worded_as(incident_id, "resident set climbing")],
-                index=0
-            ).model_copy(update={"rounds": _every_round()})
+                index=0,
+                rounds=_every_round()
+            )
         ) \
         .when(lambda: next_candidate_node(a_walk, SOME_ROUND_BUDGET)) \
         .then(all_of(
@@ -639,11 +649,16 @@ def _a_walk_at(incident_id: str,
                candidates: list[Hypothesis],
                index: int,
                acted_on: str = SOME_FLAG,
-               acted_at: datetime = DONT_CARE_MOMENT_IT_WAS_TAKEN,
+               acted_at: datetime | None = DONT_CARE_MOMENT_IT_WAS_TAKEN,
                rounds: int = 1,
-               because: str | None = None) -> IncidentState:
+               because: str | None = None,
+               attempts: list[Attempt] | None = None,
+               proposing: Action | None = None) -> IncidentState:
     """An incident mid-walk: a candidate has just been tried and did not settle
     anything, and the state carries what it takes to decide what happens next.
+
+    The action tried is the revert of `acted_on` unless `proposing` names
+    another.
 
     Nothing is carried in `already_read` throughout this file. The walk is
     bounded by how many times the incident may be investigated, not by how much
@@ -655,43 +670,45 @@ def _a_walk_at(incident_id: str,
         incident_id=incident_id,
         alert=DONT_CARE_ALERT,
         status=IncidentStatus.MITIGATING,
-        candidates=candidates,
-        candidate_index=index,
-        hypothesis=candidates[index],
-        rounds=rounds,
+        cursor=CandidateCursor(candidates=candidates,
+                               candidate_index=index,
+                               hypothesis=candidates[index]),
+        history=WhatWasLearnt(rounds=rounds, attempts=attempts or []),
         # The history the round read, holding every flag these candidates
         # blame. A candidate blaming a flag the provider never recorded is
         # answered by no action at all, and a case about which candidate comes
         # next would quietly become a case about none of them being answerable.
-        flag_changes=[
+        evidence=RoundEvidence(flag_changes=[
             FlagChange(flag=flag, enabled=True, occurred_at=DONT_CARE_MOMENT)
             for flag in dict.fromkeys(
                 candidate.subject
                 for candidate in candidates if candidate.subject is not None
             )
-        ],
-        proposed_action=RevertFeatureFlag(
-            flag=acted_on,
-            enabled=False,
-            undo_descriptor=FlagUndo(flag=acted_on, was_enabled=True)
-        ),
-        acted_at=acted_at,
-        action_because=because
+        ]),
+        action=ActionInFlight(
+            proposed_action=proposing or RevertFeatureFlag(
+                flag=acted_on,
+                enabled=False,
+                undo_descriptor=FlagUndo(flag=acted_on, was_enabled=True)
+            ),
+            acted_at=acted_at,
+            action_because=because
+        )
     )
 
 
 def _a_walk_that_restarted_the_service(incident_id: str,
                                        candidates: list[Hypothesis],
-                                       index: int) -> IncidentState:
+                                       index: int,
+                                       rounds: int = 1) -> IncidentState:
     """The same walk, after the action that puts nothing back.
 
     A restart is addressed to the service the alert names, so that is what the
     attempt this node is about to remember is addressed to - and it is the
     only place these cases read the alert for anything.
     """
-    return _a_walk_at(incident_id, candidates, index).model_copy(
-        update={"proposed_action": RestartService(service=DONT_CARE_ALERT.service)}
-    )
+    return _a_walk_at(incident_id, candidates, index, rounds=rounds,
+                      proposing=RestartService(service=DONT_CARE_ALERT.service))
 
 
 def _a_walk_that_discarded_entries(incident_id: str,
@@ -715,15 +732,13 @@ def _a_walk_that_discarded_entries(incident_id: str,
         stale_entries_found=len(the_entries_the_check_found)
     )
 
-    return _a_walk_at(incident_id, candidates, index).model_copy(
-        update={
-            "alert": the_alert_that_found_them,
-            "proposed_action": DiscardCacheEntries(
-                service=the_alert_that_found_them.service,
-                keys=the_entries_the_check_found
-            )
-        }
-    )
+    return _a_walk_at(
+        incident_id, candidates, index,
+        proposing=DiscardCacheEntries(
+            service=the_alert_that_found_them.service,
+            keys=the_entries_the_check_found
+        )
+    ).model_copy(update={"alert": the_alert_that_found_them})
 
 
 def _a_walk_that_rolled_back(incident_id: str,
@@ -741,17 +756,21 @@ def _a_walk_that_rolled_back(incident_id: str,
     prose - left in, it would be answered by a flag revert, and the case would
     be about the flag history instead of the deploy history.
     """
-    return _a_walk_at(incident_id, candidates, index).model_copy(
+    return _a_walk_at(
+        incident_id, candidates, index,
+        proposing=RollBackDeployment(application=DONT_CARE_ALERT.service)
+    ).model_copy(
         update={
-            "flag_changes": [
-                FlagChange(flag=candidate.subject, enabled=True,
-                           occurred_at=DONT_CARE_MOMENT)
-                for candidate in candidates
-                if candidate.failure_mode is FailureMode.FEATURE_FLAG_TOGGLE
-                and candidate.subject is not None
-            ],
-            "deployments": [a_deployment()],
-            "proposed_action": RollBackDeployment(application=DONT_CARE_ALERT.service)
+            "evidence": RoundEvidence(
+                flag_changes=[
+                    FlagChange(flag=candidate.subject, enabled=True,
+                               occurred_at=DONT_CARE_MOMENT)
+                    for candidate in candidates
+                    if candidate.failure_mode is FailureMode.FEATURE_FLAG_TOGGLE
+                    and candidate.subject is not None
+                ],
+                deployments=[a_deployment()]
+            )
         }
     )
 
@@ -767,19 +786,23 @@ def _a_walk_that_held_the_fleet_to_its_card(incident_id: str,
     placement down. The flag history holds the flag candidates' flags alone, for
     `_a_walk_that_rolled_back`'s reason.
     """
-    return _a_walk_at(incident_id, candidates, index).model_copy(
+    return _a_walk_at(
+        incident_id, candidates, index,
+        proposing=PinToAccelerator(
+            application=DONT_CARE_ALERT.service,
+            accelerator="Tesla-V100-SXM2-16GB"
+        )
+    ).model_copy(
         update={
-            "flag_changes": [
-                FlagChange(flag=candidate.subject, enabled=True,
-                           occurred_at=DONT_CARE_MOMENT)
-                for candidate in candidates
-                if candidate.failure_mode is FailureMode.FEATURE_FLAG_TOGGLE
-                and candidate.subject is not None
-            ],
-            "placement": a_placement(),
-            "proposed_action": PinToAccelerator(
-                application=DONT_CARE_ALERT.service,
-                accelerator="Tesla-V100-SXM2-16GB"
+            "evidence": RoundEvidence(
+                flag_changes=[
+                    FlagChange(flag=candidate.subject, enabled=True,
+                               occurred_at=DONT_CARE_MOMENT)
+                    for candidate in candidates
+                    if candidate.failure_mode is FailureMode.FEATURE_FLAG_TOGGLE
+                    and candidate.subject is not None
+                ],
+                placement=a_placement()
             )
         }
     )
@@ -812,7 +835,7 @@ def _the_walk_goes_to(expected: str, state: IncidentState) -> Assertion[StateDel
     state.
     """
     def assertion(updates: StateDelta) -> bool:
-        work = updates.as_updates()
+        work = updates.as_updates(state)
         after = state.model_copy(update=work)
         routed = route_after_next_candidate(
             after.model_copy(update={"status": status_after(after, _every_round())})
@@ -940,8 +963,11 @@ def _a_walk_whose_platform_went(incident_id: str,
     - and that case is about which candidate comes next. This one is about the
     other ending: the platform took away everything that was left.
     """
-    return _a_walk_at(incident_id, candidates, index=len(candidates) - 1) \
-        .model_copy(update={"unreachable_platforms": [DEPLOYMENT_PLATFORM]})
+    a_walk = _a_walk_at(incident_id, candidates, index=len(candidates) - 1)
+
+    return a_walk.model_copy(update={"history": a_walk.history.model_copy(
+        update={"unreachable_platforms": [DEPLOYMENT_PLATFORM]}
+    )})
 
 
 def _what_it_said_names(*wanted: str) -> Assertion[StateDelta]:

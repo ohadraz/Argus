@@ -29,11 +29,17 @@ from core.models import (
     FlagUndo,
     Hypothesis,
     IncidentStatus,
-    Platform,
     RevertFeatureFlag,
     Verdict,
 )
-from orchestrator.walk.state import IncidentState, status_after
+from orchestrator.walk.deltas import StateDelta
+from orchestrator.walk.state import (
+    CandidateCursor,
+    IncidentState,
+    RoundEvidence,
+    WhatWasLearnt,
+    status_after,
+)
 from pydantic import ValidationError
 
 SOME_MAX_ROUNDS = 3
@@ -64,7 +70,8 @@ def test_a_confirmed_action_mitigates_the_incident() -> None:
     Scenario() \
         .given(
             a_confirmed_attempt := _an_incident(
-                candidates=[_a_candidate()], action_outcome=Verdict.CONFIRMED
+                cursor=CandidateCursor(candidates=[_a_candidate()]),
+                action_outcome=Verdict.CONFIRMED
             )
         ) \
         .when(
@@ -82,8 +89,8 @@ def test_a_refuted_action_with_a_candidate_left_is_still_mitigating() -> None:
     Scenario() \
         .given(
             a_refutation_with_somewhere_to_go := _an_incident(
-                candidates=[_a_candidate(), _a_candidate()],
-                candidate_index=0,
+                cursor=CandidateCursor(candidates=[_a_candidate(), _a_candidate()],
+                                       candidate_index=0),
                 action_outcome=Verdict.REFUTED
             )
         ) \
@@ -103,7 +110,8 @@ def test_an_action_that_could_not_be_taken_escalates() -> None:
     Scenario() \
         .given(
             an_attempt_that_never_ran := _an_incident(
-                candidates=[_a_candidate()], action_outcome=Verdict.ESCALATED
+                cursor=CandidateCursor(candidates=[_a_candidate()]),
+                action_outcome=Verdict.ESCALATED
             )
         ) \
         .when(
@@ -123,9 +131,9 @@ def test_an_investigation_that_found_nothing_worth_trying_escalates() -> None:
     Scenario() \
         .given(
             a_round_that_found_nothing := _an_incident(
-                candidates=[_a_candidate()],
+                cursor=CandidateCursor(candidates=[_a_candidate()]),
                 nothing_worth_trying=True,
-                rounds=1
+                history=WhatWasLearnt(rounds=1)
             )
         ) \
         .when(
@@ -143,12 +151,12 @@ def test_a_walk_out_of_candidates_with_rounds_left_investigates_again() -> None:
     Scenario() \
         .given(
             a_walk_past_its_last_candidate := _an_incident(
-                candidates=[_a_candidate(), _a_candidate()],
-                candidate_index=2,
+                cursor=CandidateCursor(candidates=[_a_candidate(), _a_candidate()],
+                                       candidate_index=2),
                 action_outcome=Verdict.REFUTED,
-                rounds=1,
-                attempts=[_a_refuted_attempt()],
-                attempts_handed=0
+                history=WhatWasLearnt(rounds=1,
+                                      attempts=[_a_refuted_attempt()],
+                                      attempts_handed=0)
             )
         ) \
         .when(
@@ -168,12 +176,12 @@ def test_a_walk_out_of_candidates_with_nothing_refuted_since_its_round_looks_for
     Scenario() \
         .given(
             a_walk_that_learnt_nothing_new := _an_incident(
-                candidates=[_a_candidate(), _a_candidate()],
-                candidate_index=2,
+                cursor=CandidateCursor(candidates=[_a_candidate(), _a_candidate()],
+                                       candidate_index=2),
                 action_outcome=Verdict.NOT_ATTEMPTED,
-                rounds=2,
-                attempts=[_a_refuted_attempt()],
-                attempts_handed=1
+                history=WhatWasLearnt(rounds=2,
+                                      attempts=[_a_refuted_attempt()],
+                                      attempts_handed=1)
             )
         ) \
         .when(
@@ -189,10 +197,9 @@ def test_a_walk_out_of_candidates_and_rounds_looks_for_a_permanent_fix() -> None
     Scenario() \
         .given(
             a_walk_with_nothing_left := _an_incident(
-                candidates=[_a_candidate()],
-                candidate_index=1,
+                cursor=CandidateCursor(candidates=[_a_candidate()], candidate_index=1),
                 action_outcome=Verdict.REFUTED,
-                rounds=SOME_MAX_ROUNDS
+                history=WhatWasLearnt(rounds=SOME_MAX_ROUNDS)
             )
         ) \
         .when(
@@ -211,11 +218,11 @@ def test_a_walk_out_of_reachable_candidates_escalates_rather_than_investigating(
     Scenario() \
         .given(
             a_walk_whose_platform_is_down := _an_incident(
-                candidates=[_a_candidate(), _a_candidate()],
-                candidate_index=2,
+                cursor=CandidateCursor(candidates=[_a_candidate(), _a_candidate()],
+                                       candidate_index=2),
                 action_outcome=Verdict.PLATFORM_UNREACHABLE,
-                unreachable_platforms=[DEPLOYMENT_PLATFORM],
-                rounds=1
+                history=WhatWasLearnt(unreachable_platforms=[DEPLOYMENT_PLATFORM],
+                                      rounds=1)
             )
         ) \
         .when(
@@ -241,11 +248,11 @@ def test_a_walk_with_a_reachable_candidate_left_is_still_mitigating() -> None:
     Scenario() \
         .given(
             a_walk_with_the_flag_still_ahead := _an_incident(
-                candidates=[_a_candidate(), _a_candidate()],
-                candidate_index=1,
+                cursor=CandidateCursor(candidates=[_a_candidate(), _a_candidate()],
+                                       candidate_index=1),
                 action_outcome=Verdict.PLATFORM_UNREACHABLE,
-                unreachable_platforms=[DEPLOYMENT_PLATFORM],
-                rounds=1
+                history=WhatWasLearnt(unreachable_platforms=[DEPLOYMENT_PLATFORM],
+                                      rounds=1)
             )
         ) \
         .when(
@@ -265,11 +272,11 @@ def test_a_platform_that_went_down_does_not_undo_a_confirmed_mitigation() -> Non
     Scenario() \
         .given(
             a_walk_the_flag_revert_saved := _an_incident(
-                candidates=[_a_candidate(), _a_candidate()],
-                candidate_index=2,
+                cursor=CandidateCursor(candidates=[_a_candidate(), _a_candidate()],
+                                       candidate_index=2),
                 action_outcome=Verdict.CONFIRMED,
-                unreachable_platforms=[DEPLOYMENT_PLATFORM],
-                rounds=1
+                history=WhatWasLearnt(unreachable_platforms=[DEPLOYMENT_PLATFORM],
+                                      rounds=1)
             )
         ) \
         .when(
@@ -290,7 +297,9 @@ def test_a_code_fix_found_without_a_mitigation_still_escalates() -> None:
     Scenario() \
         .given(
             a_fix_that_was_found := _an_incident(
-                candidate_index=1, rounds=SOME_MAX_ROUNDS, fix_found=True
+                cursor=CandidateCursor(candidate_index=1),
+                history=WhatWasLearnt(rounds=SOME_MAX_ROUNDS),
+                fix_found=True
             )
         ) \
         .when(
@@ -308,7 +317,9 @@ def test_a_code_fix_that_was_not_found_escalates() -> None:
     Scenario() \
         .given(
             a_fix_that_was_not_found := _an_incident(
-                candidate_index=1, rounds=SOME_MAX_ROUNDS, fix_found=False
+                cursor=CandidateCursor(candidate_index=1),
+                history=WhatWasLearnt(rounds=SOME_MAX_ROUNDS),
+                fix_found=False
             )
         ) \
         .when(
@@ -334,8 +345,8 @@ def test_an_action_nobody_could_confirm_is_recommended_rather_than_escalated() -
     Scenario() \
         .given(
             an_incident_carrying_a_recommendation := _an_incident(
-                candidate_index=1,
-                rounds=SOME_MAX_ROUNDS,
+                cursor=CandidateCursor(candidate_index=1),
+                history=WhatWasLearnt(rounds=SOME_MAX_ROUNDS),
                 fix_found=True,
                 recommended_action=_some_action()
             )
@@ -359,8 +370,7 @@ def test_a_mode_nothing_answers_is_looking_for_a_fix_with_its_candidate_still_in
     Scenario() \
         .given(
             an_incident_nothing_answers := _an_incident(
-                candidates=[_a_candidate()],
-                candidate_index=0,
+                cursor=CandidateCursor(candidates=[_a_candidate()], candidate_index=0),
                 the_mode_has_no_mitigation=True
             )
         ) \
@@ -382,8 +392,7 @@ def test_a_mode_nothing_answers_escalates_once_code_fix_has_answered() -> None:
     Scenario() \
         .given(
             an_incident_code_fix_answered := _an_incident(
-                candidates=[_a_candidate()],
-                candidate_index=0,
+                cursor=CandidateCursor(candidates=[_a_candidate()], candidate_index=0),
                 the_mode_has_no_mitigation=True,
                 fix_found=False
             )
@@ -405,7 +414,7 @@ def test_a_mitigated_incident_stays_mitigated_once_a_fix_is_proposed() -> None:
     Scenario() \
         .given(
             a_mitigation_that_also_got_a_fix := _an_incident(
-                candidates=[_a_candidate()],
+                cursor=CandidateCursor(candidates=[_a_candidate()]),
                 action_outcome=Verdict.CONFIRMED,
                 fix_found=True
             )
@@ -426,10 +435,10 @@ def test_the_same_state_always_derives_the_same_status() -> None:
     Scenario() \
         .given(
             some_state := _an_incident(
-                candidates=[_a_candidate(), _a_candidate()],
-                candidate_index=1,
+                cursor=CandidateCursor(candidates=[_a_candidate(), _a_candidate()],
+                                       candidate_index=1),
                 action_outcome=Verdict.REFUTED,
-                rounds=2
+                history=WhatWasLearnt(rounds=2)
             )
         ) \
         .when(
@@ -504,11 +513,15 @@ def test_a_state_nothing_has_been_found_for_yet_assumes_nothing() -> None:
             lambda: IncidentState(
                 incident_id=some_incident_id,
                 alert=some_alert,
-                status=IncidentStatus.INVESTIGATING
+                status=IncidentStatus.INVESTIGATING,
+                cursor=CandidateCursor(),
+                evidence=RoundEvidence(),
+                history=WhatWasLearnt(),
+                action=None
             )
         ) \
         .then(
-            _nothing_was_assumed_about("hypothesis", "placement")
+            _nothing_was_assumed_about(("cursor", "hypothesis"), ("evidence", "placement"))
         )
 
 
@@ -518,19 +531,62 @@ def test_a_state_with_no_alert_is_refused() -> None:
     # without one would let a walk start with nothing to investigate.
     Scenario() \
         .given(
-            some_incident_id := "buki-123"
+            a_state_with_no_alert := _all_of_a_state_but("alert")
+        ) \
+        .when(
+            attempting(lambda: IncidentState.model_validate(a_state_with_no_alert))
+        ) \
+        .then(
+            an_error_was_raised(ValidationError)
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("group", ["cursor", "evidence", "history", "action"])
+def test_a_state_without_one_of_its_groups_is_refused(group: str) -> None:
+    # The shape of a checkpoint written before the groups existed. Refused
+    # rather than filled in: a default would resume that walk with no
+    # candidates, no attempts and no action, and nothing would say so. One
+    # group at a time, so each one's lack of a default is held on its own.
+    Scenario() \
+        .given(
+            a_state_lacking_it := _all_of_a_state_but(group)
+        ) \
+        .when(
+            attempting(lambda: IncidentState.model_validate(a_state_lacking_it))
+        ) \
+        .then(
+            an_error_was_raised(ValidationError)
+        )
+
+
+@pytest.mark.unit
+def test_a_state_with_a_group_holding_none_where_none_may_stand_is_refused() -> None:
+    # A group arrives as a copy a node's update made, and a copy checks
+    # nothing - so the state checks it, as it checked the field before the
+    # field had a group. The delta types every field as optional, so the type
+    # checker lets a node write this.
+    Scenario() \
+        .given(
+            an_untouched_incident := _an_incident(),
+            an_update_pointing_nowhere := StateDelta(candidate_index=None)
+            .as_updates(an_untouched_incident)
         ) \
         .when(
             attempting(
-                lambda: IncidentState.model_validate({
-                    "incident_id": some_incident_id,
-                    "status": IncidentStatus.INVESTIGATING
-                })
+                lambda: IncidentState.model_validate(
+                    dict(an_untouched_incident) | an_update_pointing_nowhere
+                )
             )
         ) \
         .then(
             an_error_was_raised(ValidationError)
         )
+
+
+def _all_of_a_state_but(left_out: str) -> dict[str, object]:
+    """Every field of a whole state, as a checkpoint holds them, but one."""
+    return {name: value for name, value in dict(_an_incident()).items() if name != left_out}
 
 
 def _a_disproof() -> Disproof:
@@ -562,15 +618,16 @@ def _every_reading_agreed() -> Assertion[list[IncidentStatus]]:
     return assertion
 
 
-def _nothing_was_assumed_about(*fields: str) -> Assertion[IncidentState]:
-    """That each named field came back `None` rather than filled in.
+def _nothing_was_assumed_about(*fields: tuple[str, str]) -> Assertion[IncidentState]:
+    """That each named field, by its group, came back `None` rather than
+    filled in.
 
     Named rather than checked one at a time, because the claim is about the
     model's posture towards what it has not been told - and a field that
     quietly grew a default would pass a test written about its neighbour.
     """
     def assertion(state: IncidentState) -> bool:
-        assumed = {field: getattr(state, field) for field in fields}
+        assumed = {field: getattr(getattr(state, group), field) for group, field in fields}
         filled = {field: value for field, value in assumed.items() if value is not None}
 
         if filled:
@@ -592,12 +649,6 @@ class _WhatHasHappened(TypedDict, total=False):
     default.
     """
 
-    candidates: list[Hypothesis]
-    candidate_index: int
-    unreachable_platforms: list[Platform]
-    rounds: int
-    attempts: list[Attempt]
-    attempts_handed: int
     recommended_action: Action | None
     the_mode_has_no_mitigation: bool
     nothing_worth_trying: bool
@@ -606,7 +657,9 @@ class _WhatHasHappened(TypedDict, total=False):
     action_outcome: Verdict | None
 
 
-def _an_incident(**what_has_happened: Unpack[_WhatHasHappened]) -> IncidentState:
+def _an_incident(cursor: CandidateCursor | None = None,
+                 history: WhatWasLearnt | None = None,
+                 **what_has_happened: Unpack[_WhatHasHappened]) -> IncidentState:
     dont_care_alert = Alert(service="kuki", alert_name="HighErrorRate")
 
     return IncidentState(
@@ -617,6 +670,10 @@ def _an_incident(**what_has_happened: Unpack[_WhatHasHappened]) -> IncidentState
         # and the node that set the previous one would be back in the business
         # this change takes it out of.
         status=IncidentStatus.INVESTIGATING,
+        cursor=cursor if cursor is not None else CandidateCursor(),
+        evidence=RoundEvidence(),
+        history=history if history is not None else WhatWasLearnt(),
+        action=None,
         **what_has_happened
     )
 

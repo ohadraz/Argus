@@ -29,6 +29,7 @@ from orchestrator.walk.routes import FIXING_ROUTE, RESOLVED_ROUTE, WITHDRAWN_ROU
 from orchestrator.walk.state import IncidentState
 
 from orchestrator_test.framework.assertions import the_route_is
+from orchestrator_test.framework.builders import an_incident_state
 
 type Route = Callable[[IncidentState], str]
 
@@ -87,9 +88,7 @@ def test_every_router_routes_a_persons_ending_the_same_way(ending: IncidentStatu
 
 
 def _an_incident_in(status: IncidentStatus) -> IncidentState:
-    return IncidentState(incident_id=DONT_CARE_INCIDENT_ID,
-                         alert=DONT_CARE_ALERT,
-                         status=status)
+    return an_incident_state(DONT_CARE_ALERT, status, incident_id=DONT_CARE_INCIDENT_ID)
 
 
 def _the_route_at(position: int, router: Route, expected: str) -> Assertion[list[str]]:

@@ -28,7 +28,12 @@ from core.models import (
     a_chat_message,
 )
 from incident_record.ending import EndedByAPerson
-from orchestrator.walk.state import IncidentState
+from orchestrator.walk.state import (
+    CandidateCursor,
+    IncidentState,
+    RoundEvidence,
+    WhatWasLearnt,
+)
 
 # The chat platform's name, as its adapter gives it - what a reader is
 # told a report came from, and what its references are filed under.
@@ -41,7 +46,9 @@ def an_incident_state(
     if incident_id is None:
         incident_id = a_random_id()
 
-    return IncidentState(incident_id=incident_id, alert=alert, status=status)
+    return IncidentState(incident_id=incident_id, alert=alert, status=status,
+                         cursor=CandidateCursor(), evidence=RoundEvidence(),
+                         history=WhatWasLearnt(), action=None)
 
 
 def a_random_id() -> str:

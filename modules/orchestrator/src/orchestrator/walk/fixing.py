@@ -95,8 +95,8 @@ def codefix_node(state: IncidentState,
     """
     narrator = Narrator(state.incident_id, publisher)
 
-    if (state.hypothesis is not None
-            and state.somebody_elses_fault_for == state.hypothesis.id):
+    if (state.cursor.hypothesis is not None
+            and state.somebody_elses_fault_for == state.cursor.hypothesis.id):
         # Nobody looked, and on purpose: the gate ruled this candidate's fault
         # another company's, and its refusal's line already says so, whom to
         # ask, and that no code fix is looked for. That line is this step's
@@ -108,7 +108,7 @@ def codefix_node(state: IncidentState,
 
     try:
         proposed = propose_fix(
-            state.hypothesis,
+            state.cursor.hypothesis,
             state.incident_id,
             still_wanted=partial(still_wanted, state.incident_id),
             leads=partial(leads_of, state.incident_id),
@@ -255,10 +255,10 @@ def _what_was_running(state: IncidentState) -> str | None:
     """
     fired_at = state.alert.started_at
 
-    if fired_at is None or not state.deployments:
+    if fired_at is None or not state.evidence.deployments:
         return None
 
-    before = [deploy for deploy in state.deployments
+    before = [deploy for deploy in state.evidence.deployments
               if deploy.kind is ChangeKind.DEPLOY and parse_iso(deploy.occurred_at) <= fired_at]
 
     if not before:

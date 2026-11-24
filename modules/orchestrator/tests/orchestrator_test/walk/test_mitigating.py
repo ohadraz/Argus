@@ -100,7 +100,12 @@ from orchestrator.walk import ports
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.mitigating import mitigation_node, route_after_mitigation
 from orchestrator.walk.routes import ESCALATED_ROUTE, FIXING_ROUTE, NEXT_CANDIDATE_ROUTE
-from orchestrator.walk.state import IncidentState
+from orchestrator.walk.state import (
+    ActionInFlight,
+    CandidateCursor,
+    IncidentState,
+    RoundEvidence,
+)
 
 from orchestrator_test.framework.assertions import the_route_is
 from orchestrator_test.framework.builders import (
@@ -1805,14 +1810,18 @@ def test_a_resumed_claim_carries_no_reason_left_from_an_earlier_round(
     # refuted action would be handed to the next round as this action's - a
     # wrong reason, given to the Investigator as evidence.
     some_earlier_reason = "the rule that fired was still firing"
+    an_action_with_an_undo_descriptor = _an_action_with_an_undo_descriptor()
 
     Scenario() \
         .given(
             calling(lambda: _an_earlier_attempt_holds_the_claim(
                 record_action, already_taken, Verdict.REFUTED)),
             an_incident_past_a_refuted_round := _a_mitigating_incident(
-                proposing=_an_action_with_an_undo_descriptor()
-            ).model_copy(update={"action_because": some_earlier_reason})
+                proposing=an_action_with_an_undo_descriptor
+            ).model_copy(update={"action": ActionInFlight(
+                proposed_action=an_action_with_an_undo_descriptor,
+                action_because=some_earlier_reason
+            )})
         ) \
         .when(lambda: mitigation_node(an_incident_past_a_refuted_round,
                                       take=take,
@@ -2933,9 +2942,9 @@ def _a_mitigating_incident_begun_at(minute: str) -> IncidentState:
     """A mitigating incident whose investigation dated it from `minute`."""
     state = _a_mitigating_incident(proposing=_an_action_with_an_undo_descriptor())
 
-    return state.model_copy(update={"onset": EstablishedOnset(
-        minute=minute, how_known=HowTheMinuteIsKnown.MEASURED
-    )})
+    return state.model_copy(update={"history": state.history.model_copy(update={
+        "onset": EstablishedOnset(minute=minute, how_known=HowTheMinuteIsKnown.MEASURED)
+    })})
 
 
 def _the_beginning_handed_over_is(expected: str | None,
@@ -3074,10 +3083,15 @@ def _a_mitigating_incident(proposing: Action | None = None,
 
     return state.model_copy(
         update={
-            "hypothesis": about or a_determined_hypothesis(state.incident_id),
-            "proposed_action": proposing,
-            "dependencies": (listing if listing is not None
-                             else _a_register_vouching_for(proposing, state.alert.service))
+            "cursor": CandidateCursor(
+                hypothesis=about or a_determined_hypothesis(state.incident_id)
+            ),
+            "action": (ActionInFlight(proposed_action=proposing) if proposing is not None
+                       else None),
+            "evidence": RoundEvidence(
+                dependencies=(listing if listing is not None
+                              else _a_register_vouching_for(proposing, state.alert.service))
+            )
         }
     )
 
@@ -3289,7 +3303,7 @@ def test_a_resumed_walk_whose_claim_is_refused_for_an_open_subject_escalates_the
         .given(
             calling(lambda: _the_subject_is_open_in(record_action, ANOTHER_INCIDENT_HOLDING_IT)),
             an_action_taking_incident := _a_resumed_incident().model_copy(
-                update={"hypothesis": some_candidate}
+                update={"cursor": CandidateCursor(hypothesis=some_candidate)}
             )
         ) \
         .when(lambda: mitigation_node(an_action_taking_incident,
@@ -3973,7 +3987,7 @@ def _the_walk_is_told_no_reason() -> Assertion[StateDelta]:
     """Told outright, rather than left unset: a field a node leaves unset keeps
     whatever an earlier node put there."""
     def assertion(updates: StateDelta) -> bool:
-        told = updates.as_updates()
+        told = updates.model_dump(exclude_unset=True)
 
         if "action_because" not in told or told["action_because"] is not None:
             raise AssertionError(
@@ -4044,7 +4058,7 @@ def _the_walk_carries_no_moment_of_change() -> Assertion[StateDelta]:
     whatever an earlier round put there, and a later round would be told this
     attempt was made at the moment the last one was."""
     def assertion(updates: StateDelta) -> bool:
-        told = updates.as_updates()
+        told = updates.model_dump(exclude_unset=True)
         if "acted_at" not in told or told["acted_at"] is not None:
             raise AssertionError(f"Expected the walk told no change was made, it was told "
                                  f"[{told.get('acted_at', 'nothing at all')}].")
@@ -4072,11 +4086,11 @@ def _the_verdict_names(state: IncidentState,
     was done - for an attempt that ended before its write, the only line that
     says what was reached for."""
     def assertion(dont_care_result: StateDelta) -> bool:
-        assert state.proposed_action is not None
+        assert state.action is not None
         narrating = _the_completion(complete_action)["narrating"]
         said = (narrating.action_type, narrating.subject, narrating.performed)
-        wanted = (state.proposed_action.action_type,
-                  state.proposed_action.subject, performed)
+        wanted = (state.action.proposed_action.action_type,
+                  state.action.proposed_action.subject, performed)
         if said != wanted:
             raise AssertionError(f"Expected the verdict to name {wanted}, it named {said}.")
 
@@ -4115,7 +4129,7 @@ def _the_incident_was_escalated() -> Assertion[StateDelta]:
     that says so - escalated - with the sentence it says as the reason, which
     `status_after` derives the status from."""
     def assertion(updates: StateDelta) -> bool:
-        told = updates.as_updates()
+        told = updates.model_dump(exclude_unset=True)
         said = updates.narration.said() if updates.narration is not None else None
 
         if told.get("action_outcome") is not Verdict.ESCALATED:
@@ -4223,12 +4237,12 @@ def _the_claim_was_advanced_to(expected: ActionProgress,
     carrying `undo_descriptor` - and made at `performed_at`, where a case is
     about the moment; a case that is not compares everything else."""
     def assertion(dont_care_result: StateDelta) -> bool:
-        assert state.hypothesis is not None
+        assert state.cursor.hypothesis is not None
         made = [(call.args,
                  {name: value for name, value in call.kwargs.items()
                   if performed_at is not None or name != "performed_at"})
                 for call in advance_action.call_args_list]
-        wanted_keywords: dict[str, object] = {"hypothesis_id": state.hypothesis.id,
+        wanted_keywords: dict[str, object] = {"hypothesis_id": state.cursor.hypothesis.id,
                                               "to": expected,
                                               "undo_descriptor": undo_descriptor}
         if performed_at is not None:
@@ -5041,9 +5055,9 @@ def _the_put_back_was_owed_on_the_claim(state: IncidentState,
     """The claim on this incident's candidate was told once that its change is
     owed back, because of `because`."""
     def assertion(dont_care_result: StateDelta) -> bool:
-        assert state.hypothesis is not None
+        assert state.cursor.hypothesis is not None
         made = [(call.args, call.kwargs) for call in owe_a_put_back.call_args_list]
-        wanted = [((state.incident_id,), {"hypothesis_id": state.hypothesis.id,
+        wanted = [((state.incident_id,), {"hypothesis_id": state.cursor.hypothesis.id,
                                            "because": because})]
         if made != wanted:
             raise AssertionError(f"Expected the claim told once its change is owed back "
@@ -5195,9 +5209,9 @@ def _a_resumed_incident(began: datetime = SOME_RECENT_ONSET,
     state = _a_mitigating_incident(proposing=proposing or _an_action_with_an_undo_descriptor(),
                                    about=about, listing=listing)
 
-    return state.model_copy(update={"onset": EstablishedOnset(
-        minute=_a_minute(began), how_known=HowTheMinuteIsKnown.MEASURED
-    )})
+    return state.model_copy(update={"history": state.history.model_copy(update={
+        "onset": EstablishedOnset(minute=_a_minute(began), how_known=HowTheMinuteIsKnown.MEASURED)
+    })})
 
 
 def _a_resumed_incident_paged_by(rule: str) -> IncidentState:
@@ -5339,11 +5353,11 @@ def _nothing_was_read_of_the_estate(resuming: ports.Resuming) -> Assertion[objec
 def _it_was_asked_whether_announced_for(state: IncidentState,
                                         resuming: ports.Resuming) -> Assertion[StateDelta]:
     def assertion(dont_care_result: StateDelta) -> bool:
-        assert state.hypothesis is not None
+        assert state.cursor.hypothesis is not None
         asked = [(call.args, call.kwargs)
                  for call in _mocked(resuming.announced).call_args_list]
         flattened = [tuple(args) + tuple(keywords.values()) for args, keywords in asked]
-        wanted = (state.incident_id, state.hypothesis.id)
+        wanted = (state.incident_id, state.cursor.hypothesis.id)
 
         if flattened != [wanted]:
             raise AssertionError(
@@ -6957,7 +6971,7 @@ def test_a_change_told_as_made_is_watched_for_its_own_incident_and_owes_its_put_
     some_rule = "some-rule"
 
     def the_watch_was_handed_its_incident(dont_care_result: StateDelta) -> bool:
-        assert an_incident.hypothesis is not None
+        assert an_incident.cursor.hypothesis is not None
         handed = _mocked(resuming.watch).call_args.kwargs
         handed["put_back_owed"](SOME_FINDING)
         wanted = {"incident_id": an_incident.incident_id,
@@ -6968,8 +6982,8 @@ def test_a_change_told_as_made_is_watched_for_its_own_incident_and_owes_its_put_
         owed = [(call.args, call.kwargs) for call in owe_a_put_back.call_args_list]
         flattened = [tuple(args) + tuple(keywords.values()) for args, keywords in owed]
 
-        if got != wanted or flattened != [(an_incident.incident_id, an_incident.hypothesis.id,
-                                           SOME_FINDING)]:
+        if got != wanted or flattened != [(an_incident.incident_id,
+                                           an_incident.cursor.hypothesis.id, SOME_FINDING)]:
             raise AssertionError(
                 f"Expected the watch handed {wanted} and its put-back owed on this claim, "
                 f"got {got} and owed {flattened}."
@@ -7623,11 +7637,11 @@ def _the_claim_was_planned_as(state: IncidentState,
                               resuming: ports.Resuming) -> Assertion[StateDelta]:
     """The claim on this incident's candidate was given `planned`, once."""
     def assertion(dont_care_result: StateDelta) -> bool:
-        assert state.hypothesis is not None
+        assert state.cursor.hypothesis is not None
         given = [(call.args, call.kwargs)
                  for call in _mocked(resuming.plan_the_claim).call_args_list]
         flattened = [tuple(args) + tuple(keywords.values()) for args, keywords in given]
-        wanted = (state.incident_id, state.hypothesis.id, planned)
+        wanted = (state.incident_id, state.cursor.hypothesis.id, planned)
 
         if flattened != [wanted]:
             raise AssertionError(
@@ -7647,14 +7661,19 @@ def _an_incident_dated_only_by(source: str, instant: datetime) -> IncidentState:
 
     match source:
         case "investigation":
-            return state.model_copy(update={"onset": EstablishedOnset(
-                minute=_a_minute(instant), how_known=HowTheMinuteIsKnown.MEASURED)})
+            return state.model_copy(update={"history": state.history.model_copy(update={
+                "onset": EstablishedOnset(minute=_a_minute(instant),
+                                          how_known=HowTheMinuteIsKnown.MEASURED)})})
         case "stated-onset":
-            return state.model_copy(update={"onset": None, "alert": state.alert.model_copy(
-                update={"stated_onset": instant, "started_at": None})})
+            return state.model_copy(update={
+                "history": state.history.model_copy(update={"onset": None}),
+                "alert": state.alert.model_copy(
+                    update={"stated_onset": instant, "started_at": None})})
         case "alert":
-            return state.model_copy(update={"onset": None, "alert": state.alert.model_copy(
-                update={"stated_onset": None, "started_at": instant})})
+            return state.model_copy(update={
+                "history": state.history.model_copy(update={"onset": None}),
+                "alert": state.alert.model_copy(
+                    update={"stated_onset": None, "started_at": instant})})
 
     raise AssertionError(f"Expected a source of an incident's beginning, got [{source}].")
 
@@ -7664,8 +7683,9 @@ def _an_incident_nothing_dates() -> IncidentState:
     its alert."""
     state = _a_mitigating_incident(proposing=_an_action_with_an_undo_descriptor())
 
-    return state.model_copy(update={"onset": None, "alert": state.alert.model_copy(
-        update={"stated_onset": None, "started_at": None})})
+    return state.model_copy(update={
+        "history": state.history.model_copy(update={"onset": None}),
+        "alert": state.alert.model_copy(update={"stated_onset": None, "started_at": None})})
 
 
 @pytest.mark.unit

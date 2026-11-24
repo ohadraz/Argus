@@ -43,7 +43,7 @@ from core.models import (
 )
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.proposing import mitigation_proposal_node
-from orchestrator.walk.state import IncidentState
+from orchestrator.walk.state import CandidateCursor, IncidentState, RoundEvidence
 
 from orchestrator_test.framework.builders import (
     a_candidate_blaming,
@@ -140,11 +140,10 @@ def test_a_corruption_a_deployment_caused_is_answered_by_rolling_it_back() -> No
         .given(
             a_corrupting_incident := state.model_copy(
                 update={
-                    "hypothesis": a_corruption_blamed_on(
+                    "cursor": CandidateCursor(hypothesis=a_corruption_blamed_on(
                         state.incident_id, a_deployment().reference
-                    ),
-                    "flag_changes": [],
-                    "deployments": [a_deployment()]
+                    )),
+                    "evidence": RoundEvidence(flag_changes=[], deployments=[a_deployment()])
                 }
             )
         ) \
@@ -164,11 +163,10 @@ def test_a_replica_moved_onto_another_card_is_answered_by_holding_the_fleet_to_i
         .given(
             an_incident_whose_replica_moved := state.model_copy(
                 update={
-                    "hypothesis": an_accelerator_blamed_on(
+                    "cursor": CandidateCursor(hypothesis=an_accelerator_blamed_on(
                         state.incident_id, "one replica holds far more for review"
-                    ),
-                    "flag_changes": [],
-                    "placement": a_placement()
+                    )),
+                    "evidence": RoundEvidence(flag_changes=[], placement=a_placement())
                 }
             )
         ) \
@@ -187,7 +185,9 @@ def test_an_incident_with_no_cause_named_has_nothing_proposed_for_it() -> None:
     Scenario() \
         .given(
             an_incident_with_no_hypothesis := state.model_copy(
-                update={"flag_changes": [_an_enabling_of("monthly-spend-feature")]}
+                update={"evidence": RoundEvidence(
+                    flag_changes=[_an_enabling_of("monthly-spend-feature")]
+                )}
             )
         ) \
         .when(lambda: mitigation_proposal_node(an_incident_with_no_hypothesis)) \
@@ -222,8 +222,8 @@ def _a_mitigating_incident(
 
     return state.model_copy(
         update={
-            "hypothesis": about(state.incident_id),
-            "flag_changes": read_from_the_provider
+            "cursor": CandidateCursor(hypothesis=about(state.incident_id)),
+            "evidence": RoundEvidence(flag_changes=read_from_the_provider)
         }
     )
 
@@ -249,10 +249,10 @@ def _a_diverging_incident(stale_entry_keys: tuple[str, ...]) -> IncidentState:
 
     return state.model_copy(
         update={
-            "hypothesis": a_divergence_blamed_on(
+            "cursor": CandidateCursor(hypothesis=a_divergence_blamed_on(
                 state.incident_id, "cached monthly totals disagree with the ledger"
-            ),
-            "flag_changes": []
+            )),
+            "evidence": RoundEvidence(flag_changes=[])
         }
     )
 

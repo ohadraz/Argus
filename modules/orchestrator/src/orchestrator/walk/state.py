@@ -11,6 +11,7 @@ one of the two importing the other across a boundary.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Final
 
 from core.models import (
     Action,
@@ -29,16 +30,21 @@ from core.models import (
     ServiceDependency,
     Verdict,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
+
+# Every group is checked afresh each time the state is built, as a field of the
+# state always was. A group arrives as an instance a node's update made by
+# copying, which checks nothing, and pydantic takes an instance as it is - so a
+# `None` written where none may stand would otherwise stay in the state unseen.
+_CHECKED_AFRESH: Final = ConfigDict(revalidate_instances="always")
 
 
-class IncidentState(BaseModel):
-    """LangGraph `StateGraph` state (spec §7.1), mirroring the Postgres
-    schema (§11.1)."""
+class CandidateCursor(BaseModel):
+    """The candidates the latest round formed, best first, and which of them
+    is under test."""
 
-    incident_id: str
-    alert: Alert
-    status: IncidentStatus
+    model_config = _CHECKED_AFRESH
+
     # The candidate under test - the one the gate judges and Mitigation acts
     # on. Kept beside the list rather than derived at every use, because every
     # node downstream asks "the hypothesis this incident is about", and making
@@ -50,29 +56,80 @@ class IncidentState(BaseModel):
     # the ordinary case, and the second explanation is usually still on it.
     candidates: list[Hypothesis] = []
     candidate_index: int = 0
+
+
+class RoundEvidence(BaseModel):
+    """What every round reads afresh at its top, carried to the nodes that act
+    on it rather than read again where it is used."""
+
+    model_config = _CHECKED_AFRESH
+
+    # What the flag provider recorded as having changed, read once at the top
+    # of each round. Carried rather than fetched where it is used because it is
+    # used three times over - deciding what each candidate would be answered
+    # with, which of them memory demotes, and which action the chosen one gets
+    # - and three reads of one history are three chances for the walk to reason
+    # about two different worlds.
+    #
+    # `None` is not an empty history. It is the provider having failed to
+    # answer, which leads the walk to the same place - no action, and a human -
+    # while meaning the opposite thing, and an account that spelled them the
+    # same would tell a reader nothing changed when nobody could say.
+    flag_changes: list[FlagChange] | None = None
+    # What the platform recorded as deployed to this service, read in the same
+    # breath as the flag history and over the same window. Carried for the same
+    # reason, and `None` for the same reason: one mode is answered by undoing
+    # whichever of the two changes sits at its onset, and a history nobody could
+    # read must not be taken for one in which nothing was deployed.
+    deployments: list[ChangeEvent] | None = None
+    # Where the alerting service's pods were running, as this round's
+    # investigation recorded them against its onset. Carried rather than read
+    # where it is used, because a pin to a card is decided from it and a read
+    # made when acting is made after the walk may already have moved the pods.
+    # `None` where the round could not read it, never an empty placement.
+    placement: RecordedPlacement | None = None
+    # What the service register says this service calls, read once at the top of
+    # each round beside the flag history. Carried for the same reason: the gate
+    # reads it to decide whether the service an action is addressed to is one
+    # Argus may touch, and a gate that fetched it for itself would be one whose
+    # answer depended on a document store being reachable at the instant it
+    # asked.
+    #
+    # An empty list is what an unreadable register looks like here, and that is
+    # deliberately not distinguished from a register that listed nothing. Both
+    # leave every mitigation addressed to the alerting service exactly as
+    # available as it was - the alerting service is within reach whatever the
+    # register says - and both refuse an action aimed anywhere else, which is the
+    # restrictive direction and the right one: an estate is not a thing to guess
+    # at.
+    dependencies: list[ServiceDependency] = []
+    # Whether any reading covers the minutes from the onset onwards, as the round
+    # that investigated found them. `True` until an investigation says otherwise,
+    # which is what every incident before a window could stop was.
+    readings_cover_the_incident: bool = True
+
+
+class WhatWasLearnt(BaseModel):
+    """What the incident's rounds have learnt, kept from one round to the next."""
+
+    model_config = _CHECKED_AFRESH
+
     # What has already been tried and did not help. Carried into a later
     # investigation as evidence - it is the one thing a second round knows that
     # the first could not.
     attempts: list[Attempt] = []
-    # The platforms an attempt found were not answering. Carried rather than
-    # re-derived, because by the time the next candidate is chosen all that is
-    # left of the attempt is a verdict, and a verdict does not say which platform
-    # failed - only the action that was in hand at the time could.
-    #
-    # A list rather than one platform, and not because two are expected: a walk
-    # that held only the latest would forget the first the moment a second
-    # failed, and go back to trying candidates it had already passed over.
-    unreachable_platforms: list[Platform] = []
     # What earlier rounds of this incident retrieved - which channel, over which
     # window. Carried so that a later round can be told what the one before it
     # saw: it may read the same window again, since that evidence is not in its
     # own transcript, but it should know it would be re-reading rather than
     # reaching somewhere new.
     already_read: list[Reading] = []
-    # Whether any reading covers the minutes from the onset onwards, as the round
-    # that investigated found them. `True` until an investigation says otherwise,
-    # which is what every incident before a window could stop was.
-    readings_cover_the_incident: bool = True
+    # What each deployment this incident's investigations looked into changed,
+    # by its revision. Kept across rounds, as `already_read` is: what a deploy
+    # changed is a fact about its commit, and a later round blaming a file it
+    # did not look into again still needs the diff to find the deploy that
+    # carried it.
+    deployment_changes: dict[str, DeploymentChanges] = {}
     # The minute the investigation dated the incident from, and how it is known,
     # as the first round that had one found it. Carried because Mitigation dates
     # the incident's end against it, and an end found by re-reading where the
@@ -99,62 +156,57 @@ class IncidentState(BaseModel):
     # next round numbers its own from (`Hypothesis.number`). Not `candidates`'
     # length: that is the latest round's alone.
     candidates_formed: int = 0
-    # What the flag provider recorded as having changed, read once at the top
-    # of each round. Carried rather than fetched where it is used because it is
-    # used three times over - deciding what each candidate would be answered
-    # with, which of them memory demotes, and which action the chosen one gets
-    # - and three reads of one history are three chances for the walk to reason
-    # about two different worlds.
+    # The platforms an attempt found were not answering. Carried rather than
+    # re-derived, because by the time the next candidate is chosen all that is
+    # left of the attempt is a verdict, and a verdict does not say which platform
+    # failed - only the action that was in hand at the time could.
     #
-    # `None` is not an empty history. It is the provider having failed to
-    # answer, which leads the walk to the same place - no action, and a human -
-    # while meaning the opposite thing, and an account that spelled them the
-    # same would tell a reader nothing changed when nobody could say.
-    flag_changes: list[FlagChange] | None = None
-    # What the platform recorded as deployed to this service, read in the same
-    # breath as the flag history and over the same window. Carried for the same
-    # reason, and `None` for the same reason: one mode is answered by undoing
-    # whichever of the two changes sits at its onset, and a history nobody could
-    # read must not be taken for one in which nothing was deployed.
-    deployments: list[ChangeEvent] | None = None
-    # Where the alerting service's pods were running, as this round's
-    # investigation recorded them against its onset. Carried rather than read
-    # where it is used, because a pin to a card is decided from it and a read
-    # made when acting is made after the walk may already have moved the pods.
-    # `None` where the round could not read it, never an empty placement.
-    placement: RecordedPlacement | None = None
-    # What each deployment this incident's investigations looked into changed,
-    # by its revision. Kept across rounds, as `already_read` is: what a deploy
-    # changed is a fact about its commit, and a later round blaming a file it
-    # did not look into again still needs the diff to find the deploy that
-    # carried it.
-    deployment_changes: dict[str, DeploymentChanges] = {}
-    # What the service register says this service calls, read once at the top of
-    # each round beside the flag history. Carried for the same reason: the gate
-    # reads it to decide whether the service an action is addressed to is one
-    # Argus may touch, and a gate that fetched it for itself would be one whose
-    # answer depended on a document store being reachable at the instant it
-    # asked.
-    #
-    # An empty list is what an unreadable register looks like here, and that is
-    # deliberately not distinguished from a register that listed nothing. Both
-    # leave every mitigation addressed to the alerting service exactly as
-    # available as it was - the alerting service is within reach whatever the
-    # register says - and both refuse an action aimed anywhere else, which is the
-    # restrictive direction and the right one: an estate is not a thing to guess
-    # at.
-    dependencies: list[ServiceDependency] = []
+    # A list rather than one platform, and not because two are expected: a walk
+    # that held only the latest would forget the first the moment a second
+    # failed, and go back to trying candidates it had already passed over.
+    unreachable_platforms: list[Platform] = []
+
+
+class ActionInFlight(BaseModel):
+    """The action proposed for the candidate under test, from its proposal
+    until the walk moves on: when it was taken, and what watching it found."""
+
+    model_config = _CHECKED_AFRESH
+
     # Chosen by Mitigation and inspected by the tier gate before anything
     # mutating runs (spec §13). It lives in the graph's state rather than being
     # passed between the two, because a gate the acting node could bypass by
     # re-deriving the action would guard nothing.
-    proposed_action: Action | None = None
+    proposed_action: Action
     # When that action was taken, as the walk announced it. Carried because the
     # node that remembers the attempt runs after the wait for the service to
     # answer, and a later round reads the attempt beside the flag provider's
     # record of the same change - dated by when the walk moved on, the two
     # disagree by the length of that wait.
     acted_at: datetime | None = None
+    # What the verification wait judged the attempt on, carried to the round
+    # that reads it as an attempt (`Attempt.refuted_because`). `None` where
+    # nothing was watched.
+    action_because: str | None = None
+
+
+class IncidentState(BaseModel):
+    """LangGraph `StateGraph` state (spec §7.1), mirroring the Postgres
+    schema (§11.1)."""
+
+    incident_id: str
+    alert: Alert
+    status: IncidentStatus
+    # The walk's work, by what each part of it is about. None of them has a
+    # default, so a checkpoint written before they existed fails to load rather
+    # than resuming with an empty walk: LangGraph fills only the channels a graph
+    # declares, and a default would stand in for everything the walk had found.
+    # The worker settles that walk as it settles any that fails before an ending.
+    cursor: CandidateCursor
+    evidence: RoundEvidence
+    history: WhatWasLearnt
+    # `None` while no action is proposed.
+    action: ActionInFlight | None
     # What Argus worked out to do and declined to do, because nothing would say
     # afterwards whether it worked. The one thing a `recommended` incident is
     # for saying, and the reason that status is not escalation: a reader learns
@@ -201,10 +253,6 @@ class IncidentState(BaseModel):
     # state machine branches on this, and a comparison against a string is one
     # that keeps compiling after somebody changes how a verdict is written.
     action_outcome: Verdict | None = None
-    # What the verification wait judged the attempt on, carried to the round
-    # that reads it as an attempt (`Attempt.refuted_because`). `None` where
-    # nothing was watched.
-    action_because: str | None = None
     # How many steps the walk has taken, counted by the wrapper every node runs
     # in (`stepping.stepped`) rather than by any node. What a step's rows are
     # stamped with, and so what a step run again from its checkpoint finds its
@@ -314,7 +362,7 @@ def status_after(state: IncidentState, max_rounds: int) -> IncidentStatus:
     # Every node that sets the index sets it to something worth trying, or past
     # the end of the list - so the index alone says whether a candidate is under
     # test, and this function never re-runs the search that produced it.
-    if state.candidate_index < len(state.candidates):
+    if state.cursor.candidate_index < len(state.cursor.candidates):
         return IncidentStatus.MITIGATING
 
     # Past the end of the list with a platform that is not answering, which is a
@@ -329,7 +377,7 @@ def status_after(state: IncidentState, max_rounds: int) -> IncidentStatus:
     # comes back - at which point a candidate on a reachable platform may still
     # be ahead, and the incident is mitigating. A rule that can only fire once
     # the list is spent cannot make that mistake.
-    if state.unreachable_platforms:
+    if state.history.unreachable_platforms:
         return IncidentStatus.ESCALATED
 
     if another_round_is_bought(state, max_rounds):
@@ -356,7 +404,9 @@ def another_round_is_bought(state: IncidentState, max_rounds: int) -> bool:
     says why the walk moved. Asked separately, the two could disagree about
     where the incident went and why.
     """
-    if state.rounds == 0:
+    history = state.history
+
+    if history.rounds == 0:
         return max_rounds > 0
 
-    return state.rounds < max_rounds and len(state.attempts) > state.attempts_handed
+    return history.rounds < max_rounds and len(history.attempts) > history.attempts_handed

@@ -45,6 +45,8 @@ from orchestrator.walk.ports import ActionsTaken, RememberIncident
 from orchestrator.walk.remembering import remembering_node
 from orchestrator.walk.state import IncidentState
 
+from orchestrator_test.framework.builders import an_incident_state
+
 DONT_CARE_INCIDENT_ID = "e6e6e6e6-0000-4000-8000-000000000007"
 DONT_CARE_HYPOTHESIS_ID = "e6e6e6e6-0000-4000-8000-000000000008"
 
@@ -301,11 +303,8 @@ def test_a_filing_that_fails_is_logged_as_a_warning(
 
 def _an_incident_in(status: IncidentStatus,
                     incident_id: str = DONT_CARE_INCIDENT_ID) -> IncidentState:
-    return IncidentState(
-        incident_id=incident_id,
-        alert=Alert(service="io-shop", alert_name="HighErrorRate"),
-        status=status
-    )
+    return an_incident_state(Alert(service="io-shop", alert_name="HighErrorRate"), status,
+                             incident_id=incident_id)
 
 
 def _an_action(subject: str, verdict: Verdict) -> TakenAction:

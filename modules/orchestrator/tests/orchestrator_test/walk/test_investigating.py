@@ -84,7 +84,7 @@ from orchestrator.walk.choosing import nothing_left_to_try
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.investigating import investigator_node, route_after_investigation
 from orchestrator.walk.routes import ESCALATED_ROUTE, FIXING_ROUTE, MITIGATING_ROUTE
-from orchestrator.walk.state import IncidentState
+from orchestrator.walk.state import IncidentState, RoundEvidence, WhatWasLearnt
 
 from orchestrator_test.framework.assertions import (
     assert_that,
@@ -796,8 +796,8 @@ def test_a_resumed_investigation_is_told_what_was_read_and_what_failed(
                                     window_end="2026-08-20T11:08:00Z")
     a_refuted_attempt = _an_attempt_to(reverting(SOME_FLAG))
     a_second_round = _an_investigating_incident().model_copy(
-        update={"already_read": [a_window_already_read],
-                "attempts": [a_refuted_attempt]}
+        update={"history": WhatWasLearnt(already_read=[a_window_already_read],
+                                         attempts=[a_refuted_attempt])}
     )
 
     Scenario() \
@@ -829,7 +829,7 @@ def test_a_round_keeps_how_many_attempts_it_was_handed(
     # refuted after it began - and so whether another round would be handed
     # anything this one was not.
     a_second_round = _an_investigating_incident().model_copy(
-        update={"attempts": [_an_attempt_to(reverting(SOME_FLAG))]}
+        update={"history": WhatWasLearnt(attempts=[_an_attempt_to(reverting(SOME_FLAG))])}
     )
 
     Scenario() \
@@ -860,7 +860,9 @@ def test_a_later_round_is_handed_the_onset_the_first_round_established(
     # beginning among what the action left behind.
     some_onset = EstablishedOnset(minute="2026-10-13T12:16:00Z",
                                   how_known=HowTheMinuteIsKnown.MEASURED)
-    a_second_round = _an_investigating_incident().model_copy(update={"onset": some_onset})
+    a_second_round = _an_investigating_incident().model_copy(
+        update={"history": WhatWasLearnt(onset=some_onset)}
+    )
 
     Scenario() \
         .given(
@@ -888,7 +890,9 @@ def test_a_later_round_numbers_on_from_the_candidates_earlier_rounds_formed(
     # A candidate is said by its number the moment it is formed, so a round is
     # told how many came before it - and leaves the count, its own added, for
     # the next round to number from. Its own list alone would restart at one.
-    a_second_round = _an_investigating_incident().model_copy(update={"candidates_formed": 2})
+    a_second_round = _an_investigating_incident().model_copy(
+        update={"history": WhatWasLearnt(candidates_formed=2)}
+    )
 
     Scenario() \
         .given(
@@ -926,7 +930,7 @@ def test_a_later_round_does_not_act_on_an_explanation_already_refuted(
     # and does not report nothing worth trying - the fact that sends a round
     # naming no cause to a human, where this one goes on to a fix.
     a_round_after_that_flag_was_tried = _an_investigating_incident().model_copy(
-        update={"attempts": [_an_attempt_to(reverting(SOME_FLAG))]}
+        update={"history": WhatWasLearnt(attempts=[_an_attempt_to(reverting(SOME_FLAG))])}
     )
     the_same_explanation_again = a_candidate_blaming(
         a_round_after_that_flag_was_tried.incident_id, SOME_FLAG
@@ -958,7 +962,7 @@ def test_a_later_round_does_not_restart_a_service_it_already_restarted(
     # nothing alike and the walk would restart one service once per candidate -
     # with the gate's cap as the only thing stopping it.
     a_round_after_the_restart = _an_investigating_incident().model_copy(
-        update={"attempts": [_an_attempt_to(restarting(SOME_SERVICE))]}
+        update={"history": WhatWasLearnt(attempts=[_an_attempt_to(restarting(SOME_SERVICE))])}
     )
     the_same_leak_in_other_words = a_leak_blamed_on(
         a_round_after_the_restart.incident_id, "unbounded cache growth"
@@ -991,7 +995,7 @@ def test_a_round_that_spent_the_list_says_so_in_the_walks_words(
     # the reason the incident went to a human.
     the_attempts = [_an_attempt_to(reverting(SOME_FLAG))]
     a_round_after_that_flag_was_tried = _an_investigating_incident().model_copy(
-        update={"attempts": the_attempts}
+        update={"history": WhatWasLearnt(attempts=the_attempts)}
     )
 
     Scenario() \
@@ -1543,7 +1547,7 @@ def test_the_round_keeps_what_each_deployment_changed_beside_what_earlier_rounds
         sides=[Side(files=[FileRead(path=another_path, status=some_status)])],
         lists_every_file=True)
     an_incident_an_earlier_round_read = _an_investigating_incident().model_copy(
-        update={"deployment_changes": {some_revision: earlier}}
+        update={"history": WhatWasLearnt(deployment_changes={some_revision: earlier})}
     )
 
     Scenario() \
@@ -1577,7 +1581,7 @@ def test_a_round_that_could_not_read_the_placement_does_not_keep_the_last_one(
     # left standing would be pods recorded against an onset and a fleet this
     # round no longer has - and a pin decided from it is decided from the past.
     an_incident_an_earlier_round_placed = _an_investigating_incident().model_copy(
-        update={"placement": a_placement()}
+        update={"evidence": RoundEvidence(placement=a_placement())}
     )
 
     Scenario() \
@@ -1596,7 +1600,7 @@ def test_a_round_that_could_not_read_the_placement_does_not_keep_the_last_one(
                                       fetch_dependencies=fetch_dependencies)
         ) \
         .then(
-            _the_placement_is_sent_on_as_unread()
+            _the_placement_is_sent_on_as_unread(an_incident_an_earlier_round_placed)
         )
 
 
@@ -1647,7 +1651,7 @@ def test_a_later_round_does_not_roll_back_a_deployment_it_already_rolled_back(
     # nothing already tried - so the walk would roll the same deployment back
     # once per round.
     a_round_after_the_rollback = _an_investigating_incident().model_copy(
-        update={"attempts": [_an_attempt_to(rolling_back(SOME_SERVICE))]}
+        update={"history": WhatWasLearnt(attempts=[_an_attempt_to(rolling_back(SOME_SERVICE))])}
     )
 
     Scenario() \
@@ -1681,7 +1685,9 @@ def test_a_later_round_does_not_hold_the_fleet_to_a_card_it_already_held_it_to(
     # nothing already tried - so the walk would pin the same fleet once per
     # wording.
     a_round_after_the_pin = _an_investigating_incident().model_copy(
-        update={"attempts": [_an_attempt_to(holding_to_a_card(SOME_SERVICE))]}
+        update={"history": WhatWasLearnt(
+            attempts=[_an_attempt_to(holding_to_a_card(SOME_SERVICE))]
+        )}
     )
 
     Scenario() \
@@ -2492,7 +2498,7 @@ def _the_investigation_read_what_deployments_changed(
     )
 
 
-def _the_placement_is_sent_on_as_unread() -> Assertion[StateDelta]:
+def _the_placement_is_sent_on_as_unread(given: IncidentState) -> Assertion[StateDelta]:
     """Sent on as `None`, rather than left out of the update.
 
     Left out, the state would keep whatever an earlier round put there - which
@@ -2500,12 +2506,13 @@ def _the_placement_is_sent_on_as_unread() -> Assertion[StateDelta]:
     could not tell from a node that never mentioned the field.
     """
     def assertion(delta: StateDelta) -> bool:
-        updates = delta.as_updates()
+        updates = delta.as_updates(given)
+        sent = updates["evidence"].placement if "evidence" in updates else "nothing about it"
 
-        if "placement" not in updates or updates["placement"] is not None:
+        if sent is not None:
             raise AssertionError(
                 f"Expected the placement to be sent on as unread, and the round "
-                f"sent {updates.get('placement', 'nothing about it')!r}."
+                f"sent {sent!r}."
             )
 
         return True

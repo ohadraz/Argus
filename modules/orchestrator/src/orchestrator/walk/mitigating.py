@@ -178,19 +178,19 @@ def mitigation_node(
     # is not an attempt this node can account for, and recording it would leave
     # a row nothing can attribute. The gate guarantees both are here; this says
     # so in a way the type checker can read.
-    if state.proposed_action is None or state.hypothesis is None:
+    if state.action is None or state.cursor.hypothesis is None:
         return _nothing_to_act_on()
 
-    admission = admit(state.proposed_action,
+    admission = admit(state.action.proposed_action,
                       alerting_service=state.alert.service,
-                      dependencies=state.dependencies)
+                      dependencies=state.evidence.dependencies)
 
     if isinstance(admission, Refusal):
         # The claim is read before anything is refused, since a refusal is about
         # writing anew and an earlier attempt may have written already: what it
         # made is still watched or put back, refused or not. Read rather than
         # claimed, because a claim is a new attempt and this is not one.
-        claimed = already_taken(state.incident_id, hypothesis_id=state.hypothesis.id)
+        claimed = already_taken(state.incident_id, hypothesis_id=state.cursor.hypothesis.id)
 
         if claimed is None:
             return _not_admitted(state, admission, record_outcome, publisher)
@@ -212,7 +212,7 @@ def mitigation_node(
     # a resumed walk has nothing to compare with, for exactly the stretch it is
     # likeliest to be resumed in. A plan changes nothing, so a walk that loses
     # the claim below has changed nothing by planning.
-    planning = plan_action(state.proposed_action)
+    planning = plan_action(state.action.proposed_action)
     planned = planning if isinstance(planning, Planned) else None
     refused = planning if isinstance(planning, Outcome) else None
 
@@ -236,8 +236,8 @@ def mitigation_node(
     # with.
     answered = record_action(
         state.incident_id,
-        hypothesis_id=state.hypothesis.id,
-        action_type=state.proposed_action.action_type,
+        hypothesis_id=state.cursor.hypothesis.id,
+        action_type=state.action.proposed_action.action_type,
         # What the action acts on, not what the candidate calls the fault. The
         # row is the only account of what this attempt changed, and every
         # reader of it afterwards - the write-up, and the memory the next
@@ -246,7 +246,7 @@ def mitigation_node(
         # the symptom, so a row carrying it quotes something nobody did, and the
         # cap on attempts per subject counts a phrase that comes out different
         # every round.
-        subject=state.proposed_action.subject,
+        subject=state.action.proposed_action.subject,
         at=claimed_at,
         # Absent for an action with nothing to plan, and for a plan the tier
         # refused, since none was made.
@@ -259,7 +259,7 @@ def mitigation_node(
     if isinstance(answered, AlreadyClaimed):
         return _the_earlier_attempt_resumed(
             state,
-            already_taken(state.incident_id, hypothesis_id=state.hypothesis.id),
+            already_taken(state.incident_id, hypothesis_id=state.cursor.hypothesis.id),
             _Resumption(
                 admission=admission, planned=planned, refused=refused, resuming=resuming,
                 take=take, complete_action=complete_action, advance_action=advance_action,
@@ -302,8 +302,8 @@ def mitigation_node(
     acted_at = announced[0].at if announced else None
     logger.info("verdict reached", extra={
         "verdict": result.verdict,
-        "action_type": state.proposed_action.action_type,
-        "subject": state.proposed_action.subject
+        "action_type": state.action.proposed_action.action_type,
+        "subject": state.action.proposed_action.subject
     })
 
     return _the_attempt_recorded(state, result, acted_at, complete_action, record_outcome,
@@ -345,7 +345,7 @@ def _taken(state: IncidentState,
            now: Callable[[], datetime]) -> Outcome:
     """Takes the admitted action on its plan, for whichever claim its caller
     acts for, and answers with what came of it."""
-    assert state.hypothesis is not None
+    assert state.cursor.hypothesis is not None
 
     return take(
         admitted,
@@ -362,8 +362,8 @@ def _taken(state: IncidentState,
             publisher,
             now,
             incident_id=state.incident_id,
-            hypothesis_id=state.hypothesis.id,
-            candidate_number=state.hypothesis.number,
+            hypothesis_id=state.cursor.hypothesis.id,
+            candidate_number=state.cursor.hypothesis.number,
             action=admitted.action,
             alerting_service=state.alert.service
         ),
@@ -371,7 +371,7 @@ def _taken(state: IncidentState,
             _the_put_back_is_owed,
             owe_a_put_back,
             incident_id=state.incident_id,
-            hypothesis_id=state.hypothesis.id
+            hypothesis_id=state.cursor.hypothesis.id
         )
     )
 
@@ -400,7 +400,7 @@ def _what_the_wait_is_handed(state: IncidentState,
         "onset": state.alert.stated_onset,
         # The minute the investigation dated the incident from, so the
         # recovery is never dated before it.
-        "incident_began": state.onset.minute if state.onset is not None else None,
+        "incident_began": state.history.onset.minute if state.history.onset is not None else None,
         # The rule that paged, where the alert is about a series - the action
         # is judged by whether it stops firing. A finding's check runs on its
         # own schedule, so it keeps the confirmation it has.
@@ -428,19 +428,19 @@ def _the_subject_is_open(state: IncidentState,
     attempt's outcome, escalated, so the status follows from it with that
     sentence.
     """
-    assert state.hypothesis is not None and state.proposed_action is not None
+    assert state.cursor.hypothesis is not None and state.action is not None
 
     because = (why_it_was_refused(Refusal.SUBJECT_ALREADY_OPEN)
                + whose_open_change(open_in, state.incident_id))
     logger.info("action refused, another change to its subject may still stand",
-                extra={"subject": state.proposed_action.subject,
+                extra={"subject": state.action.proposed_action.subject,
                        "open_in": open_in})
-    record_outcome(state.hypothesis.id, tested=False, result=because)
+    record_outcome(state.cursor.hypothesis.id, tested=False, result=because)
     publish(
         ActionRefused(
             incident_id=state.incident_id,
-            hypothesis_id=state.hypothesis.id,
-            candidate_number=state.hypothesis.number,
+            hypothesis_id=state.cursor.hypothesis.id,
+            candidate_number=state.cursor.hypothesis.number,
             refusal=Refusal.SUBJECT_ALREADY_OPEN,
             open_in=open_in
         ),
@@ -473,19 +473,19 @@ def _not_admitted(state: IncidentState,
     that does is picked up as any resumed walk picks it up, and only taking the
     action again is refused (`_the_retake_refused`).
     """
-    assert state.hypothesis is not None and state.proposed_action is not None
+    assert state.cursor.hypothesis is not None and state.action is not None
 
     because = why_it_was_refused(refusal)
     logger.warning("action not admitted when it came to be taken",
                    extra={"refusal": refusal,
-                          "action_type": state.proposed_action.action_type,
-                          "subject": state.proposed_action.subject})
-    record_outcome(state.hypothesis.id, tested=False, result=because)
+                          "action_type": state.action.proposed_action.action_type,
+                          "subject": state.action.proposed_action.subject})
+    record_outcome(state.cursor.hypothesis.id, tested=False, result=because)
     publish(
         ActionRefused(
             incident_id=state.incident_id,
-            hypothesis_id=state.hypothesis.id,
-            candidate_number=state.hypothesis.number,
+            hypothesis_id=state.cursor.hypothesis.id,
+            candidate_number=state.cursor.hypothesis.number,
             refusal=refusal
         ),
         publisher
@@ -536,7 +536,7 @@ def _the_attempt_recorded(state: IncidentState,
     """Records what came of the attempt on its claim and its candidate, and
     answers with what the walk carries on with - whether the action was taken
     or its plan refused."""
-    assert state.proposed_action is not None and state.hypothesis is not None
+    assert state.action is not None and state.cursor.hypothesis is not None
 
     outcome = result.verdict
 
@@ -550,7 +550,7 @@ def _the_attempt_recorded(state: IncidentState,
         # hypothesis happen to share, which the walk makes unambiguous only by
         # refusing to act on one subject twice - a rule about not retrying a
         # move, not about identity.
-        hypothesis_id=state.hypothesis.id,
+        hypothesis_id=state.cursor.hypothesis.id,
         outcome=outcome,
         undo_descriptor=result.undo_descriptor,
         performed=result.performed,
@@ -562,13 +562,13 @@ def _the_attempt_recorded(state: IncidentState,
         undone=result.undone,
         narrating=VerdictReached(
             incident_id=state.incident_id,
-            hypothesis_id=state.hypothesis.id,
-            candidate_number=state.hypothesis.number,
+            hypothesis_id=state.cursor.hypothesis.id,
+            candidate_number=state.cursor.hypothesis.number,
             outcome=result.verdict,
             # What was reached for, and whether it was done: for an attempt
             # that ended before its write, this is the only line saying so.
-            action_type=state.proposed_action.action_type,
-            subject=state.proposed_action.subject,
+            action_type=state.action.proposed_action.action_type,
+            subject=state.action.proposed_action.subject,
             performed=result.performed,
             not_performed_because=result.not_performed_because,
             undone=result.undone,
@@ -597,21 +597,21 @@ def _the_attempt_recorded(state: IncidentState,
     # never saw the service *and* for a refutation whose change could not be put
     # back, and the second of those judged it.
     if (
-        state.hypothesis is not None
+        state.cursor.hypothesis is not None
         and result.verdict is not Verdict.STOPPED
         and result.judged
     ):
-        record_outcome(state.hypothesis.id, tested=True, result=outcome)
+        record_outcome(state.cursor.hypothesis.id, tested=True, result=outcome)
     # Not performed, and a tier said why: the candidate was passed over untested,
     # and its row keeps the reason as the gate's refusals keep theirs - the one
     # thing a reader of the list has for why this explanation was never tried.
     # Untested, so nothing here reads as a verdict on it.
     elif (
-        state.hypothesis is not None
+        state.cursor.hypothesis is not None
         and not result.performed
         and result.not_performed_because is not None
     ):
-        record_outcome(state.hypothesis.id, tested=False,
+        record_outcome(state.cursor.hypothesis.id, tested=False,
                        result=result.not_performed_because)
 
     if result.verdict is Verdict.PLATFORM_UNREACHABLE:
@@ -625,7 +625,7 @@ def _the_attempt_recorded(state: IncidentState,
         #
         # Added to what the walk already carries rather than replacing it, so a
         # second platform failing does not forget the first.
-        platform = the_kind(state.proposed_action.action_type).platform
+        platform = the_kind(state.action.proposed_action.action_type).platform
         # Published here because here is where it was learnt, and before the
         # candidate that follows - the stream is read as a story in the order it
         # happened, and an event explaining why later candidates went untried is
@@ -651,7 +651,7 @@ def _the_attempt_recorded(state: IncidentState,
             action_outcome=outcome,
             action_because=result.because,
             acted_at=acted_at,
-            unreachable_platforms=[*state.unreachable_platforms, platform],
+            unreachable_platforms=[*state.history.unreachable_platforms, platform],
             narration=Narration(action="mitigation attempted", detail=result.detail)
         )
 
@@ -840,7 +840,7 @@ def _the_earlier_attempt_resumed(state: IncidentState,
     be read as licence to act a second time on a change somebody may already
     have made.
     """
-    assert state.hypothesis is not None and state.proposed_action is not None
+    assert state.cursor.hypothesis is not None and state.action is not None
 
     outcome = claimed.outcome if claimed is not None else None
 
@@ -863,7 +863,7 @@ def _the_earlier_attempt_resumed(state: IncidentState,
         publish(
             MitigationResumed(
                 incident_id=state.incident_id,
-                hypothesis_id=state.hypothesis.id,
+                hypothesis_id=state.cursor.hypothesis.id,
                 outcome=outcome
             ),
             resumption.publisher
@@ -930,8 +930,8 @@ def _the_claim_resumed(state: IncidentState,
     handed over as nobody can say, as a restart's is - nothing can be asked of
     the estate without a plan, and nothing will be taken.
     """
-    assert state.hypothesis is not None and state.proposed_action is not None
-    action = state.proposed_action
+    assert state.cursor.hypothesis is not None and state.action is not None
+    action = state.action.proposed_action
     planned = claimed.planned if claimed.planned is not None else resumption.planned
 
     if planned is None:
@@ -987,7 +987,7 @@ def _the_found_made_carried_on(state: IncidentState,
     nothing is on file, and watched as a change told as made is, from its
     claim: when the estate says it was made is when it was said, and can be a
     minute after the service acted."""
-    assert state.hypothesis is not None and state.proposed_action is not None
+    assert state.cursor.hypothesis is not None and state.action is not None
 
     _the_claim_is_told(state, resumption.advance_action, ActionProgress.PERFORMED,
                        undo_descriptor=made.descriptor, performed_at=made.made_at)
@@ -1011,7 +1011,7 @@ def _the_claim_taken(state: IncidentState,
     claim's is out there all the same is recorded as left behind where the
     attempt ends before its own change, and known: nothing else of the claim's
     was made."""
-    assert state.hypothesis is not None and state.proposed_action is not None
+    assert state.cursor.hypothesis is not None and state.action is not None
     left_behind = not_made.left_behind
 
     if isinstance(resumption.admission, Refusal):
@@ -1071,13 +1071,13 @@ def _the_retake_refused(state: IncidentState,
     since nothing else of it was made. An open claim would keep its subject
     closed to every incident after this one for a change nobody made.
     """
-    assert state.hypothesis is not None and state.proposed_action is not None
+    assert state.cursor.hypothesis is not None and state.action is not None
 
     because = why_it_was_refused(refusal)
     logger.warning("a claimed action not admitted when it came to be taken again",
                    extra={"refusal": refusal,
-                          "action_type": state.proposed_action.action_type,
-                          "subject": state.proposed_action.subject})
+                          "action_type": state.action.proposed_action.action_type,
+                          "subject": state.action.proposed_action.subject})
     _the_attempt_recorded(
         state,
         Outcome(verdict=Verdict.ESCALATED, detail=because, undo_descriptor=left_behind,
@@ -1107,7 +1107,7 @@ def _the_change_made_resumed(state: IncidentState,
     Whichever the answer, the change was made, so it is announced where the
     dead worker died before announcing it, dated when it was made.
     """
-    assert state.hypothesis is not None
+    assert state.cursor.hypothesis is not None
     descriptor = claimed.undo_descriptor
 
     if descriptor is None:
@@ -1165,7 +1165,7 @@ def _the_change_watched(state: IncidentState,
     Acted for the claim's own row by whoever calls it, so a refutation the
     watch puts back is a write marked as that action's.
     """
-    assert state.hypothesis is not None and state.proposed_action is not None
+    assert state.cursor.hypothesis is not None and state.action is not None
 
     if not _the_metrics_reach_back(state, resumption):
         return _the_resumed_walk_stops(_THE_METRICS_NO_LONGER_REACH_BACK)
@@ -1173,15 +1173,15 @@ def _the_change_watched(state: IncidentState,
     publish(AgentInvoked(incident_id=state.incident_id, agent=Actor.MITIGATION),
             resumption.publisher)
     result = resumption.resuming.watch(
-        state.proposed_action,
-        performed_as_recorded(state.proposed_action, descriptor),
+        state.action.proposed_action,
+        performed_as_recorded(state.action.proposed_action, descriptor),
         acted_from=acted_from,
         **_what_the_wait_is_handed(state, resumption.still_wanted, resumption.publisher),
         put_back_owed=partial(
             _the_put_back_is_owed,
             resumption.owe_a_put_back,
             incident_id=state.incident_id,
-            hypothesis_id=state.hypothesis.id
+            hypothesis_id=state.cursor.hypothesis.id
         )
     )
 
@@ -1197,7 +1197,7 @@ def _the_put_back_resumed(state: IncidentState,
     made again - said in the words the walk that made it used, and recorded as
     the live walk records its put-back. The row already says it is owed back,
     so it is neither owed again nor moved on."""
-    assert state.hypothesis is not None and state.proposed_action is not None
+    assert state.cursor.hypothesis is not None and state.action is not None
     descriptor, because = claimed.undo_descriptor, claimed.put_back_because
 
     if descriptor is None or because is None:
@@ -1208,8 +1208,8 @@ def _the_put_back_resumed(state: IncidentState,
 
     with resumption.acting_for(claimed.action_id):
         result = resumption.resuming.settle(
-            state.proposed_action.action_type,
-            performed_as_recorded(state.proposed_action, descriptor),
+            state.action.proposed_action.action_type,
+            performed_as_recorded(state.action.proposed_action, descriptor),
             because,
             still_wanted=partial(resumption.still_wanted, state.incident_id)
         )
@@ -1248,10 +1248,10 @@ def _the_plan_is_put_on_the_claim(state: IncidentState,
     the plan, and nothing is made yet, so the run's failure costs only its
     escalation.
     """
-    assert state.hypothesis is not None
+    assert state.cursor.hypothesis is not None
 
     resumption.resuming.plan_the_claim(state.incident_id,
-                                       hypothesis_id=state.hypothesis.id, planned=planned)
+                                       hypothesis_id=state.cursor.hypothesis.id, planned=planned)
 
 
 def _the_claim_is_told(state: IncidentState,
@@ -1268,14 +1268,14 @@ def _the_claim_is_told(state: IncidentState,
     this walk's clock. A write that fails is logged and the walk goes on, for
     `_the_change_was_made`'s reason; all but a write refused for a lost run.
     """
-    assert state.hypothesis is not None
+    assert state.cursor.hypothesis is not None
 
     try:
         if to is ActionProgress.PERFORMED:
-            advance_action(state.incident_id, hypothesis_id=state.hypothesis.id, to=to,
+            advance_action(state.incident_id, hypothesis_id=state.cursor.hypothesis.id, to=to,
                            undo_descriptor=undo_descriptor, performed_at=performed_at)
         else:
-            advance_action(state.incident_id, hypothesis_id=state.hypothesis.id, to=to,
+            advance_action(state.incident_id, hypothesis_id=state.cursor.hypothesis.id, to=to,
                            undo_descriptor=undo_descriptor)
     except Exception as error:
         if was_lost(error):
@@ -1292,17 +1292,17 @@ def _announced_where_none_is_on_file(state: IncidentState,
     where the dead worker died before announcing it. It announced whether or
     not its own advance landed, so a line can be on file for a claim with
     nothing after it; two would read as Argus acting twice."""
-    assert state.hypothesis is not None and state.proposed_action is not None
+    assert state.cursor.hypothesis is not None and state.action is not None
 
-    if at is None or resumption.resuming.announced(state.incident_id, state.hypothesis.id):
+    if at is None or resumption.resuming.announced(state.incident_id, state.cursor.hypothesis.id):
         return
 
-    action = state.proposed_action
+    action = state.action.proposed_action
     publish(
         ActionTaken(
             incident_id=state.incident_id,
-            hypothesis_id=state.hypothesis.id,
-            candidate_number=state.hypothesis.number,
+            hypothesis_id=state.cursor.hypothesis.id,
+            candidate_number=state.cursor.hypothesis.number,
             action_type=action.action_type,
             subject=action.subject,
             enabled=action.direction,
@@ -1329,8 +1329,8 @@ def _when_the_incident_began(state: IncidentState) -> datetime | None:
     """The instant the incident began: the investigation's minute, else the
     one the alert stated, else when the alert fired - `None` where nothing
     states one."""
-    if state.onset is not None:
-        return parse_iso(state.onset.minute)
+    if state.history.onset is not None:
+        return parse_iso(state.history.onset.minute)
 
     return state.alert.stated_onset if state.alert.stated_onset is not None \
         else state.alert.started_at

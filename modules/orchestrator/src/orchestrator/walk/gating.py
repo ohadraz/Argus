@@ -118,31 +118,32 @@ def tier_gate_node(
     make impossible; silently dropping it would leave an incident that simply
     stopped.
     """
+    proposed = state.action.proposed_action if state.action is not None else None
     refusal = _why_the_action_cannot_proceed(
-        state.proposed_action,
+        proposed,
         admit,
         state.alert.service,
-        state.dependencies,
-        state.attempts,
+        state.evidence.dependencies,
+        state.history.attempts,
         attempts_per_subject,
-        state.hypothesis,
+        state.cursor.hypothesis,
         # Built as the proposal node built them, so the gate says why nothing
         # was proposed from the record the proposal was made against.
-        the_circumstances(state.alert, state.flag_changes, state.deployments,
-                          state.placement, deployment_changes=state.deployment_changes,
-                          onset=state.onset),
+        the_circumstances(state.alert, state.evidence.flag_changes, state.evidence.deployments,
+                          state.evidence.placement,
+                          deployment_changes=state.history.deployment_changes,
+                          onset=state.history.onset),
         # The two facts confirmability is read off. Dated by the alert rather
         # than measured from the service's own series, and whether any reading
         # covers the incident's minutes - both properties of the evidence, and
         # neither a judgement about the action.
         state.alert.stated_onset is not None,
-        state.readings_cover_the_incident
+        state.evidence.readings_cover_the_incident
     )
 
     if refusal is None:
         return StateDelta()
 
-    proposed = state.proposed_action
     logger.info("action refused", extra={
         "refusal": refusal,
         "action_type": proposed.action_type if proposed is not None else None,
@@ -150,8 +151,8 @@ def tier_gate_node(
     })
 
     # The candidate's own row says it was never put to the question, and why.
-    if state.hypothesis is not None:
-        record_outcome(state.hypothesis.id,
+    if state.cursor.hypothesis is not None:
+        record_outcome(state.cursor.hypothesis.id,
                        tested=False,
                        result=why_it_was_refused(refusal))
 
@@ -159,11 +160,12 @@ def tier_gate_node(
     publish(
         ActionRefused(
             incident_id=state.incident_id,
-            hypothesis_id=state.hypothesis.id if state.hypothesis is not None else None,
-            candidate_number=(state.hypothesis.number if state.hypothesis is not None
+            hypothesis_id=(state.cursor.hypothesis.id if state.cursor.hypothesis is not None
+                           else None),
+            candidate_number=(state.cursor.hypothesis.number if state.cursor.hypothesis is not None
                               else None),
             refusal=refusal,
-            dependency=(_the_entry_blamed(state.hypothesis, state.dependencies)
+            dependency=(_the_entry_blamed(state.cursor.hypothesis, state.evidence.dependencies)
                         if somebody_elses else None)
         ),
         publisher
@@ -174,7 +176,7 @@ def tier_gate_node(
     # telling a person to go and do the thing Argus was stopped from doing - or
     # had no action to pass on.
     recommended = (
-        state.proposed_action
+        proposed
         if refusal is Refusal.NOTHING_COULD_CONFIRM_IT else None
     )
 
@@ -186,10 +188,10 @@ def tier_gate_node(
             ActionRecommended(
                 incident_id=state.incident_id,
                 hypothesis_id=(
-                    state.hypothesis.id if state.hypothesis is not None else None
+                    state.cursor.hypothesis.id if state.cursor.hypothesis is not None else None
                 ),
                 candidate_number=(
-                    state.hypothesis.number if state.hypothesis is not None else None
+                    state.cursor.hypothesis.number if state.cursor.hypothesis is not None else None
                 ),
                 action_type=recommended.action_type,
                 subject=the_identity_of(recommended).subject
@@ -206,8 +208,8 @@ def tier_gate_node(
             # Whose fault it was, so Code-Fix is not asked to write a change
             # around another company's outage: the refusal's line says whom
             # to ask instead.
-            somebody_elses_fault_for=(state.hypothesis.id
-                                      if somebody_elses and state.hypothesis is not None
+            somebody_elses_fault_for=(state.cursor.hypothesis.id
+                                      if somebody_elses and state.cursor.hypothesis is not None
                                       else None),
             narration=Narration(action="no mitigation taken")
         )
@@ -400,4 +402,4 @@ def route_after_gate(state: IncidentState) -> str:
     if state.recommended_action is not None or state.the_mode_has_no_mitigation:
         return FIXING_ROUTE
 
-    return MITIGATING_ROUTE if state.proposed_action is not None else NEXT_CANDIDATE_ROUTE
+    return MITIGATING_ROUTE if state.action is not None else NEXT_CANDIDATE_ROUTE

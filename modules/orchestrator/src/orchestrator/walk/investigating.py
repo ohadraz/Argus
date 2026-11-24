@@ -154,17 +154,17 @@ def investigator_node(
         # Both empty on a first round. On a later one they are what makes the
         # round worth paying for: what earlier rounds already read, and what has
         # already been tried and did not help.
-        already_read=state.already_read,
-        already_refuted=state.attempts,
+        already_read=state.history.already_read,
+        already_refuted=state.history.attempts,
         still_wanted=partial(still_wanted, state.incident_id),
         leads=partial(leads_of, state.incident_id),
         # `None` on a first round, which measures one. On a later one, the minute
         # the first established: the window this round reads is one Argus has
         # since acted on, and what departs there is what the action left behind.
-        established_onset=state.onset,
+        established_onset=state.history.onset,
         # What this round numbers its candidates on from, so each is said by
         # the number it keeps for the whole incident.
-        earlier_candidates=state.candidates_formed
+        earlier_candidates=state.history.candidates_formed
     )
     if findings.stopped:
         return StateDelta()
@@ -203,7 +203,7 @@ def investigator_node(
     # What each deployment looked into changed, this round's beside every earlier
     # round's - the first answer about a revision standing, since one deploy
     # changed one thing.
-    deployment_changes = {**findings.deployment_changes, **state.deployment_changes}
+    deployment_changes = {**findings.deployment_changes, **state.history.deployment_changes}
     # What earlier incidents on this service looked like this one. Searched once
     # per round rather than once per candidate: one search, and a deterministic
     # order for everything below to reason from.
@@ -249,7 +249,7 @@ def investigator_node(
             # the state still holds the last round's until this node returns.
             the_circumstances(
                 state.alert, flag_changes, deployments, findings.placement,
-                deployment_changes=deployment_changes, onset=state.onset or findings.onset
+                deployment_changes=deployment_changes, onset=state.history.onset or findings.onset
             )
         ),
         recalled
@@ -276,7 +276,7 @@ def investigator_node(
     # over and over until the round budget ran out - a flag moved back and
     # forth, or a service restarted once per round, which is the same loop
     # wearing a different word.
-    next_up = the_next_worth_trying(reordered.candidates, state.attempts, start=0)
+    next_up = the_next_worth_trying(reordered.candidates, state.history.attempts, start=0)
     hypothesis = next_up[1] if next_up is not None else candidates[0]
     # A named cause is enough to start the walk. Confidence used to gate this,
     # and gating it here was answering the wrong question: a mitigation that is
@@ -332,22 +332,22 @@ def investigator_node(
         dependencies=dependencies,
         # Everything read across this incident, not only this round's, so a
         # third round is told about the first as well as the second.
-        already_read=[*state.already_read, *findings.already_read],
+        already_read=[*state.history.already_read, *findings.already_read],
         # This round's reading of the window, not the incident's accumulated one:
         # every round re-reads, and what the gate needs to know is whether the
         # evidence in front of the walk now says anything about the incident's own
         # minutes.
         readings_cover_the_incident=findings.readings_cover_the_incident,
-        onset=state.onset or findings.onset,
-        rounds=state.rounds + 1,
+        onset=state.history.onset or findings.onset,
+        rounds=state.history.rounds + 1,
         # What this round was told had been tried, so the walk can tell whether
         # anything was refuted after it.
-        attempts_handed=len(state.attempts),
-        candidates_formed=state.candidates_formed + len(candidates),
+        attempts_handed=len(state.history.attempts),
+        candidates_formed=state.history.candidates_formed + len(candidates),
         nothing_worth_trying=nothing_worth_trying,
         # The spent list in the walk's own words for one, since it is the same
         # move for the same reason.
-        narration=(nothing_left_to_try(state.attempts) if the_list_is_spent
+        narration=(nothing_left_to_try(state.history.attempts) if the_list_is_spent
                    else Narration(action=_what_the_investigation_did(hypothesis))),
     )
 
@@ -531,7 +531,7 @@ def _the_alarm_was_disproven(state: IncidentState,
 
     return StateDelta(
         disproof=disproof,
-        rounds=state.rounds + 1,
+        rounds=state.history.rounds + 1,
         narration=Narration(
             # Read in two places and written for the harder one. The
             # timeline shows it beside the disproof event, which carries the

@@ -44,7 +44,12 @@ from psycopg_pool import ConnectionPool
 
 from orchestrator.walk.collaborators import Collaborators
 from orchestrator.walk.graph import build_graph, recursion_limit
-from orchestrator.walk.state import IncidentState
+from orchestrator.walk.state import (
+    CandidateCursor,
+    IncidentState,
+    RoundEvidence,
+    WhatWasLearnt,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +185,10 @@ def run_incident(incident_id: str,
         incident_id=incident_id,
         alert=incident.alert,
         status=IncidentStatus.INVESTIGATING,
+        cursor=CandidateCursor(),
+        evidence=RoundEvidence(),
+        history=WhatWasLearnt(),
+        action=None
     )
     measured_by = meter if meter is not None else metrics.get_meter(_SCOPE)
     walks = measured_by.create_counter(

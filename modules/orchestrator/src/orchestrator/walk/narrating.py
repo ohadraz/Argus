@@ -147,7 +147,7 @@ def with_status(
 
         discard(state)
         delta = node(state)
-        updates = delta.as_updates()
+        updates = delta.as_updates(state)
 
         # Asked again now the node has returned. A step that stopped because a
         # person ended the incident hands back nothing, so it implies no move
@@ -166,6 +166,8 @@ def with_status(
         if ending is not None:
             return updates
 
+        # Applied as LangGraph applies it, key by key. That holds for a group
+        # only because the delta hands each one over whole.
         next_status = status_after(state.model_copy(update=updates), max_rounds)
 
         if not _takes_an_ending_away(state.status, next_status):

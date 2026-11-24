@@ -59,7 +59,13 @@ from orchestrator.walk.routes import (
     MITIGATING_ROUTE,
     NEXT_CANDIDATE_ROUTE,
 )
-from orchestrator.walk.state import IncidentState
+from orchestrator.walk.state import (
+    ActionInFlight,
+    CandidateCursor,
+    IncidentState,
+    RoundEvidence,
+    WhatWasLearnt,
+)
 
 from orchestrator_test.framework.assertions import the_route_is
 from orchestrator_test.framework.builders import (
@@ -960,13 +966,14 @@ def _a_mitigating_incident(proposing: Action | None = None,
         incident_id=some_incident_id,
         alert=some_alert,
         status=IncidentStatus.MITIGATING,
-        hypothesis=about or a_determined_hypothesis(some_incident_id),
-        proposed_action=proposing,
-        attempts=already_tried or [],
-        dependencies=listing or [],
-        readings_cover_the_incident=whose_minutes_were_read,
-        the_mode_has_no_mitigation=whose_mode_has_no_mitigation,
-        flag_changes=whose_flag_record_reads
+        cursor=CandidateCursor(hypothesis=about or a_determined_hypothesis(some_incident_id)),
+        evidence=RoundEvidence(dependencies=listing or [],
+                               readings_cover_the_incident=whose_minutes_were_read,
+                               flag_changes=whose_flag_record_reads),
+        history=WhatWasLearnt(attempts=already_tried or []),
+        action=(ActionInFlight(proposed_action=proposing) if proposing is not None
+                else None),
+        the_mode_has_no_mitigation=whose_mode_has_no_mitigation
     )
 
 

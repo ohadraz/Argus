@@ -34,6 +34,8 @@ from orchestrator.walk.ports import (
 )
 from orchestrator.walk.state import IncidentState
 
+from orchestrator_test.framework.builders import an_incident_state
+
 SOME_INCIDENT_ID = "e6e6e6e6-0000-4000-8000-000000000006"
 DONT_CARE_ALERT = Alert(service="io-shop", alert_name="HighErrorRate")
 
@@ -148,11 +150,7 @@ def test_the_synopsis_that_was_written_is_the_one_that_is_stored(
 
 
 def _an_incident_in(status: IncidentStatus, incident_id: str) -> IncidentState:
-    return IncidentState(
-        incident_id=incident_id,
-        alert=DONT_CARE_ALERT,
-        status=status
-    )
+    return an_incident_state(DONT_CARE_ALERT, status, incident_id=incident_id)
 
 
 def _a_document(root_cause: str = DONT_CARE_ROOT_CAUSE,

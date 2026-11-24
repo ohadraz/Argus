@@ -57,7 +57,12 @@ from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.fixing import codefix_node, route_after_codefix
 from orchestrator.walk.ports import LeadsOf, ProposeFix, WhatArgusDidIn
 from orchestrator.walk.routes import POSTMORTEM_ROUTE
-from orchestrator.walk.state import IncidentState
+from orchestrator.walk.state import (
+    CandidateCursor,
+    IncidentState,
+    RoundEvidence,
+    WhatWasLearnt,
+)
 
 from orchestrator_test.framework.assertions import (
     the_result_is,
@@ -1124,8 +1129,10 @@ def _an_incident_in(status: IncidentStatus,
     return IncidentState(incident_id=DONT_CARE_INCIDENT_ID,
                          alert=alert,
                          status=status,
-                         hypothesis=hypothesis,
-                         deployments=deployments)
+                         cursor=CandidateCursor(hypothesis=hypothesis),
+                         evidence=RoundEvidence(deployments=deployments),
+                         history=WhatWasLearnt(),
+                         action=None)
 
 
 def _a_deploy(revision: str, at: str) -> ChangeEvent:

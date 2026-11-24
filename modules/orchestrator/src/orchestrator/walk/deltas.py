@@ -15,12 +15,17 @@ an absent field is absent from the update, where a default would be the node
 quietly overwriting something another node decided. The values are read off the
 model rather than dumped, so an `Action` arrives as an `Action` and not as a
 dict of its fields.
+
+The delta is flat where the state is grouped, and the update is folded into
+the groups here. LangGraph replaces each key a node returns, so a group has to
+arrive whole: a node that set one of a group's fields and sent that alone would
+wipe the rest of the group.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Final
 
 from core.models import (
     Action,
@@ -38,6 +43,25 @@ from core.models import (
     Verdict,
 )
 from pydantic import BaseModel, ConfigDict
+
+from orchestrator.walk.state import (
+    ActionInFlight,
+    CandidateCursor,
+    IncidentState,
+    RoundEvidence,
+    WhatWasLearnt,
+)
+
+# Which group of the state each grouped field belongs to, read off the groups
+# themselves, so a field added to a group is folded into it with nothing here to
+# keep in step.
+_THE_GROUP_OF: Final[dict[str, str]] = {
+    field: group
+    for group, model in (("cursor", CandidateCursor), ("evidence", RoundEvidence),
+                         ("history", WhatWasLearnt), ("action", ActionInFlight))
+    for field in model.model_fields
+}
+_ACTION: Final = "action"
 
 
 class Narration(BaseModel):
@@ -165,15 +189,43 @@ class StateDelta(BaseModel):
     # takes it out, writes the row, and passes on what remains.
     narration: Narration | None = None
 
-    def as_updates(self) -> dict[str, Any]:
-        """What LangGraph is given: the fields this node actually set.
+    def as_updates(self, state: IncidentState) -> dict[str, Any]:
+        """What LangGraph is given: the fields this node actually set, each
+        grouped field folded into its group as `state` holds it, whole.
 
         `narration` is not among them even when set - it is the wrapper's, and
         left in it would become a field of `IncidentState`, checkpointed with
         the incident forever, describing whichever node happened to run last.
         """
-        return {
+        set_here = {
             name: getattr(self, name)
             for name in self.model_fields_set
             if name != "narration"
         }
+        updates = {name: value for name, value in set_here.items()
+                   if name not in _THE_GROUP_OF}
+
+        for group in {_THE_GROUP_OF[name] for name in set_here if name in _THE_GROUP_OF}:
+            fields = {name: value for name, value in set_here.items()
+                      if _THE_GROUP_OF.get(name) == group}
+            updates[group] = (_the_action_after(state.action, fields) if group == _ACTION
+                              else getattr(state, group).model_copy(update=fields))
+
+        return updates
+
+
+def _the_action_after(action: ActionInFlight | None,
+                      fields: dict[str, Any]) -> ActionInFlight | None:
+    """The action in flight once a node's writes to it are folded in.
+
+    A proposal starts a fresh one, and a proposal of nothing ends it. What was
+    found when acting is written onto the action in flight, and dropped where
+    none is: its one reader reads it only beside a proposed action.
+    """
+    if "proposed_action" in fields:
+        proposed = fields["proposed_action"]
+        action = None if proposed is None else ActionInFlight(proposed_action=proposed)
+
+    found = {name: value for name, value in fields.items() if name != "proposed_action"}
+
+    return None if action is None else action.model_copy(update=found)

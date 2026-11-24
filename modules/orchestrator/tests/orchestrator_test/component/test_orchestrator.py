@@ -79,14 +79,14 @@ from orchestrator.walk.graph import (
     build_graph,
     recursion_limit,
 )
-from orchestrator.walk.state import IncidentState
+from orchestrator.walk.state import IncidentState, WhatWasLearnt
 
 from orchestrator_test.framework.builders import (
     a_corruption_blamed_on,
     a_deployment,
     a_lead,
     a_person_ended_the_incident,
-    a_random_id,
+    an_incident_state,
     an_undetermined_hypothesis,
     nobody_ended_the_incident,
     reverting,
@@ -1090,15 +1090,15 @@ def _the_walk_of(incident: IncidentState, collaborators: Collaborators) -> Walke
 
 
 def _an_incident_just_alerted() -> IncidentState:
-    return IncidentState(incident_id=a_random_id(),
-                         alert=DONT_CARE_ALERT,
-                         status=IncidentStatus.INVESTIGATING)
+    return an_incident_state(DONT_CARE_ALERT, IncidentStatus.INVESTIGATING)
 
 
 def _an_incident_on_its_last_round() -> IncidentState:
     """One round short of the budget, so the investigation about to run is the
     last one this incident gets."""
-    return _an_incident_just_alerted().model_copy(update={"rounds": EVERY_ROUND - 1})
+    return _an_incident_just_alerted().model_copy(
+        update={"history": WhatWasLearnt(rounds=EVERY_ROUND - 1)}
+    )
 
 
 def _an_incident_dated_by_its_alert() -> IncidentState:
@@ -1112,11 +1112,9 @@ def _an_incident_dated_by_its_alert() -> IncidentState:
     when_it_was_noticed = datetime(2026, 8, 20, 11, 0, tzinfo=UTC)
     a_week_before_anybody_noticed = when_it_was_noticed - timedelta(weeks=1)
 
-    return IncidentState(
-        incident_id=a_random_id(),
-        alert=DONT_CARE_ALERT.model_copy(
-            update={"stated_onset": a_week_before_anybody_noticed}),
-        status=IncidentStatus.INVESTIGATING
+    return an_incident_state(
+        DONT_CARE_ALERT.model_copy(update={"stated_onset": a_week_before_anybody_noticed}),
+        IncidentStatus.INVESTIGATING
     )
 
 
