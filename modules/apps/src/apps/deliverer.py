@@ -10,7 +10,14 @@ from __future__ import annotations
 import logging
 from typing import Final
 
-from core import DatabaseSettings, SettingsSlice, TelemetrySettings, get_settings, the_clock
+from core import (
+    DatabaseSettings,
+    SettingsSlice,
+    TelemetrySettings,
+    get_settings,
+    new_id,
+    the_clock,
+)
 from embedding_fastembed import an_embedder
 from incident_memory.delivering import deliver_forever, deliver_on
 from incident_memory.keeping import kept_in
@@ -56,6 +63,10 @@ def main() -> None:
     The pool is not fenced: this process walks no run, so the fence lets it
     mark rows as every process but a worker writes. Opening it checks the
     schema before the first pass, as it does for every process here.
+
+    An identity of its own, minted as it starts, is what it parks a record it
+    cannot read under: a deliverer started later - by the release that may hold
+    the step that record needed - has another, and tries it again.
     """
 
     the_clock()
@@ -78,12 +89,13 @@ def main() -> None:
                          delivery.incident_memory_collection) as store
         ):
             keep = kept_in(store, an_embedder(delivery.incident_memory_embedding_model))
+            deliverer = new_id()
 
             def pass_over() -> int:
                 """One pass, on a connection of its own for the whole of it -
                 which is what the delivery's lock is held on."""
                 with pool.connection() as conn:
-                    return deliver_on(conn, keep)
+                    return deliver_on(conn, keep, deliverer=deliverer)
 
             logger.info("delivery started")
             deliver_forever(delivery.incident_memory_delivery_interval_seconds, pass_over)

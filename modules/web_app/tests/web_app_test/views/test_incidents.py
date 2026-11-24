@@ -459,8 +459,7 @@ def test_an_incident_that_formed_no_candidate_is_shown_as_empty() -> None:
 def _an_incident(alert: Alert | None = None) -> Incident:
     return Incident(
         id=new_id(),
-        alert_payload=(alert or Alert(service="io-shop", alert_name="HighErrorRate"))
-        .model_dump(mode="json"),
+        alert=alert or Alert(service="io-shop", alert_name="HighErrorRate"),
         status=IncidentStatus.INVESTIGATING,
         created_at=_OPENED_AT,
         ended_at=None

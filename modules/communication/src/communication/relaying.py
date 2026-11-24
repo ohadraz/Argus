@@ -27,6 +27,8 @@ from enum import StrEnum
 from typing import Final, Protocol
 
 from chat_platform import Link
+from core.events import UnreadableEvent
+from core.telemetry import ARGUS_INCIDENT_ID
 from incident_record import Backlog, Place
 from narration import NarrationLine, a_narration_line
 
@@ -119,10 +121,33 @@ def relay_once(backlog: Backlog,
     A line nobody needs to hear is passed over and the place moves past it all
     the same: a relay that stopped at the first retrieval would sit there for
     ever, re-reading something it is never going to say.
+
+    An event nobody can read is passed over too, with an error, since no pass
+    will read it and every line behind it would wait for good. One a newer
+    release wrote stops the batch instead, as a line not said now does, with
+    an error on every look: the release that knows it says it, and a line
+    silently missed is the failure this exists to prevent. Rolled back to an
+    older release, the relay waits there until a person moves its place.
     """
     said = 0
 
     for recorded in backlog(place.where(), batch):
+        if isinstance(recorded, UnreadableEvent):
+            unreadable = recorded.unreadable
+            told = {ARGUS_INCIDENT_ID: recorded.incident_id, "seq": recorded.seq,
+                    "why": unreadable.why}
+
+            if unreadable.newer:
+                logger.error("relay waiting: an event was written by a newer release",
+                             extra=told)
+
+                break
+
+            logger.error("relay passed over an event it cannot read", extra=told)
+            place.move_to(recorded.seq)
+
+            continue
+
         register = how_it_is_said(recorded.event)
 
         if register is not Register.UNSAID:

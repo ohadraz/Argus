@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from typing import get_args
+from typing import Any, get_args
 
 import pytest
 from argus_testkit import (
@@ -52,6 +52,7 @@ from core.events import (
     VerdictReached,
     WithdrawalOffered,
     parse_event,
+    parse_stored_event,
     publish,
     the_escalations,
 )
@@ -88,6 +89,7 @@ from core.models.pull_request import OpenedPullRequest
 from core.models.reading import RetrievalChannel
 from core.models.refusal import Refusal
 from core.models.undone import Undone
+from core.stored import FIRST_SHAPE, SHIPPED, NewerShape, Shapes
 from core.telemetry import ARGUS_INCIDENT_ID
 from pydantic import ValidationError
 
@@ -111,6 +113,14 @@ THE_KINDS_THAT_RULE_NOTHING_OUT = frozenset({
     "metrics-retrieved", "logs-retrieved", "onset-detected", "anchored-on-the-alarm",
     "hypothesis-formed", "candidate-selected", "candidates-reordered", "retrieval-requested"
 })
+SOME_LOG_LINE = "some log line"
+# What a step from an event's shape to the next one adds, where no release has
+# shipped a step: a line no event here is published with, so an event carrying
+# it was brought up through the step and not read as it was stored.
+A_LINE_A_STEP_WROTE = "written by the step to the next shape"
+# A kind of event no release of this one publishes - as a newer release's
+# would read to it.
+SOME_KIND_NO_RELEASE_PUBLISHES = "some-kind-of-event-yet-to-come"
 
 
 @pytest.mark.unit
@@ -173,6 +183,46 @@ def test_a_retrieval_that_returned_carries_what_came_back() -> None:
             lines=the_lines_it_read
         )) \
         .then(_it_carries(the_lines_it_read))
+
+
+@pytest.mark.unit
+def test_a_stored_event_is_read_back_as_the_event_that_was_published() -> None:
+    Scenario() \
+        .given(
+            published := _some_logs_retrieved()
+        ) \
+        .when(lambda: parse_stored_event(published.kind, SHIPPED.current(published.kind),
+                                         published.model_dump(mode="json"))) \
+        .then(_it_is(published))
+
+
+@pytest.mark.unit
+def test_a_stored_event_in_an_older_shape_is_brought_up_before_it_is_read() -> None:
+    # Read with the shapes of a release one step on: the row is at the shape
+    # this release writes, which that release reads as one step behind.
+    Scenario() \
+        .given(
+            published := _some_logs_retrieved(),
+            one_step_on := Shapes(upcasters={published.kind: [_a_step_adding_a_line]})
+        ) \
+        .when(lambda: parse_stored_event(published.kind, SHIPPED.current(published.kind),
+                                         published.model_dump(mode="json"), one_step_on)) \
+        .then(_it_carries([SOME_LOG_LINE, A_LINE_A_STEP_WROTE]))
+
+
+@pytest.mark.unit
+def test_a_stored_event_of_a_kind_this_release_does_not_publish_is_newer() -> None:
+    # Not a row nobody can read: a release adding a kind of event is the
+    # commonest way one writes what an older reader cannot, and the release
+    # that knows the kind reads it - so a reader waits for it rather than
+    # passing over it.
+    Scenario() \
+        .given(
+            dont_care_row := _some_logs_retrieved().model_dump(mode="json")
+        ) \
+        .when(attempting(lambda: parse_stored_event(SOME_KIND_NO_RELEASE_PUBLISHES,
+                                                    FIRST_SHAPE, dont_care_row))) \
+        .then(an_error_was_raised(NewerShape))
 
 
 @pytest.mark.unit
@@ -952,6 +1002,15 @@ def _it_asked_between(start: str, end: str) -> Assertion[RetrievalRequested]:
         return True
 
     return assertion
+
+
+def _some_logs_retrieved() -> LogsRetrieved:
+    return LogsRetrieved(incident_id=new_id(), window_start=SOME_WINDOW_START,
+                         window_end=SOME_WINDOW_END, lines=[SOME_LOG_LINE])
+
+
+def _a_step_adding_a_line(raw: dict[str, Any]) -> dict[str, Any]:
+    return {**raw, "lines": [*raw["lines"], A_LINE_A_STEP_WROTE]}
 
 
 def _it_carries(lines: list[str]) -> Assertion[LogsRetrieved]:

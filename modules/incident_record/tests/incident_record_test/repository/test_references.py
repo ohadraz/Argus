@@ -28,6 +28,7 @@ from core.models import (
     ON_CALL_INCIDENT,
     Alert,
     Incident,
+    IncidentStanding,
     IncidentStatus,
     RecordedReference,
     Reference,
@@ -37,7 +38,10 @@ from incident_record.repository import incidents, references
 from postgres import connect_from_env
 
 from incident_record_test.framework import no_column_is_empty
-from incident_record_test.framework.builders import an_incident_created_for
+from incident_record_test.framework.builders import (
+    an_incident_created_for,
+    an_incident_whose_alert_cannot_be_read,
+)
 
 SOME_KIND = "some-kind"
 
@@ -181,6 +185,24 @@ def test_an_incident_found_by_a_name_is_found_as_it_stands() -> None:
 
 
 @pytest.mark.integration
+def test_an_incident_whose_alert_cannot_be_read_is_still_found_by_a_name() -> None:
+    # Nothing a caller decides by is in the stored alert. Parsing it anyway,
+    # one incident whose alert cannot be read would stop a person's
+    # resolution of it, and of every incident sharing its key.
+    some_name = _a_reference(NOTIFICATION_KEY, "k-1")
+
+    with connect_from_env() as conn:
+        some_incident = an_incident_whose_alert_cannot_be_read(conn, _an_alert())
+
+        Scenario() \
+            .given(calling(lambda: references.add(conn, some_incident, [some_name]))) \
+            .when(lambda: references.get_incidents_by_values(
+                conn, NOTIFICATION_KEY, [some_name.value]
+            )) \
+            .then(_the_incidents_found_are([some_incident]))
+
+
+@pytest.mark.integration
 def test_a_name_leaves_no_column_of_its_row_empty() -> None:
     with connect_from_env() as conn:
         some_incident = an_incident_created_for(conn, _an_alert())
@@ -321,10 +343,10 @@ def _a_reference(kind: str, value: str) -> Reference:
     return Reference(source="some-tool", kind=kind, value=value)
 
 
-def _the_incidents_found_are(expected: list[str]) -> Assertion[list[Incident]]:
+def _the_incidents_found_are(expected: list[str]) -> Assertion[list[IncidentStanding]]:
     """The incidents found, in no order: nothing a caller does with several
     holders depends on which came back first."""
-    def assertion(found: list[Incident]) -> bool:
+    def assertion(found: list[IncidentStanding]) -> bool:
         found_ids = [incident.id for incident in found]
 
         if sorted(found_ids) != sorted(expected):
@@ -339,9 +361,12 @@ def _the_incidents_found_are(expected: list[str]) -> Assertion[list[Incident]]:
 
 
 def _they_are_as_recorded(conn: psycopg.Connection,
-                          expected: list[str]) -> Assertion[list[Incident]]:
-    def assertion(found: list[Incident]) -> bool:
-        recorded = [incidents.get(conn, incident_id) for incident_id in expected]
+                          expected: list[str]) -> Assertion[list[IncidentStanding]]:
+    """Where each incident found stands, as the whole incident read by its id
+    says it does."""
+    def assertion(found: list[IncidentStanding]) -> bool:
+        recorded = [_where_it_stands(incidents.get(conn, incident_id))
+                    for incident_id in expected]
 
         if found != recorded:
             raise AssertionError(f"Expected the incidents found to be {recorded}, got {found}.")
@@ -349,3 +374,11 @@ def _they_are_as_recorded(conn: psycopg.Connection,
         return True
 
     return assertion
+
+
+def _where_it_stands(incident: Incident | None) -> IncidentStanding | None:
+    if incident is None:
+        return None
+
+    return IncidentStanding(id=incident.id, status=incident.status,
+                            created_at=incident.created_at, ended_at=incident.ended_at)

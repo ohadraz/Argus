@@ -59,6 +59,22 @@ def an_incident_created_for(conn: psycopg.Connection, alert: Alert) -> str:
     return incidents.create(conn, alert, at=utc_now())
 
 
+def an_incident_whose_alert_cannot_be_read(conn: psycopg.Connection, alert: Alert) -> str:
+    """An incident for `alert` whose stored alert no reader can bring up - an
+    empty object where the alert was, missing the service and name every
+    alert has - at a shape the reader knows, so it is unreadable rather than
+    newer.
+
+    By hand after the repository wrote it, since the repository writes nothing
+    it cannot read: the row stands in for one an older release, or a step
+    gone wrong, left behind.
+    """
+    incident_id = incidents.create(conn, alert, at=utc_now())
+    conn.execute("UPDATE incident SET alert_payload = '{}' WHERE id = %s", (incident_id,))
+
+    return incident_id
+
+
 class _WhatADocumentHolds(TypedDict, total=False):
     """Every field of a postmortem document, each typed as the model types it.
 

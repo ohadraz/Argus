@@ -24,7 +24,17 @@ depends_on: None = None
 _DDL = """
 CREATE TABLE IF NOT EXISTS incident (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    -- The alert the incident was opened for, as its model dumps it, and the
+    -- shape it was dumped in (core.stored): a reader brings an older one up
+    -- before it reads it, and waits for a newer one rather than guess at it.
+    -- No default, so every writer says which shape it wrote.
     alert_payload JSONB NOT NULL,
+    shape SMALLINT NOT NULL,
+    -- The two things about the alert an incident is looked up by, in columns
+    -- of their own: no statement names a field of a model's dump, which a
+    -- shape changing would leave the statement matching nothing.
+    alert_rule TEXT,
+    alert_service TEXT NOT NULL,
     status TEXT NOT NULL,
     -- The moment of the event that opens the incident's account, and no
     -- default: stamped by the database's own clock, the row and the account
@@ -55,6 +65,9 @@ CREATE TABLE IF NOT EXISTS hypothesis (
     -- it today - this is the database agreeing rather than hoping.
     summary TEXT NOT NULL,
     supporting_evidence JSONB NOT NULL DEFAULT '[]'::jsonb,
+    -- The shape `supporting_evidence` was written in (core.stored). No
+    -- default, so every writer says which shape it wrote.
+    shape SMALLINT NOT NULL,
     tested BOOLEAN NOT NULL DEFAULT false,
     result TEXT,
     confidence FLOAT,
@@ -123,12 +136,21 @@ CREATE TABLE IF NOT EXISTS action (
     -- nothing after, and never into `undo_descriptor` below, which says
     -- something of Argus's is out there. NULL for a kind that plans nothing.
     plan JSONB,
+    -- The shape `plan` was written in (core.stored), written with it - by the
+    -- claim, or by the resumed walk that plans a claim written with none.
+    -- NULL exactly where `plan` is.
+    plan_shape SMALLINT,
     -- When the platform said what `plan` was worked out from, on the
     -- platform's own clock - what a resumed walk asks its record whether
     -- anything landed after. NULL exactly where `plan` is, which the check
     -- below holds.
     since TIMESTAMPTZ,
     undo_descriptor JSONB,
+    -- The shape `undo_descriptor` was written in, written with it. Its own
+    -- rather than `plan_shape`, because the two are written at different
+    -- moments, and during an upgrade by different releases. NULL exactly where
+    -- `undo_descriptor` is.
+    undo_shape SMALLINT,
     outcome TEXT,
     -- How far the action got (`ActionProgress`): `claimed` from the claim on;
     -- `performed` the moment the change is made, before the wait and so
@@ -207,6 +229,12 @@ CREATE TABLE IF NOT EXISTS action (
     -- plan nobody can date cannot be asked whether anything landed after it,
     -- and a moment with no plan dates nothing.
     CONSTRAINT action_plan_is_dated CHECK ((plan IS NULL) = (since IS NULL)),
+    -- A dump with no shape cannot be brought up to date, and a shape with no
+    -- dump describes nothing.
+    CONSTRAINT action_plan_has_a_shape CHECK ((plan IS NULL) = (plan_shape IS NULL)),
+    CONSTRAINT action_undo_has_a_shape CHECK (
+        (undo_descriptor IS NULL) = (undo_shape IS NULL)
+    ),
     -- A change owed back says why, and what puts it back: one with neither is
     -- a row nothing could resume the put-back from.
     CONSTRAINT action_owed_back_says_why CHECK (
@@ -253,6 +281,9 @@ CREATE TABLE IF NOT EXISTS incident_event (
     incident_id UUID NOT NULL REFERENCES incident(id),
     kind TEXT NOT NULL,
     at TIMESTAMPTZ NOT NULL,
+    -- The shape `payload` was written in, as its kind was then (core.stored).
+    -- No default, so every writer says which shape it wrote.
+    shape SMALLINT NOT NULL,
     payload JSONB NOT NULL
 );
 
@@ -296,6 +327,11 @@ CREATE TABLE IF NOT EXISTS replay_log (
 CREATE TABLE IF NOT EXISTS postmortem (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     incident_id UUID NOT NULL REFERENCES incident(id),
+    -- The shape the document's columns were written in (core.stored), all of
+    -- them together: a step from one shape to the next may move a field from
+    -- one column to another. No default, so every writer says which shape it
+    -- wrote.
+    shape SMALLINT NOT NULL,
     root_cause TEXT,
     cause_in_plain_words TEXT,
     symptom TEXT,
@@ -455,6 +491,9 @@ CREATE TABLE IF NOT EXISTS postmortem (
 CREATE TABLE IF NOT EXISTS executive_synopsis (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     incident_id UUID NOT NULL REFERENCES incident(id),
+    -- The shape the synopsis's columns were written in, all of them together,
+    -- as the postmortem's is.
+    shape SMALLINT NOT NULL,
     -- The model's prose with every figure written in. Null where it was given
     -- up, which is the one synopsis that is not sent.
     overview TEXT,
@@ -718,6 +757,19 @@ CREATE TABLE IF NOT EXISTS incident_memory (
     -- The record whole, as `incident_memory.records` spells it: it is read
     -- whole, by the process that embeds it, and nothing queries inside it.
     record JSONB NOT NULL,
+    -- The shape `record` was written in (core.stored). No default, so every
+    -- writer says which shape it wrote. A deliverer takes only the shapes it
+    -- knows, so one written by a newer release waits for a deliverer that
+    -- knows it.
+    shape SMALLINT NOT NULL,
+    -- Which deliverer found it could not bring the record up, at a shape it
+    -- knows; null for every other row, and cleared when the record is filed
+    -- again. A parked record is left out of every pass of the deliverer that
+    -- parked it, rather than stopping each one - and of that one alone: every
+    -- release starts a deliverer of its own, and the one that can read the
+    -- record delivers it. When it was parked is the deliverer's error line.
+    -- Not marked delivered: it was not.
+    parked_by TEXT,
     -- Which filing of the record this is, moved on whenever what was tried
     -- changes - and which of them the store last took. The difference is the
     -- work list, the retry and the backlog, so there is no queue to drain: a

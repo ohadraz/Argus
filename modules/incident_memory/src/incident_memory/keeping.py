@@ -25,9 +25,10 @@ from typing import Final
 from uuid import UUID, uuid5
 
 from core.embedding import Embedder
+from core.stored import REMEMBERED_INCIDENT, SHIPPED
 from core.vector_store import StoredVector, VectorIndex
 
-from incident_memory.recalling import RECORD_FIELD, SERVICE_FIELD
+from incident_memory.recalling import RECORD_FIELD, SERVICE_FIELD, SHAPE_FIELD
 from incident_memory.records import RememberedIncident
 
 # The namespace an incident's id is hashed into to make a point id. A store may
@@ -48,6 +49,9 @@ def remember(index: VectorIndex,
     moment of writing. A record refiled is delivered again, and two copies of
     one incident would count twice in an ordering - a past incident given a
     second vote for having been interrupted.
+
+    Kept in the shape this release writes, whatever shape its row was filed
+    in: the record handed in was brought up to it when the row was read.
     """
     index.ensure(width=len(vector), indexed_field=SERVICE_FIELD)
     index.upsert([
@@ -56,7 +60,8 @@ def remember(index: VectorIndex,
             vector=vector,
             payload={
                 SERVICE_FIELD: record.service,
-                RECORD_FIELD: record.model_dump(mode="json")
+                RECORD_FIELD: record.model_dump(mode="json"),
+                SHAPE_FIELD: SHIPPED.current(REMEMBERED_INCIDENT)
             }
         )
     ])

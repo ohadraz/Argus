@@ -696,13 +696,17 @@ def argus_registered_an_incident_for_the_alert(
         incident_id = incident_id_from(response)
         alert = alert_payload["alerts"][0]
 
+        # The column as it was stored, rather than the model read from it and
+        # dumped again: a key the model drops on the way in is the thing looked
+        # for, and a read through it would never see one.
         with psycopg.connect(DATABASE_URL) as conn:
-            incident = incidents.get(conn, incident_id)
+            row = conn.execute("SELECT alert_payload FROM incident WHERE id = %s",
+                               (incident_id,)).fetchone()
 
-        if incident is None:
+        if row is None:
             raise AssertionError(f"No incident found with id [{incident_id}].")
 
-        alert_in_db = incident.alert_payload
+        alert_in_db = row[0]
         expected_service = alert["labels"]["service"]
         actual_service = alert_in_db["service"]
         expected_alert_name = alert["labels"]["alertname"]

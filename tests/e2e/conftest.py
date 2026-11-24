@@ -14,7 +14,7 @@ import pytest
 from anthropic_double.server import DEFAULT_BASE_URL as ANTHROPIC_DOUBLE_BASE_URL
 from core import get_settings
 from github_double.server import DEFAULT_BASE_URL as GITHUB_DOUBLE_BASE_URL
-from incident_memory.filing import get_undelivered
+from incident_memory.filing import UnreadableRecord, get_undelivered
 from incident_record.repository import incidents
 from incident_record.repository.runs import RunState
 from postgres import connect_from_env
@@ -71,6 +71,11 @@ _SETTLING_POLL_SECONDS = 0.5
 # More records than one case's walks ever file, which is one per incident. Only
 # whether any are waiting is asked, and which ones is what a failure names.
 _AS_MANY_AS_A_CASE_FILES = 100
+
+# Who the teardown reads what waits as: a reader that parks nothing, so a record
+# the stack's deliverer parked is waiting still to it - and a case that left one
+# fails loudly here rather than passing for delivered.
+_A_READER_THAT_PARKS_NOTHING = "the e2e teardown"
 
 # Set by `-- --hold`, which holds each case's world open once the case is done
 # and before it is put back, so what the case left - the database, the page -
@@ -354,8 +359,11 @@ def _every_record_was_delivered() -> None:
 
     while True:
         with connect_from_env() as conn:
-            waiting = [filed.record.incident_id
-                       for filed in get_undelivered(conn, limit=_AS_MANY_AS_A_CASE_FILES)]
+            # One that cannot be read is waiting too, as its incident.
+            waiting = [filed.incident_id if isinstance(filed, UnreadableRecord)
+                       else filed.record.incident_id
+                       for filed in get_undelivered(conn, limit=_AS_MANY_AS_A_CASE_FILES,
+                                                    deliverer=_A_READER_THAT_PARKS_NOTHING)]
 
         if not waiting:
             return

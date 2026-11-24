@@ -1,22 +1,34 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Final
+from typing import Any, Final
 
 import psycopg
 from core.models import Postmortem, PostmortemDocument
+from core.stored import POSTMORTEM, SHIPPED, Shapes, up_to_date
 from psycopg import sql
-from psycopg.rows import class_row
+from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel
 
-# Neither statement below names a column. Both are built from the models' own
-# field names, which is what `class_row` already required of the SELECT and what
-# nothing required of the INSERT - so the two lists, kept by hand, were free to
-# disagree with each other and with the document they carry.
-_DOCUMENT_FIELDS: Final = tuple(PostmortemDocument.model_fields)
-_WRITTEN: Final = ("incident_id", "created_at", *_DOCUMENT_FIELDS)
-_READ: Final = tuple(Postmortem.model_fields)
+# The document's columns, each named for the field it holds, said here rather
+# than read off the model: a list read off the model would follow a field
+# renamed and leave its column - and every row already in it - behind. Held to
+# the model's fields by this module's suite, so a field renamed, added or
+# dropped fails there, where a list nobody checked would leave one unwritten.
+DOCUMENT_COLUMNS: Final = (
+    "root_cause", "cause_in_plain_words", "executive_summary", "symptom",
+    "customer_loss_estimate", "estimate_currency", "engineer_minutes", "responders",
+    "paged", "responder_titles", "minutes_by_title", "tokens_spent", "assumptions",
+    "pull_request", "recommended_action", "disproven_at", "leads", "impact", "detection",
+    "trigger", "no_trigger", "resolution", "causal_chain", "contributing_factors",
+    "hypotheses", "action_items", "lessons", "detection_lesson", "timeline",
+    "changes_read", "log_messages_read", "deployment_changes_read", "code_read",
+    "as_it_ran_read", "uses_outside_read", "cause_measured", "fix_branch_read",
+    "deploys_reading", "flags_reading", "logs_reading", "review"
+)
+_WRITTEN: Final = ("incident_id", "created_at", "shape", *DOCUMENT_COLUMNS)
+_READ: Final = ("id", "incident_id", "created_at", "shape", *DOCUMENT_COLUMNS)
 
 _INSERT: Final = sql.SQL("INSERT INTO postmortem ({}) VALUES ({})").format(
     sql.SQL(", ").join(map(sql.Identifier, _WRITTEN)),
@@ -33,8 +45,7 @@ def _written(document: PostmortemDocument, field: str) -> object:
     The list- and model-valued fields are JSONB columns. psycopg sends a bare
     list as a postgres array, and refuses a pydantic model outright - so both
     are wrapped, and both are decided by the value rather than by a list of
-    field names: a field added to the document arrives as JSON without being
-    enrolled here.
+    field names.
 
     Dumped as JSON rather than as Python, so a model carrying a moment or an
     enum - a lead's `written_at`, its standing - reaches the column as text
@@ -57,15 +68,11 @@ def record(conn: psycopg.Connection,
            document: PostmortemDocument,
            *,
            at: datetime) -> None:
-    """Writes the document the agent produced.
+    """Writes the document the agent produced, in the shape this release
+    writes it in.
 
-    Takes the document rather than a mapping of its fields, and names no columns
-    of its own: a field added to the document is written without this file being
-    touched, and a caller has no dict key to misspell.
-
-    What remains is a field with no column, and that fails on the next write -
-    the INSERT names something postgres does not have. Before, it failed
-    nowhere: the field was simply never persisted.
+    Takes the document rather than a mapping of its fields: a caller has no
+    dict key to misspell.
 
     `at` is the moment of the event that says the document was written, so the
     page's author line and the account's line are one instant on one clock.
@@ -73,17 +80,32 @@ def record(conn: psycopg.Connection,
     with conn.cursor() as cursor:
         cursor.execute(
             _INSERT,
-            (incident_id, at, *(_written(document, field) for field in _DOCUMENT_FIELDS))
+            (incident_id, at, SHIPPED.current(POSTMORTEM),
+             *(_written(document, column) for column in DOCUMENT_COLUMNS))
         )
 
 
-def get_by_incident(conn: psycopg.Connection, incident_id: str) -> Postmortem | None:
-    """Reads back the row, as the row model.
+def get_by_incident(conn: psycopg.Connection,
+                    incident_id: str,
+                    shapes: Shapes = SHIPPED) -> Postmortem | None:
+    """Reads back the row, its document brought up to the shape it is at now.
 
-    Selects the model's fields by name for the same reason `record` writes them:
-    `class_row` matches columns to fields by name anyway, so a hand-written list
-    could only ever be a chance to get one wrong.
+    Every column of the document together, rather than one at a time: a step
+    from one shape to the next may move a field from one column to another.
+    Raises where it cannot be brought up, or was written by a newer release.
     """
-    with conn.cursor(row_factory=class_row(Postmortem)) as cursor:
+    with conn.cursor(row_factory=dict_row) as cursor:
         cursor.execute(_SELECT, (incident_id,))
-        return cursor.fetchone()
+        row = cursor.fetchone()
+
+    return _a_postmortem(row, shapes) if row is not None else None
+
+
+def _a_postmortem(row: dict[str, Any], shapes: Shapes) -> Postmortem:
+    document = up_to_date(POSTMORTEM, row["shape"],
+                          {column: row[column] for column in DOCUMENT_COLUMNS}, shapes)
+
+    return Postmortem.model_validate({
+        "id": row["id"], "incident_id": row["incident_id"], "created_at": row["created_at"],
+        **document
+    })

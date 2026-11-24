@@ -12,12 +12,22 @@ carry.
 
 from __future__ import annotations
 
+from typing import Any
+
 import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, attempting, calling
 from core import Fence, was_lost
 from core.models import Verdict
-from incident_memory.filing import Filed, file, get_undelivered, record_delivered
+from core.stored import REMEMBERED_INCIDENT, Shapes
+from incident_memory.filing import (
+    Filed,
+    UnreadableRecord,
+    file,
+    get_undelivered,
+    park,
+    record_delivered,
+)
 from incident_memory.records import RememberedIncident
 from postgres import connect_from_env, fence
 
@@ -29,9 +39,23 @@ from incident_memory_test.framework.builders import (
 from incident_memory_test.framework.database import (
     a_claim_since_taken_back,
     an_incident_on_record,
+    filed_by_a_newer_release,
+    filed_unreadable,
 )
 
 ENOUGH_ROOM_FOR_THEM_ALL = 10
+
+# The deliverer reading, and one started since - by a later release, which may
+# hold the step a record one of them parked needed.
+SOME_DELIVERER = "a deliverer"
+ANOTHER_DELIVERER = "a deliverer started since"
+
+# What a step from a record's shape to the next one writes, where no release
+# has shipped a step: a description no record here is filed with, so a record
+# carrying it was brought up through the step and not read as it was stored.
+A_DESCRIPTION_A_STEP_WROTE = "written by the step to the next shape"
+
+type _Waiting = list[Filed | UnreadableRecord]
 
 
 @pytest.mark.component
@@ -46,7 +70,8 @@ def test_a_record_filed_waits_to_be_delivered_whole(records: psycopg.Connection)
             calling(lambda: an_incident_on_record(records, SOME_INCIDENT)),
             calling(lambda: file(records, the_record))
         ) \
-        .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL)) \
+        .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL,
+                                      deliverer=SOME_DELIVERER)) \
         .then(_these_wait(the_record, at_version=1))
 
 
@@ -64,7 +89,8 @@ def test_the_same_record_filed_again_is_not_a_new_version(records: psycopg.Conne
             calling(lambda: record_delivered(records, SOME_INCIDENT, version=1)),
             calling(lambda: file(records, the_record))
         ) \
-        .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL)) \
+        .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL,
+                                      deliverer=SOME_DELIVERER)) \
         .then(_nothing_waits())
 
 
@@ -82,7 +108,8 @@ def test_a_record_that_changed_is_a_new_version(records: psycopg.Connection) -> 
             calling(lambda: record_delivered(records, SOME_INCIDENT, version=1)),
             calling(lambda: file(records, what_it_says_now))
         ) \
-        .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL)) \
+        .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL,
+                                      deliverer=SOME_DELIVERER)) \
         .then(_these_wait(what_it_says_now, at_version=2))
 
 
@@ -95,7 +122,8 @@ def test_a_record_delivered_at_its_version_waits_no_longer(records: psycopg.Conn
                                                            Verdict.REFUTED))),
             calling(lambda: record_delivered(records, SOME_INCIDENT, version=1))
         ) \
-        .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL)) \
+        .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL,
+                                      deliverer=SOME_DELIVERER)) \
         .then(_nothing_waits())
 
 
@@ -116,7 +144,8 @@ def test_a_delivery_of_an_older_version_leaves_the_newer_one_waiting(
             calling(lambda: file(records, what_it_says_now)),
             calling(lambda: record_delivered(records, SOME_INCIDENT, version=1))
         ) \
-        .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL)) \
+        .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL,
+                                      deliverer=SOME_DELIVERER)) \
         .then(_these_wait(what_it_says_now, at_version=2))
 
 
@@ -138,7 +167,8 @@ def test_a_late_mark_for_an_older_version_moves_nothing_back(
             calling(lambda: record_delivered(records, SOME_INCIDENT, version=2)),
             calling(lambda: record_delivered(records, SOME_INCIDENT, version=1))
         ) \
-        .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL)) \
+        .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL,
+                                      deliverer=SOME_DELIVERER)) \
         .then(_nothing_waits())
 
 
@@ -160,7 +190,7 @@ def test_the_oldest_filing_is_handed_over_first(records: psycopg.Connection) -> 
             calling(lambda: file(records, a_remembered_incident(filed_first))),
             calling(lambda: file(records, a_remembered_incident(filed_second)))
         ) \
-        .when(lambda: get_undelivered(records, room_for_one)) \
+        .when(lambda: get_undelivered(records, room_for_one, deliverer=SOME_DELIVERER)) \
         .then(_these_wait(a_remembered_incident(filed_first), at_version=1))
 
 
@@ -184,11 +214,148 @@ def test_a_record_a_lost_run_could_not_file_leaves_nothing_to_deliver(
         ))
 
 
+@pytest.mark.component
+def test_a_record_filed_again_in_another_shape_is_a_new_version(
+    records: psycopg.Connection
+) -> None:
+    # Its JSON matches, and the shape it is written in does not: kept as it
+    # was, the row would hold this release's record under a newer release's
+    # shape. Delivered again for it, which costs one embedding.
+    the_record = _a_record_trying("new-checkout-flow", Verdict.REFUTED)
+
+    Scenario() \
+        .given(
+            calling(lambda: an_incident_on_record(records, SOME_INCIDENT)),
+            calling(lambda: file(records, the_record)),
+            calling(lambda: record_delivered(records, SOME_INCIDENT, version=1)),
+            calling(lambda: filed_by_a_newer_release(records, SOME_INCIDENT)),
+            calling(lambda: file(records, the_record))
+        ) \
+        .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL,
+                                      deliverer=SOME_DELIVERER)) \
+        .then(_these_wait(the_record, at_version=2))
+
+
+@pytest.mark.component
+def test_a_record_a_newer_release_filed_waits_for_a_deliverer_that_knows_it(
+    records: psycopg.Connection
+) -> None:
+    # Neither handed over nor parked: read as the shape this release knows, it
+    # would be read wrong, and the deliverer of the release that wrote it will
+    # deliver it.
+    Scenario() \
+        .given(
+            calling(lambda: an_incident_on_record(records, SOME_INCIDENT)),
+            calling(lambda: file(records, a_remembered_incident(SOME_INCIDENT))),
+            calling(lambda: filed_by_a_newer_release(records, SOME_INCIDENT))
+        ) \
+        .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL,
+                                      deliverer=SOME_DELIVERER)) \
+        .then(_nothing_waits())
+
+
+@pytest.mark.component
+def test_a_record_in_an_older_shape_is_brought_up_before_it_is_handed_over(
+    records: psycopg.Connection
+) -> None:
+    # Read with the shapes of a release one step on: the row is at the shape
+    # this release writes, which that release reads as one step behind.
+    the_record = a_remembered_incident(SOME_INCIDENT)
+    one_step_on = Shapes(upcasters={REMEMBERED_INCIDENT: [_a_step_writing_the_description]})
+
+    Scenario() \
+        .given(
+            calling(lambda: an_incident_on_record(records, SOME_INCIDENT)),
+            calling(lambda: file(records, the_record))
+        ) \
+        .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL,
+                                      deliverer=SOME_DELIVERER, shapes=one_step_on)) \
+        .then(_these_wait(
+            the_record.model_copy(update={"described_as": A_DESCRIPTION_A_STEP_WROTE}),
+            at_version=1
+        ))
+
+
+@pytest.mark.component
+def test_a_record_that_cannot_be_read_is_handed_over_as_what_stopped_it(
+    records: psycopg.Connection
+) -> None:
+    # In its place rather than raised: raised, it would fail every pass that
+    # reached it, and every record behind it would wait for good.
+    Scenario() \
+        .given(
+            calling(lambda: an_incident_on_record(records, SOME_INCIDENT)),
+            calling(lambda: file(records, a_remembered_incident(SOME_INCIDENT))),
+            calling(lambda: filed_unreadable(records, SOME_INCIDENT))
+        ) \
+        .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL,
+                                      deliverer=SOME_DELIVERER)) \
+        .then(_it_could_not_be_read(SOME_INCIDENT))
+
+
+@pytest.mark.component
+def test_a_record_this_deliverer_parked_waits_no_longer_for_it(
+    records: psycopg.Connection
+) -> None:
+    Scenario() \
+        .given(
+            calling(lambda: an_incident_on_record(records, SOME_INCIDENT)),
+            calling(lambda: file(records, a_remembered_incident(SOME_INCIDENT))),
+            calling(lambda: park(records, SOME_INCIDENT, SOME_DELIVERER))
+        ) \
+        .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL,
+                                      deliverer=SOME_DELIVERER)) \
+        .then(_nothing_waits())
+
+
+@pytest.mark.component
+def test_a_record_another_deliverer_parked_waits_for_this_one(
+    records: psycopg.Connection
+) -> None:
+    # Every release starts a deliverer of its own, and the one that holds the
+    # step a parked record needed delivers it - with nothing to put the parks
+    # back as it starts.
+    the_record = a_remembered_incident(SOME_INCIDENT)
+
+    Scenario() \
+        .given(
+            calling(lambda: an_incident_on_record(records, SOME_INCIDENT)),
+            calling(lambda: file(records, the_record)),
+            calling(lambda: park(records, SOME_INCIDENT, ANOTHER_DELIVERER))
+        ) \
+        .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL,
+                                      deliverer=SOME_DELIVERER)) \
+        .then(_these_wait(the_record, at_version=1))
+
+
+@pytest.mark.component
+def test_a_parked_record_filed_again_waits_again(records: psycopg.Connection) -> None:
+    # The record parked is not the record there now, so the deliverer that
+    # parked it tries it again.
+    what_it_says_now = _a_record_trying("new-checkout-flow", Verdict.CONFIRMED)
+
+    Scenario() \
+        .given(
+            calling(lambda: an_incident_on_record(records, SOME_INCIDENT)),
+            calling(lambda: file(records, _a_record_trying("new-checkout-flow",
+                                                           Verdict.REFUTED))),
+            calling(lambda: park(records, SOME_INCIDENT, SOME_DELIVERER)),
+            calling(lambda: file(records, what_it_says_now))
+        ) \
+        .when(lambda: get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL,
+                                      deliverer=SOME_DELIVERER)) \
+        .then(_these_wait(what_it_says_now, at_version=2))
+
+
 def _a_record_trying(subject: str, verdict: Verdict) -> RememberedIncident:
     return a_remembered_incident(SOME_INCIDENT, tried=[(an_identity(subject), verdict)])
 
 
-def _these_wait(record: RememberedIncident, at_version: int) -> Assertion[list[Filed]]:
+def _a_step_writing_the_description(raw: dict[str, Any]) -> dict[str, Any]:
+    return {**raw, "described_as": A_DESCRIPTION_A_STEP_WROTE}
+
+
+def _these_wait(record: RememberedIncident, at_version: int) -> Assertion[_Waiting]:
     return all_of(
         _this_many_wait(1),
         _the_record_waiting_is(record),
@@ -196,12 +363,22 @@ def _these_wait(record: RememberedIncident, at_version: int) -> Assertion[list[F
     )
 
 
-def _this_many_wait(expected: int) -> Assertion[list[Filed]]:
-    def assertion(waiting: list[Filed]) -> bool:
-        if len(waiting) != expected:
+def _the_filed(waiting: _Waiting) -> list[Filed]:
+    unreadable = [one for one in waiting if isinstance(one, UnreadableRecord)]
+    if unreadable:
+        raise AssertionError(f"Expected every record waiting to be read, these were not: "
+                             f"{unreadable}.")
+
+    return [one for one in waiting if isinstance(one, Filed)]
+
+
+def _this_many_wait(expected: int) -> Assertion[_Waiting]:
+    def assertion(waiting: _Waiting) -> bool:
+        filed = _the_filed(waiting)
+        if len(filed) != expected:
             raise AssertionError(
                 f"Expected [{expected}] record(s) waiting to be delivered, got "
-                f"{[one.record.incident_id for one in waiting]}."
+                f"{[one.record.incident_id for one in filed]}."
             )
 
         return True
@@ -209,11 +386,12 @@ def _this_many_wait(expected: int) -> Assertion[list[Filed]]:
     return assertion
 
 
-def _the_record_waiting_is(record: RememberedIncident) -> Assertion[list[Filed]]:
-    def assertion(waiting: list[Filed]) -> bool:
-        if not waiting or waiting[0].record != record:
+def _the_record_waiting_is(record: RememberedIncident) -> Assertion[_Waiting]:
+    def assertion(waiting: _Waiting) -> bool:
+        filed = _the_filed(waiting)
+        if not filed or filed[0].record != record:
             raise AssertionError(
-                f"Expected [{record}] waiting, got {[one.record for one in waiting]}."
+                f"Expected [{record}] waiting, got {[one.record for one in filed]}."
             )
 
         return True
@@ -221,12 +399,28 @@ def _the_record_waiting_is(record: RememberedIncident) -> Assertion[list[Filed]]
     return assertion
 
 
-def _the_version_waiting_is(version: int) -> Assertion[list[Filed]]:
-    def assertion(waiting: list[Filed]) -> bool:
-        if not waiting or waiting[0].version != version:
+def _it_could_not_be_read(incident_id: str) -> Assertion[_Waiting]:
+    def assertion(waiting: _Waiting) -> bool:
+        held = [one.incident_id if isinstance(one, UnreadableRecord) else one
+                for one in waiting]
+        if held != [incident_id]:
+            raise AssertionError(
+                f"Expected only [{incident_id}]'s record, as one that cannot be read, got "
+                f"{held}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_version_waiting_is(version: int) -> Assertion[_Waiting]:
+    def assertion(waiting: _Waiting) -> bool:
+        filed = _the_filed(waiting)
+        if not filed or filed[0].version != version:
             raise AssertionError(
                 f"Expected version [{version}] waiting, got "
-                f"{[one.version for one in waiting]}."
+                f"{[one.version for one in filed]}."
             )
 
         return True
@@ -238,18 +432,17 @@ def _nothing_is_waiting_in(records: psycopg.Connection) -> Assertion[object]:
     """Nothing waiting, read from the database rather than from what the case
     returned - which, for a filing refused, is the refusal."""
     def assertion(dont_care_result: object) -> bool:
-        return _nothing_waits()(get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL))
+        return _nothing_waits()(
+            get_undelivered(records, ENOUGH_ROOM_FOR_THEM_ALL, deliverer=SOME_DELIVERER)
+        )
 
     return assertion
 
 
-def _nothing_waits() -> Assertion[list[Filed]]:
-    def assertion(waiting: list[Filed]) -> bool:
+def _nothing_waits() -> Assertion[_Waiting]:
+    def assertion(waiting: _Waiting) -> bool:
         if waiting:
-            raise AssertionError(
-                f"Expected nothing waiting to be delivered, got "
-                f"{[(one.record.incident_id, one.version) for one in waiting]}."
-            )
+            raise AssertionError(f"Expected nothing waiting to be delivered, got {waiting}.")
 
         return True
 

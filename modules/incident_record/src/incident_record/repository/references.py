@@ -18,7 +18,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 import psycopg
-from core.models import Incident, RecordedReference, Reference
+from core.models import IncidentStanding, RecordedReference, Reference
 from psycopg.rows import class_row
 
 _GIVE_A_NAME = (
@@ -100,7 +100,7 @@ def get_first_by_kind(conn: psycopg.Connection,
 
 def get_incidents_by_values(conn: psycopg.Connection,
                             kind: str,
-                            values: Iterable[str]) -> list[Incident]:
+                            values: Iterable[str]) -> list[IncidentStanding]:
     """Every incident holding any of these names of this kind, in no order.
 
     Several values because a tool hands back every name its own incident
@@ -115,12 +115,16 @@ def get_incidents_by_values(conn: psycopg.Connection,
     Every holder rather than one, because some kinds have several: every
     firing of an alert group pages under the group's one key. Which of them a
     tool meant is the caller's to decide - from when each was going on, which
-    is why each comes back whole - and a lookup that picked one would decide
-    it by whichever row the database happened to read first.
+    is why each comes back with its life - and a lookup that picked one would
+    decide it by whichever row the database happened to read first.
+
+    Where each stands, not each whole: nothing the caller decides by is in the
+    stored alert, and an incident whose alert cannot be read is still the one
+    a person's word about it reaches.
     """
-    with conn.cursor(row_factory=class_row(Incident)) as cursor:
+    with conn.cursor(row_factory=class_row(IncidentStanding)) as cursor:
         cursor.execute(
-            "SELECT id, alert_payload, status, created_at, ended_at, trace_context "
+            "SELECT id, status, created_at, ended_at "
             "  FROM incident "
             " WHERE id IN (SELECT incident_id FROM incident_reference "
             "               WHERE kind = %s AND value = ANY(%s))",

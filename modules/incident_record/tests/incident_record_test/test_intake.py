@@ -814,7 +814,7 @@ def _incidents_were_opened_for(service: str, count: int) -> Assertion[object]:
             opened = [
                 incident
                 for incident in incidents.get_recent(conn)
-                if incident.alert_payload.get("service") == service
+                if incident.alert.service == service
             ]
 
         if len(opened) != count:

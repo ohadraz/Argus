@@ -20,9 +20,10 @@ import pytest
 from argus_testkit import Assertion, Scenario, all_of, calling
 from core.embedding import Embedder
 from core.models import REVERT_FEATURE_FLAG, ActionIdentity, Verdict, WhatWasTried
-from core.vector_store import VectorSearch
+from core.stored import REMEMBERED_INCIDENT, SHIPPED
+from core.vector_store import Equals, Held, VectorIndex, VectorSearch
 from incident_memory.keeping import kept_in
-from incident_memory.recalling import SERVICE_FIELD, Recaller, recalling_from
+from incident_memory.recalling import SERVICE_FIELD, SHAPE_FIELD, Recaller, recalling_from
 from incident_memory.records import RememberedIncident
 from qdrant_client import QdrantClient
 from qdrant_client.models import CollectionInfo, PayloadSchemaType
@@ -126,6 +127,20 @@ def test_one_incident_kept_twice_is_one_record(store: QdrantIndex) -> None:
 
 
 @pytest.mark.integration
+def test_a_record_is_kept_in_the_shape_this_release_writes(store: QdrantIndex) -> None:
+    # What a later release reads it as: kept without one, it would be read as
+    # the first shape whatever shape it is in.
+    Scenario() \
+        .given(
+            calling(lambda: kept_in(store, _an_embedder())(
+                _an_incident(DONT_CARE_INCIDENT, WHAT_HAPPENED_HERE)
+            ))
+        ) \
+        .when(lambda: _every_point_of(store)) \
+        .then(_each_was_kept_in_shape(SHIPPED.current(REMEMBERED_INCIDENT)))
+
+
+@pytest.mark.integration
 def test_the_field_every_search_narrows_by_is_indexed(store: QdrantIndex,
                                                       client: QdrantClient) -> None:
     # Every search here narrows to one service before anything is compared, and
@@ -146,6 +161,23 @@ def test_the_field_every_search_narrows_by_is_indexed(store: QdrantIndex,
         ) \
         .when(lambda: client.get_collection(THE_STORES_COLLECTION)) \
         .then(_the_payload_field_indexed_is(SERVICE_FIELD))
+
+
+def _every_point_of(store: VectorIndex) -> list[Held]:
+    return store.held([Equals(field=SERVICE_FIELD, value=SOME_SERVICE)], with_payload=True)
+
+
+def _each_was_kept_in_shape(expected: int) -> Assertion[list[Held]]:
+    def assertion(points: list[Held]) -> bool:
+        shapes = [point.payload.get(SHAPE_FIELD) for point in points]
+        if not points or any(shape != expected for shape in shapes):
+            raise AssertionError(
+                f"Expected every point kept in shape [{expected}], got {shapes}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _an_embedder() -> Embedder:

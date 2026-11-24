@@ -309,6 +309,11 @@ ignore_imports = [
     # by it, the read server the store it searches, and the corpora the store
     # they write - and the vendor behind it is `vector_store_qdrant`'s alone.
     "** -> core.vector_store",
+    # How a stored row is brought up to the shape it is read in, and what one
+    # that cannot be read is said to be. A door for everyone: every package
+    # that stores a model's dump - the incident record and the memory alike -
+    # reads it back through this.
+    "** -> core.stored",
     # The model's port, and a door for everyone, like the vector store's: the
     # client interface, the provider port, the factory and the conversations
     # import no third party, so naming them installs nothing.

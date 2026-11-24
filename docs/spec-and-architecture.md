@@ -495,6 +495,9 @@ erDiagram
     INCIDENT {
         uuid id PK
         jsonb alert_payload
+        smallint shape
+        text alert_rule
+        text alert_service
         timestamp created_at
         timestamp ended_at
         enum status
@@ -505,7 +508,8 @@ erDiagram
         uuid incident_id FK
         text failure_mode
         text summary
-        text supporting_evidence
+        jsonb supporting_evidence
+        smallint shape
         text subject
         int rank
         int number
@@ -522,7 +526,10 @@ erDiagram
         text target
         bool has_a_way_back
         enum tier
+        jsonb plan
+        smallint plan_shape
         jsonb undo_descriptor
+        smallint undo_shape
         enum outcome
         timestamp taken_at
         text approved_by
@@ -543,6 +550,7 @@ erDiagram
         uuid incident_id FK
         text kind
         timestamp at
+        smallint shape
         jsonb payload
     }
     INCIDENT_REFERENCE {
@@ -575,6 +583,7 @@ erDiagram
     POSTMORTEM {
         uuid id PK
         uuid incident_id FK
+        smallint shape
         text root_cause
         numeric customer_loss_estimate
         text estimate_currency
@@ -604,6 +613,7 @@ erDiagram
     EXECUTIVE_SYNOPSIS {
         uuid id PK
         uuid incident_id FK
+        smallint shape
         text overview
         text withheld_because
         jsonb cost_by_title
@@ -641,11 +651,15 @@ erDiagram
     INCIDENT_MEMORY {
         uuid incident_id PK
         jsonb record
+        smallint shape
+        text parked_by
         bigint version
         bigint delivered_version
         timestamp filed_at
     }
 ```
+
+**Every model's dump is stored with the shape it was written in, and read through one mapping in its repository.** `shape` beside the alert, the event's payload, a candidate's evidence, the postmortem's and the synopsis's columns and a remembered incident; `plan_shape` and `undo_shape` beside an action's two descriptors, since they are written at different moments and, during an upgrade, by different releases. A shape is a number beside the dump rather than an envelope around it, so a dump keeps the keys anything reading it by key reads. A repository brings an older row up to the shape its models have now, one step at a time, before it validates anything (`core.stored`). A row at a shape the reader does not know was written by a newer release and is not guessed at, and the readers that page through rows tell it from a row nobody can read: the relay (§7.5) waits at a newer event - an event of a kind it does not publish is one - and passes over one nobody can read, with an error either way; memory's deliverer leaves a newer record for a deliverer that knows it, and parks one it cannot read for itself alone - a deliverer started since, by the release that may hold the step it needed, tries it again; recall and the history list pass over both with a warning. A read of one incident's own account - its row, its events, its candidates, its actions, its write-up - raises, since an account read in part would be told wrong. No statement names a field of a model's dump: what an incident is looked up by has columns of its own (`alert_rule`, `alert_service`), and the lookups that decide only by where an incident stands parse no alert, so one incident whose alert cannot be read stops no later delivery from finding the incident it is about. The postmortem's and the synopsis's columns are listed by their repositories rather than read off the models, so a field renamed fails loudly instead of leaving its column, and the rows in it, behind.
 
 Separate tables rather than one JSON blob per incident, because the eval metrics (§21) - wasted actions per incident, escalation precision/recall, root-cause accuracy - are counts, joins, and group-bys over structured fields (`tested`, `result`, `confidence`, `tier`). A relational schema already has that structure; free text or a blob would mean re-deriving it at query time.
 
@@ -669,7 +683,7 @@ An `ACTION` row is written *before* its action is taken, and one incident has at
 
 `REPOSITORY_INDEX` belongs to no incident either, and belongs to the index rather than to the record: it is the watermark saying which commit the stored passages describe and which commit the repository is at (§11.5). It is in Postgres because "is what I searched what is running" is an exact comparison rather than a nearness, which is the one question a vector store answers badly. It is also the only part of the index that is not derived - the passages can be rebuilt from the repository at any time, and this row is what says where they would be rebuilt to.
 
-`INCIDENT_MEMORY` is what each finished incident tried, filed for long-term memory (§11.2) - the walk's one write to it. A row rather than a write to the vector store, because the fence (§7.1) holds only here: a walk whose run was taken back files nothing over the record of the walk that holds it now, where the store would take its write from anybody. The store is filled from these rows and is a view of them. `version` moves on whenever what was tried changes and `delivered_version` says which the store last took, so the difference between them is the work list, the retry and the backlog - a deliverer that was down, or memory switched on late, finds every record the store does not hold still waiting.
+`INCIDENT_MEMORY` is what each finished incident tried, filed for long-term memory (§11.2) - the walk's one write to it. A row rather than a write to the vector store, because the fence (§7.1) holds only here: a walk whose run was taken back files nothing over the record of the walk that holds it now, where the store would take its write from anybody. The store is filled from these rows and is a view of them. `version` moves on whenever what was tried changes - or the shape it is written in - and `delivered_version` says which the store last took, so the difference between them is the work list, the retry and the backlog - a deliverer that was down, or memory switched on late, finds every record the store does not hold still waiting.
 
 `REPLAY_LOG` serves a different purpose again: it's Argus's own eval infrastructure (Design Principle 6, §4), not incident-domain state, written at a different granularity - one row per LLM completion or MCP call. It's written inside the Orchestrator's process, from whichever agent node makes the call, via a shared instrumented client in `core` - never by the MCP servers themselves, keeping them as pure as §13's MCP-server-boundary guardrail requires.
 

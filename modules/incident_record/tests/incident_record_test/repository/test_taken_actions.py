@@ -39,6 +39,7 @@ from core.models import (
     UnreadVerdict,
     Verdict,
 )
+from core.stored import UNDO_DESCRIPTOR, Shapes
 from incident_record.repository import hypotheses, incidents, taken_actions
 from incident_record.repository.taken_actions import NoLongerOpen
 from postgres import connect_from_env
@@ -77,6 +78,11 @@ SOME_MOMENT_IT_WAS_ANNOUNCED = SOME_MOMENT_ARGUS_WROTE + timedelta(seconds=1)
 SOME_FINDING = "the rule that fired was still firing when the time it allows ran out"
 # The action's column a run's settle or a resolution sets, and nothing else.
 SET_BY_A_SETTLE_OR_A_RESOLUTION = "open_until"
+
+# What a step from one shape to the next writes, where no release has shipped a
+# step: a value nothing here is written with, so a row carrying it was brought
+# up through the step and not read as it was stored.
+AN_ENTRY_A_STEP_WROTE = 41
 
 
 @pytest.mark.integration
@@ -222,12 +228,15 @@ def test_a_claim_keeps_the_plan_it_was_handed_and_when_its_state_was_read() -> N
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("column", ["plan", "since"])
-def test_the_table_refuses_half_a_plan(column: str) -> None:
+@pytest.mark.parametrize("columns", [("plan", "plan_shape"), ("since",)],
+                         ids=["plan", "since"])
+def test_the_table_refuses_half_a_plan(columns: tuple[str, ...]) -> None:
     # A plan and the moment its state was read are one fact in two columns,
     # and the table holds them to it rather than every writer: a plan nobody
     # can date cannot be asked whether anything landed after it, and a moment
-    # with no plan dates nothing. Either half emptied alone is refused.
+    # with no plan dates nothing. Either half emptied alone is refused. The
+    # plan goes with its shape, so the refusal is this rule's and not the one
+    # that holds a plan to the shape it was written in.
     dont_care_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
@@ -248,7 +257,7 @@ def test_the_table_refuses_half_a_plan(column: str) -> None:
                 )
             ) \
             .when(attempting(
-                lambda: _emptying(conn, incident_id, column)
+                lambda: _emptying(conn, incident_id, *columns)
             )) \
             .then(
                 an_error_was_raised(psycopg.errors.CheckViolation)
@@ -1332,6 +1341,63 @@ def test_a_claim_rolled_back_by_its_caller_leaves_the_candidate_unclaimed() -> N
             )
 
 
+@pytest.mark.integration
+def test_a_change_written_in_an_older_shape_is_brought_up_before_it_is_read() -> None:
+    # Both of its descriptors, each from the shape it was written in: the plan
+    # at the claim, the change made when it was made. Read with the shapes of
+    # a release one step on, which reads this release's as one step behind.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+    one_step_on = Shapes(upcasters={UNDO_DESCRIPTOR: [_a_step_writing_the_entry]})
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        incident_id = an_incident_created_for(conn, some_alert)
+        hypothesis_id = a_hypothesis_recorded_for(incident_id)
+
+        Scenario() \
+            .given(
+                calling(lambda: _a_change_made(conn, incident_id, hypothesis_id))
+            ) \
+            .when(
+                lambda: taken_actions.get_action_for_hypothesis(conn, incident_id,
+                                                                hypothesis_id, one_step_on)
+            ) \
+            .then(
+                _both_descriptors_read_back_as(
+                    Planned(descriptor=_at_the_step_s_entry(SOME_ROLLBACK_PLAN),
+                            since=SOME_MOMENT_ITS_STATE_WAS_READ),
+                    _at_the_step_s_entry(THE_ROLLBACK_AS_MADE)
+                )
+            )
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("columns", [("plan_shape",), ("undo_shape",)],
+                         ids=["plan", "undo"])
+def test_the_table_refuses_a_descriptor_without_the_shape_it_was_written_in(
+    columns: tuple[str, ...]
+) -> None:
+    # A descriptor with no shape cannot be brought up to date, so a later
+    # release could not read the put-back it says.
+    some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+        incident_id = an_incident_created_for(conn, some_alert)
+        hypothesis_id = a_hypothesis_recorded_for(incident_id)
+
+        Scenario() \
+            .given(
+                calling(lambda: _a_change_made(conn, incident_id, hypothesis_id))
+            ) \
+            .when(attempting(
+                lambda: _emptying(conn, incident_id, *columns)
+            )) \
+            .then(
+                an_error_was_raised(psycopg.errors.CheckViolation)
+            )
+
+
 def _a_hypothesis_recorded_for(conn: psycopg.Connection,
                                incident_id: str,
                                subject: str | None = None,
@@ -1558,14 +1624,15 @@ def _the_undo_read_back_is(conn: psycopg.Connection,
     return assertion
 
 
-def _emptying(conn: psycopg.Connection, incident_id: str, column: str) -> None:
-    """Empties one column of the incident's actions, as no writer of this
-    module ever would - inside a savepoint, so the refusal leaves the
+def _emptying(conn: psycopg.Connection, incident_id: str, *columns: str) -> None:
+    """Empties these columns of the incident's actions, together, as no writer
+    of this module ever would - inside a savepoint, so the refusal leaves the
     connection usable."""
     with conn.transaction():
         conn.execute(
-            sql.SQL("UPDATE action SET {} = NULL WHERE incident_id = %s").format(
-                sql.Identifier(column)
+            sql.SQL("UPDATE action SET {} WHERE incident_id = %s").format(
+                sql.SQL(", ").join(sql.SQL("{} = NULL").format(sql.Identifier(column))
+                                   for column in columns)
             ),
             (incident_id,)
         )
@@ -2155,12 +2222,15 @@ def test_settling_an_incidents_claims_leaves_an_action_owing_its_put_back_where_
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("column", ["put_back_because", "undo_descriptor"])
+@pytest.mark.parametrize("columns", [("put_back_because",), ("undo_descriptor", "undo_shape")],
+                         ids=["why", "what-puts-it-back"])
 def test_the_table_refuses_an_action_owing_its_put_back_without_why_or_what_puts_it_back(
-        column: str) -> None:
+        columns: tuple[str, ...]) -> None:
     # A change is owed back only once the watch refuted it, which it says why,
     # and only where there is something to put back: a row at that step
-    # missing either is not one any writer here made.
+    # missing either is not one any writer here made. What puts it back goes
+    # with its shape, so the refusal is this rule's and not the one that holds
+    # a descriptor to the shape it was written in.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
 
     with connect_from_env() as conn:
@@ -2173,7 +2243,7 @@ def test_the_table_refuses_an_action_owing_its_put_back_without_why_or_what_puts
                 calling(lambda: _a_change_owing_its_put_back(conn, incident_id, hypothesis_id))
             ) \
             .when(attempting(
-                lambda: _emptying(conn, incident_id, column)
+                lambda: _emptying(conn, incident_id, *columns)
             )) \
             .then(
                 an_error_was_raised(psycopg.errors.CheckViolation)
@@ -2812,6 +2882,31 @@ def _another_incident_s_claim_on(conn: psycopg.Connection,
                       else f"refused, naming [{is_refused_for}]")
             raise AssertionError(
                 f"Expected a later claim on [{subject}] {wanted}, got [{answered}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_step_writing_the_entry(raw: dict[str, Any]) -> dict[str, Any]:
+    return {**raw, "was_on_history_id": AN_ENTRY_A_STEP_WROTE}
+
+
+def _at_the_step_s_entry(descriptor: DeploymentRollbackUndo) -> DeploymentRollbackUndo:
+    return descriptor.model_copy(update={"was_on_history_id": AN_ENTRY_A_STEP_WROTE})
+
+
+def _both_descriptors_read_back_as(planned: Planned[Any],
+                                   made: UndoDescriptor) -> Assertion[TakenAction | None]:
+    def assertion(action: TakenAction | None) -> bool:
+        if action is None:
+            raise AssertionError("Expected the candidate's action read back, got none.")
+
+        if (action.planned, action.undo_descriptor) != (planned, made):
+            raise AssertionError(
+                f"Expected the action read back planning [{planned!r}] and having made "
+                f"[{made!r}], got [{action.planned!r}] and [{action.undo_descriptor!r}]."
             )
 
         return True

@@ -1,10 +1,20 @@
 from __future__ import annotations
 
 import json
+from typing import Any, Final
 
 import psycopg
 from core.models import Hypothesis
-from psycopg.rows import class_row
+from core.stored import EVIDENCE, SHIPPED, Shapes, up_to_date
+from psycopg.rows import dict_row
+
+# What a candidate is read from: every field of it, and the shape its evidence
+# was written in.
+_COLUMNS: Final = (
+    "id, incident_id, summary, failure_mode, confidence, "
+    "supporting_evidence, shape, subject, from_state, to_state, "
+    "faulting_service, rank, number, tested, result"
+)
 
 
 def record(conn: psycopg.Connection, hypothesis: Hypothesis) -> None:
@@ -13,15 +23,16 @@ def record(conn: psycopg.Connection, hypothesis: Hypothesis) -> None:
     Takes the domain object whole rather than its fields one by one - the row
     *is* the hypothesis, so there is nothing to translate beyond the shape
     Postgres wants. The id comes from the object, not from the table's
-    default: it was assigned when the hypothesis was formed.
+    default: it was assigned when the hypothesis was formed. The evidence is
+    written in the shape this release writes it in.
     """
     with conn.cursor() as cursor:
         cursor.execute(
             "INSERT INTO hypothesis "
             "       (id, incident_id, summary, failure_mode, confidence, "
-            "        supporting_evidence, subject, from_state, to_state, "
+            "        supporting_evidence, shape, subject, from_state, to_state, "
             "        faulting_service, rank, number, tested, result) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (
                 hypothesis.id,
                 hypothesis.incident_id,
@@ -35,6 +46,7 @@ def record(conn: psycopg.Connection, hypothesis: Hypothesis) -> None:
                     cited.model_dump(mode="json")
                     for cited in hypothesis.supporting_evidence
                 ]),
+                SHIPPED.current(EVIDENCE),
                 hypothesis.subject,
                 hypothesis.from_state,
                 hypothesis.to_state,
@@ -71,7 +83,9 @@ def record_outcome(
         )
 
 
-def get_all_by_incident(conn: psycopg.Connection, incident_id: str) -> list[Hypothesis]:
+def get_all_by_incident(conn: psycopg.Connection,
+                        incident_id: str,
+                        shapes: Shapes = SHIPPED) -> list[Hypothesis]:
     """Every candidate an incident formed, in the order it formed them.
 
     `get_latest_by_incident` answers with one row, which is the shape that hides
@@ -86,21 +100,26 @@ def get_all_by_incident(conn: psycopg.Connection, incident_id: str) -> list[Hypo
     when each row was written either: a round's rows are written in the order
     memory left them, which is not the order they were formed and numbered in.
     `created_at` breaks a tie, between rows that never said their number.
+
+    Each brought up to the shape its evidence is at now, and raising where one
+    cannot be: an incident's candidates read in part would be told wrong.
     """
-    with conn.cursor(row_factory=class_row(Hypothesis)) as cursor:
+    with conn.cursor(row_factory=dict_row) as cursor:
         cursor.execute(
-            "SELECT id, incident_id, summary, failure_mode, confidence, "
-            "       supporting_evidence, subject, from_state, to_state, "
-            "       faulting_service, rank, number, tested, result "
+            f"SELECT {_COLUMNS} "
             "  FROM hypothesis "
             " WHERE incident_id = %s "
             "ORDER BY number, created_at",
             (incident_id,),
         )
-        return cursor.fetchall()
+        rows = cursor.fetchall()
+
+    return [_a_hypothesis(row, shapes) for row in rows]
 
 
-def get_latest_by_incident(conn: psycopg.Connection, incident_id: str) -> Hypothesis | None:
+def get_latest_by_incident(conn: psycopg.Connection,
+                           incident_id: str,
+                           shapes: Shapes = SHIPPED) -> Hypothesis | None:
     """The best answer of the most recent investigation of an incident.
 
     Rank first, then recency - not recency alone. A round's candidates are
@@ -119,15 +138,24 @@ def get_latest_by_incident(conn: psycopg.Connection, incident_id: str) -> Hypoth
     `created_at` orders the rows but is not selected: it is an audit fact the
     table records, and nothing in the domain reads it.
     """
-    with conn.cursor(row_factory=class_row(Hypothesis)) as cursor:
+    with conn.cursor(row_factory=dict_row) as cursor:
         cursor.execute(
-            "SELECT id, incident_id, summary, failure_mode, confidence, "
-            "       supporting_evidence, subject, from_state, to_state, "
-            "       faulting_service, rank, number, tested, result "
+            f"SELECT {_COLUMNS} "
             "  FROM hypothesis "
             " WHERE incident_id = %s "
             "ORDER BY rank, created_at DESC "
             " LIMIT 1",
             (incident_id,),
         )
-        return cursor.fetchone()
+        row = cursor.fetchone()
+
+    return _a_hypothesis(row, shapes) if row is not None else None
+
+
+def _a_hypothesis(row: dict[str, Any], shapes: Shapes) -> Hypothesis:
+    """The candidate a row of `_COLUMNS` holds, its evidence brought up to
+    date before it is read."""
+    shape = row.pop("shape")
+    evidence = up_to_date(EVIDENCE, shape, row["supporting_evidence"], shapes)
+
+    return Hypothesis.model_validate({**row, "supporting_evidence": evidence})

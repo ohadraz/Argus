@@ -89,7 +89,7 @@ from core.models.fix import (
 )
 from core.models.flag_change import FlagChange, FlagHistory
 from core.models.hypothesis import Hypothesis
-from core.models.incident import Incident
+from core.models.incident import Incident, IncidentStanding
 from core.models.incident_status import IncidentStatus
 from core.models.lifespan import Lifespan
 from core.models.meaning import Meaning
@@ -301,6 +301,7 @@ __all__ = [
     "Hypothesis",
     "HowTheMinuteIsKnown",
     "Incident",
+    "IncidentStanding",
     "IncidentStatus",
     "Leads",
     "Leaves",

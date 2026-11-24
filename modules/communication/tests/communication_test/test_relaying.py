@@ -19,6 +19,7 @@ line that landed - or past one nobody was ever going to be told about.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 
 import pytest
 from argus_testkit import (
@@ -34,8 +35,11 @@ from core import new_id
 from core.events import (
     IncidentEvent,
     RetrievalRequested,
+    UnreadableEvent,
 )
 from core.models import RetrievalChannel
+from core.stored import Unreadable
+from core.telemetry import ARGUS_INCIDENT_ID
 from incident_record.repository import events
 from narration import a_narration_line
 
@@ -49,6 +53,12 @@ from communication_test.framework.builders import (
 )
 
 AN_INCIDENT = new_id()
+# What stopped a row being read, as the log hands it over.
+SOME_REASON = "some reason the row cannot be read"
+A_ROW_NOBODY_CAN_READ = Unreadable(why=SOME_REASON, newer=False)
+A_ROW_A_NEWER_RELEASE_WROTE = Unreadable(why=SOME_REASON, newer=True)
+# Where the row each of those stands in for sits: second in the log.
+ITS_PLACE = 2
 
 
 @pytest.mark.unit
@@ -281,22 +291,84 @@ def test_a_relay_held_where_it_is_is_logged_as_a_warning(
         )
 
 
+@pytest.mark.unit
+def test_an_event_nobody_can_read_is_passed_over_and_the_lines_behind_it_said(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # No pass will read it, so waiting for it would silence every line behind
+    # it for good. Said as an error, because a line is lost.
+    a_destination = a_destination_that_takes_everything()
+    onset, action, ending = three_steps_of(AN_INCIDENT)
+    the_whole_log = 4
+
+    Scenario() \
+        .given(
+            the_log := _a_log_holding([onset, A_ROW_NOBODY_CAN_READ, action, ending]),
+            the_place := _a_place_at(0)
+        ) \
+        .when(lambda: relay_once(the_log, the_place, a_destination)) \
+        .then(all_of(
+            it_said(3),
+            the_lines_said_were(a_destination, ["onset-detected",
+                                                "action-taken",
+                                                "status-changed"]),
+            _the_place_is_now(the_place, the_whole_log),
+            one_record_was_logged(caplog, "communication.relaying", logging.ERROR,
+                                  "relay passed over an event it cannot read",
+                                  {ARGUS_INCIDENT_ID: AN_INCIDENT, "seq": ITS_PLACE,
+                                   "why": SOME_REASON})
+        ))
+
+
+@pytest.mark.unit
+def test_an_event_a_newer_release_wrote_stops_the_batch_where_it_is(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # The release that knows it will say it, so nothing is lost by waiting -
+    # and the lines behind it wait too, as they do behind a line not said now,
+    # rather than tell the story with its middle missing.
+    a_destination = a_destination_that_takes_everything()
+    onset, action, ending = three_steps_of(AN_INCIDENT)
+
+    Scenario() \
+        .given(
+            the_log := _a_log_holding([onset, A_ROW_A_NEWER_RELEASE_WROTE, action, ending]),
+            the_place := _a_place_at(0)
+        ) \
+        .when(lambda: relay_once(the_log, the_place, a_destination)) \
+        .then(all_of(
+            it_said(1),
+            the_lines_said_were(a_destination, ["onset-detected"]),
+            _the_place_is_now(the_place, ITS_PLACE - 1),
+            one_record_was_logged(caplog, "communication.relaying", logging.ERROR,
+                                  "relay waiting: an event was written by a newer release",
+                                  {ARGUS_INCIDENT_ID: AN_INCIDENT, "seq": ITS_PLACE,
+                                   "why": SOME_REASON})
+        ))
+
+
 class _ALog:
     """The log, holding what was published and handing back what follows.
 
     The same arithmetic the repository does - everything after a place, oldest
     first, capped - so that a test can put the relay anywhere in a log without
-    a database to put events into.
+    a database to put events into. A row that could not be read sits in its
+    place as what stopped it, as the repository hands it over - every such row
+    here being `AN_INCIDENT`'s.
     """
 
-    def __init__(self, published: list[IncidentEvent]) -> None:
+    def __init__(self, published: Sequence[IncidentEvent | Unreadable]) -> None:
         self._recorded = [
-            events.RecordedEvent(seq=place, event=event)
-            for place, event in enumerate(published, start=1)
+            UnreadableEvent(seq=place, incident_id=AN_INCIDENT, unreadable=entry)
+            if isinstance(entry, Unreadable)
+            else events.RecordedEvent(seq=place, event=entry)
+            for place, entry in enumerate(published, start=1)
         ]
         self.asked_for: int | None = None
 
-    def __call__(self, since: int, batch: int, /) -> list[events.RecordedEvent]:
+    def __call__(self,
+                 since: int,
+                 batch: int, /) -> list[events.RecordedEvent | UnreadableEvent]:
         self.asked_for = batch
         following = [entry for entry in self._recorded if entry.seq > since]
 
@@ -316,7 +388,7 @@ class _APlace:
         self._at = seq
 
 
-def _a_log_holding(published: list[IncidentEvent]) -> _ALog:
+def _a_log_holding(published: Sequence[IncidentEvent | Unreadable]) -> _ALog:
     return _ALog(published)
 
 

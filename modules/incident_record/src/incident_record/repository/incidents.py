@@ -1,20 +1,34 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable, Mapping
 from datetime import datetime
 from types import MappingProxyType
-from typing import Final
+from typing import Any, Final
 
 import psycopg
-from core.models import Alert, Incident, IncidentStatus
-from psycopg.rows import class_row
+from core.models import Alert, Incident, IncidentStanding, IncidentStatus
+from core.stored import ALERT, SHIPPED, Shapes, Unreadable, up_to_date
+from core.telemetry import ARGUS_INCIDENT_ID
+from psycopg.rows import class_row, dict_row
 from psycopg.types.json import Jsonb
 
 from incident_record.repository.advisory_locks import AdvisoryLock
 
+logger = logging.getLogger(__name__)
+
 # What an incident started outside any trace keeps: nothing, and nothing a
 # caller could add to by holding on to the default.
 NO_TRACE_CONTEXT: Final[Mapping[str, str]] = MappingProxyType({})
+
+# What a whole incident is read from: where it stands, and its alert with the
+# shape it was written in.
+_INCIDENT_COLUMNS: Final = (
+    "id, status, created_at, ended_at, alert_payload, shape, trace_context"
+)
+# What where an incident stands is read from, and nothing a lookup that
+# decides by it does not read.
+_STANDING_COLUMNS: Final = "id, status, created_at, ended_at"
 
 
 def take_in_alone(conn: psycopg.Connection, service: str) -> None:
@@ -66,12 +80,17 @@ def create(conn: psycopg.Connection,
     that accounts for this incident is published on the same connection, and a
     commit here would put the row beyond reach of its own first sentence. A
     crash between the two would otherwise leave an incident whose account
-    begins nowhere."""
+    begins nowhere.
+
+    The alert is written in the shape this release writes it in, and its rule
+    and service beside it, which are what an incident is looked up by."""
     with conn.cursor() as cursor:
         cursor.execute(
-            "INSERT INTO incident (alert_payload, status, trace_context, created_at) "
-            "VALUES (%s, %s, %s, %s) RETURNING id",
-            (Jsonb(alert.model_dump(mode="json")), IncidentStatus.ACKNOWLEDGED,
+            "INSERT INTO incident (alert_payload, shape, alert_rule, alert_service, "
+            "                      status, trace_context, created_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            (Jsonb(alert.model_dump(mode="json")), SHIPPED.current(ALERT),
+             alert.rule, alert.service, IncidentStatus.ACKNOWLEDGED,
              Jsonb(dict(trace_context)), at)
         )
         row = cursor.fetchone()
@@ -240,23 +259,41 @@ def resolve(conn: psycopg.Connection, incident_id: str, *, at: datetime) -> bool
     return resolved
 
 
-def get_recent(conn: psycopg.Connection) -> list[Incident]:
-    """Every incident, newest first.
+def get_recent(conn: psycopg.Connection, shapes: Shapes = SHIPPED) -> list[Incident]:
+    """Every incident that can be read, newest first.
 
     A history view opens on what just happened, so the ordering is the whole
     point of the name: oldest-first would put the incident somebody came looking
     for at the bottom of the page.
+
+    One whose row cannot be read - or was written by a newer Argus - is passed
+    over with a warning rather than failing the list: one bad row would
+    otherwise take every incident there has ever been off the page.
     """
-    with conn.cursor(row_factory=class_row(Incident)) as cursor:
+    with conn.cursor(row_factory=dict_row) as cursor:
         cursor.execute(
-            "SELECT id, alert_payload, status, created_at, ended_at, trace_context "
+            f"SELECT {_INCIDENT_COLUMNS} "
             "  FROM incident "
             "ORDER BY created_at DESC"
         )
-        return cursor.fetchall()
+        rows = cursor.fetchall()
+
+    recent = []
+
+    for row in rows:
+        read = _read(row, shapes)
+
+        if isinstance(read, Unreadable):
+            logger.warning("incident passed over: its row cannot be read", extra={
+                ARGUS_INCIDENT_ID: str(row["id"]), "why": read.why, "newer": read.newer
+            })
+        else:
+            recent.append(read)
+
+    return recent
 
 
-def get_current(conn: psycopg.Connection) -> Incident | None:
+def get_current(conn: psycopg.Connection, shapes: Shapes = SHIPPED) -> Incident | None:
     """The incident a live view opens on: the newest one that has not finished,
     and where none is running, the newest there has ever been.
 
@@ -273,23 +310,27 @@ def get_current(conn: psycopg.Connection) -> Incident | None:
     Ordering on the terminal statuses rather than filtering by them, so the
     whole rule is one query: `false` sorts before `true`, which puts every
     unfinished incident above every finished one, newest first within each.
+
+    Raises where the incident's row cannot be read, as `get` does.
     """
     terminal = [status for status in IncidentStatus if status.is_terminal()]
 
-    with conn.cursor(row_factory=class_row(Incident)) as cursor:
+    with conn.cursor(row_factory=dict_row) as cursor:
         cursor.execute(
-            "SELECT id, alert_payload, status, created_at, ended_at, trace_context "
+            f"SELECT {_INCIDENT_COLUMNS} "
             "  FROM incident "
             "ORDER BY status = ANY(%s), created_at DESC "
             " LIMIT 1",
             (terminal,)
         )
-        return cursor.fetchone()
+        row = cursor.fetchone()
+
+    return _an_incident(row, shapes) if row is not None else None
 
 
 def get_open_by_rule_and_service(conn: psycopg.Connection,
                                  rule: str,
-                                 service: str) -> Incident | None:
+                                 service: str) -> IncidentStanding | None:
     """The newest unfinished incident `rule` opened for `service`, if any.
 
     What a rule firing again while Argus is still on its incident joins: the
@@ -297,15 +338,18 @@ def get_open_by_rule_and_service(conn: psycopg.Connection,
     not looked at - once one is over, the rule firing again is a new incident.
     Nor are other services': a rule watching several pages for each, and the
     service paged for is what an incident investigates.
+
+    Where it stands, not the whole incident: the alert it holds is not read,
+    so one whose alert cannot be read is still the incident a firing joins.
     """
     still_going = [status for status in IncidentStatus if not status.is_terminal()]
 
-    with conn.cursor(row_factory=class_row(Incident)) as cursor:
+    with conn.cursor(row_factory=class_row(IncidentStanding)) as cursor:
         cursor.execute(
-            "SELECT id, alert_payload, status, created_at, ended_at, trace_context "
+            f"SELECT {_STANDING_COLUMNS} "
             "  FROM incident "
-            " WHERE alert_payload->>'rule' = %s "
-            "   AND alert_payload->>'service' = %s "
+            " WHERE alert_rule = %s "
+            "   AND alert_service = %s "
             "   AND status = ANY(%s) "
             "ORDER BY created_at DESC "
             " LIMIT 1",
@@ -317,7 +361,7 @@ def get_open_by_rule_and_service(conn: psycopg.Connection,
 def get_newest_by_names_and_service(conn: psycopg.Connection,
                                     kind: str,
                                     values: Iterable[str],
-                                    service: str) -> Incident | None:
+                                    service: str) -> IncidentStanding | None:
     """The newest incident for `service` holding any of these names of this
     kind, whatever its status, if any.
 
@@ -328,12 +372,15 @@ def get_newest_by_names_and_service(conn: psycopg.Connection,
     for it is held by both, and the newer is the latest word about it. Only
     `service`'s, because one alert group spans every service its rule watches
     and an incident holds every firing its notification carried.
+
+    Where it stands, not the whole incident, as `get_open_by_rule_and_service`
+    answers.
     """
-    with conn.cursor(row_factory=class_row(Incident)) as cursor:
+    with conn.cursor(row_factory=class_row(IncidentStanding)) as cursor:
         cursor.execute(
-            "SELECT id, alert_payload, status, created_at, ended_at, trace_context "
+            f"SELECT {_STANDING_COLUMNS} "
             "  FROM incident "
-            " WHERE alert_payload->>'service' = %s "
+            " WHERE alert_service = %s "
             "   AND id IN (SELECT incident_id FROM incident_reference "
             "               WHERE kind = %s AND value = ANY(%s)) "
             "ORDER BY created_at DESC "
@@ -343,12 +390,48 @@ def get_newest_by_names_and_service(conn: psycopg.Connection,
         return cursor.fetchone()
 
 
-def get(conn: psycopg.Connection, incident_id: str) -> Incident | None:
-    with conn.cursor(row_factory=class_row(Incident)) as cursor:
+def get(conn: psycopg.Connection,
+        incident_id: str,
+        shapes: Shapes = SHIPPED) -> Incident | None:
+    """The incident, brought up to the shapes `shapes` are at.
+
+    Raises `NewerShape` where its alert was written by a newer Argus, and the
+    failure that stopped it where its alert cannot be read: one incident asked
+    for by name is not passed over, and read in part it would be read wrong.
+    """
+    with conn.cursor(row_factory=dict_row) as cursor:
         cursor.execute(
-            "SELECT id, alert_payload, status, created_at, ended_at, trace_context "
+            f"SELECT {_INCIDENT_COLUMNS} "
             "  FROM incident "
             " WHERE id = %s",
             (incident_id,)
         )
-        return cursor.fetchone()
+        row = cursor.fetchone()
+
+    return _an_incident(row, shapes) if row is not None else None
+
+
+def _an_incident(row: dict[str, Any], shapes: Shapes) -> Incident:
+    """The incident a row of `_INCIDENT_COLUMNS` holds, its alert brought up to
+    date before it is read."""
+    alert = up_to_date(ALERT, row["shape"], row["alert_payload"], shapes)
+
+    return Incident(id=row["id"],
+                    status=row["status"],
+                    created_at=row["created_at"],
+                    ended_at=row["ended_at"],
+                    alert=Alert.model_validate(alert),
+                    trace_context=row["trace_context"])
+
+
+def _read(row: dict[str, Any], shapes: Shapes) -> Incident | Unreadable:
+    """The incident a row holds, or what stopped it being read.
+
+    Any failure, not a list of them: bringing a row up runs steps written for
+    whatever an older release stored, and what one of them raises over a row
+    it was not written for is not known in advance.
+    """
+    try:
+        return _an_incident(row, shapes)
+    except Exception as failure:
+        return Unreadable.of(failure)

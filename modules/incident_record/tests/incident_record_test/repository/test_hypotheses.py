@@ -8,6 +8,7 @@ import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, calling, the_answer_was
 from core.models import Alert, Evidence, FailureMode, Hypothesis
+from core.stored import EVIDENCE, Shapes
 from incident_record.repository import hypotheses
 from postgres import connect_from_env
 
@@ -401,6 +402,34 @@ def test_an_incident_with_no_candidates_reads_as_empty_rather_than_missing() -> 
             )
 
 
+@pytest.mark.integration
+def test_evidence_written_in_an_older_shape_is_brought_up_before_it_is_read() -> None:
+    # Read with the shapes of a release one step on: the row is at the shape
+    # this release writes, which that release reads as one step behind. The
+    # step keeps only the first piece, which no release would - so evidence
+    # with one piece came through it.
+    some_evidence = [
+        "2026-08-20T11:05:00Z WARN target-service: flag 'checkout-v2' toggled on",
+        "2026-08-20T11:06:00Z ERROR target-service: request failed"
+    ]
+    one_step_on = Shapes(upcasters={EVIDENCE: [_a_step_keeping_the_first_piece]})
+
+    with connect_from_env() as conn:
+        incident_id = an_incident_created_for(conn, _an_alert())
+        some_hypothesis = _a_determined_hypothesis(incident_id, some_evidence)
+
+        Scenario() \
+            .given(
+                calling(lambda: hypotheses.record(conn, some_hypothesis))
+            ) \
+            .when(
+                lambda: hypotheses.get_all_by_incident(conn, incident_id, one_step_on)
+            ) \
+            .then(
+                _the_evidence_read_back_is(some_hypothesis.supporting_evidence[:1])
+            )
+
+
 def _an_alert() -> Alert:
     return Alert(service="kuki-service", alert_name="HighErrorRate")
 
@@ -666,6 +695,24 @@ def _the_candidate_ranked(conn: psycopg.Connection,
         if candidate.result != result:
             raise AssertionError(
                 f"Expected rank {rank} result={result!r}, got {candidate.result!r}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _a_step_keeping_the_first_piece(raw: list[Any]) -> list[Any]:
+    return raw[:1]
+
+
+def _the_evidence_read_back_is(expected: list[Evidence]) -> Assertion[list[Hypothesis]]:
+    def assertion(read_back: list[Hypothesis]) -> bool:
+        evidence = [hypothesis.supporting_evidence for hypothesis in read_back]
+
+        if evidence != [expected]:
+            raise AssertionError(
+                f"Expected one candidate read back on {expected}, got {evidence}."
             )
 
         return True

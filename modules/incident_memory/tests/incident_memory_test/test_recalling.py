@@ -16,7 +16,8 @@ answers the same way whether the narrowing was asked of it or done afterwards.
 
 from __future__ import annotations
 
-from typing import Any
+import logging
+from typing import Any, Final
 from unittest.mock import create_autospec
 
 import pytest
@@ -28,9 +29,11 @@ from argus_testkit import (
     an_error_was_raised,
     attempting,
     dont_care_sleep,
+    one_record_was_logged,
     the_answer_was,
 )
 from core.models import REVERT_FEATURE_FLAG, ActionIdentity, Verdict, WhatWasTried
+from core.stored import REMEMBERED_INCIDENT, SHIPPED, Shapes
 from core.vector_store import (
     Equals,
     Hit,
@@ -40,7 +43,7 @@ from core.vector_store import (
     VectorStoreUnreachable,
 )
 from incident_memory.keeping import remember
-from incident_memory.recalling import RECORD_FIELD, SERVICE_FIELD, recalled
+from incident_memory.recalling import RECORD_FIELD, SERVICE_FIELD, SHAPE_FIELD, recalled
 from incident_memory.records import RememberedIncident
 from vector_store_qdrant.indexing import QdrantIndex
 
@@ -76,6 +79,16 @@ DONT_CARE_DESCRIPTION = "checkout began failing after a flag was switched on"
 DONT_CARE_ALERT = "HighErrorRate"
 DONT_CARE_FLAG = "a-flag"
 SOME_OTHER_INCIDENT = "the-other-one"
+
+# The logger recall writes to, and what it says of a record it passed over.
+RECALL: Final = "incident_memory.recalling"
+PASSED_OVER: Final = "recalled record passed over: it cannot be read"
+# The id of the point holding nothing a reader can bring up.
+UNREADABLE_POINT = "unreadable"
+# What a step from a record's shape to the next one writes, where no release
+# has shipped a step: a description no record here is kept with, so a record
+# carrying it was brought up through the step and not read as it was kept.
+A_DESCRIPTION_A_STEP_WROTE = "written by the step to the next shape"
 
 
 @pytest.mark.integration
@@ -390,6 +403,79 @@ def test_a_search_allowed_no_attempts_is_refused_before_the_store_is_asked() -> 
         )
 
 
+@pytest.mark.unit
+def test_a_record_that_cannot_be_read_is_passed_over_and_the_rest_recalled(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # One bad point would otherwise take every like incident from the walk.
+    # Nothing is lost by it: the store is filled again from the filed rows.
+    some_incident = a_remembered_incident()
+
+    Scenario() \
+        .given(
+            a_store := _a_store_answering([_a_hit_holding_nothing_readable(),
+                                           *_the_hits(some_incident)])
+        ) \
+        .when(
+            lambda: recalled(a_store, DONT_CARE_VECTOR,
+                             service=DONT_CARE_SERVICE, limit=DONT_CARE_LIMIT,
+                             floor=DONT_CARE_FLOOR)
+        ) \
+        .then(all_of(
+            the_answer_was([some_incident]),
+            one_record_was_logged(caplog, RECALL, logging.WARNING, PASSED_OVER,
+                                  {"point": UNREADABLE_POINT, "newer": False})
+        ))
+
+
+@pytest.mark.unit
+def test_a_record_a_newer_release_kept_is_passed_over(
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    # Read as the shape this release knows, it would be read wrong. Said as
+    # newer, so a reader of the log knows a release that knows it reads it.
+    some_incident = a_remembered_incident()
+    the_hit = _the_hits(some_incident)[0]
+
+    Scenario() \
+        .given(
+            a_store := _a_store_answering([_kept_by_a_newer_release(the_hit)])
+        ) \
+        .when(
+            lambda: recalled(a_store, DONT_CARE_VECTOR,
+                             service=DONT_CARE_SERVICE, limit=DONT_CARE_LIMIT,
+                             floor=DONT_CARE_FLOOR)
+        ) \
+        .then(all_of(
+            the_answer_was([]),
+            one_record_was_logged(caplog, RECALL, logging.WARNING, PASSED_OVER,
+                                  {"point": the_hit.id, "newer": True})
+        ))
+
+
+@pytest.mark.unit
+def test_a_record_kept_before_shapes_were_recorded_is_read_as_the_first_shape() -> None:
+    # Its point carries no shape. Read with the shapes of a release one step
+    # on, it is brought up from the first.
+    some_incident = a_remembered_incident()
+    one_step_on = Shapes(upcasters={REMEMBERED_INCIDENT: [_a_step_writing_the_description]})
+
+    Scenario() \
+        .given(
+            a_store := _a_store_answering(_the_hits(some_incident))
+        ) \
+        .when(
+            lambda: recalled(a_store, DONT_CARE_VECTOR,
+                             service=DONT_CARE_SERVICE, limit=DONT_CARE_LIMIT,
+                             floor=DONT_CARE_FLOOR, shapes=one_step_on)
+        ) \
+        .then(
+            the_answer_was([
+                some_incident.model_copy(update={"described_as": A_DESCRIPTION_A_STEP_WROTE})
+            ])
+        )
+
+
 def _what_was_tried(subject: str, verdict: Verdict) -> WhatWasTried:
     """One remembered attempt, spelled as a flag reverted.
 
@@ -452,6 +538,21 @@ def _a_store_answering_every_time(failure: Exception) -> Any:
     store = create_autospec(VectorSearch, instance=True)
     store.nearest.side_effect = failure
     return store
+
+
+def _a_hit_holding_nothing_readable() -> Hit:
+    """A point whose record no reader can bring up - an empty object, missing
+    everything a record has - in no shape, so it is read as the first."""
+    return Hit(id=UNREADABLE_POINT, score=DONT_CARE_SCORE, payload={RECORD_FIELD: {}})
+
+
+def _kept_by_a_newer_release(hit: Hit) -> Hit:
+    return Hit(id=hit.id, score=hit.score,
+               payload={**hit.payload, SHAPE_FIELD: SHIPPED.current(REMEMBERED_INCIDENT) + 1})
+
+
+def _a_step_writing_the_description(raw: dict[str, Any]) -> dict[str, Any]:
+    return {**raw, "described_as": A_DESCRIPTION_A_STEP_WROTE}
 
 
 def _the_hits(*incidents: RememberedIncident) -> list[Hit]:

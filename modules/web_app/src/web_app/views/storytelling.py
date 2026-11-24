@@ -190,7 +190,7 @@ def build_live_incident(incident: Incident,
 
     return LiveIncident(
         id=incident.id,
-        alert=Alert.model_validate(incident.alert_payload),
+        alert=incident.alert,
         status=incident.status,
         created_at=incident.created_at,
         finished_at=finished_at,

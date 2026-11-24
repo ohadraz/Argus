@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from argus_testkit import Assertion, Scenario
-from core.models import Incident, IncidentStatus, Lifespan
+from core.models import IncidentStanding, IncidentStatus, Lifespan
 
 SOME_MOMENT = datetime(2026, 10, 14, 16, 0, tzinfo=UTC)
 DONT_CARE_ID = "5f0c6a8e-4b8f-4c55-9a51-0d5f3b8f2a11"
@@ -39,9 +39,9 @@ def test_an_incident_still_being_worked_has_a_life_with_no_end() -> None:
 
 def _an_incident(created_at: datetime,
                  ended_at: datetime | None,
-                 status: IncidentStatus) -> Incident:
-    return Incident(id=DONT_CARE_ID, alert_payload={}, status=status,
-                    created_at=created_at, ended_at=ended_at)
+                 status: IncidentStatus) -> IncidentStanding:
+    return IncidentStanding(id=DONT_CARE_ID, status=status,
+                            created_at=created_at, ended_at=ended_at)
 
 
 def _the_life_is(expected: Lifespan) -> Assertion[Lifespan]:

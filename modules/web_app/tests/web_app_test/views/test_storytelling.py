@@ -460,7 +460,7 @@ def _nothing_was_published() -> list[IncidentEvent]:
 def _an_incident(status: IncidentStatus, alert: Alert | None = None) -> Incident:
     return Incident(
         id=new_id(),
-        alert_payload=(alert or _an_alert()).model_dump(mode="json"),
+        alert=alert or _an_alert(),
         status=status,
         created_at=_OPENED_AT,
         ended_at=None

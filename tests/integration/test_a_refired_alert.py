@@ -420,7 +420,7 @@ def _incidents_were_opened_for(service: str, count: int) -> Assertion[httpx2.Res
     def assertion(_response: httpx2.Response) -> bool:
         with connect_from_env() as conn:
             opened = [incident for incident in incidents.get_recent(conn)
-                      if incident.alert_payload.get("service") == service]
+                      if incident.alert.service == service]
 
         if len(opened) != count:
             raise AssertionError(

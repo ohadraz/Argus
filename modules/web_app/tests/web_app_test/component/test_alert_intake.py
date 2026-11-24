@@ -297,10 +297,10 @@ def _an_incident_was_created_for(service: str) -> Assertion[Any]:
                 "Expected the answered id to name an incident, found none."
             )
 
-        if incident.alert_payload.get("service") != service:
+        if incident.alert.service != service:
             raise AssertionError(
                 f"Expected the incident to be for [{service}], got "
-                f"[{incident.alert_payload.get('service')}]."
+                f"[{incident.alert.service}]."
             )
 
         return True
@@ -382,7 +382,7 @@ def _incidents_were_opened_for(service: str, count: int) -> Assertion[Any]:
             opened = [
                 incident
                 for incident in incidents.get_recent(conn)
-                if incident.alert_payload.get("service") == service
+                if incident.alert.service == service
             ]
 
         if len(opened) != count:

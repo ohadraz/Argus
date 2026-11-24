@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Annotated, Any, ClassVar, Literal, Protocol
+from typing import Annotated, Any, ClassVar, Literal, Protocol, get_args
 
 from pydantic import BaseModel, Field, TypeAdapter, model_validator
 
@@ -50,6 +51,7 @@ from core.models.rollout import RolloutAccount
 from core.models.service_dependency import ServiceDependency
 from core.models.thread_message import Standing
 from core.models.undone import Undone
+from core.stored import SHIPPED, NewerShape, Shapes, Unreadable, up_to_date
 from core.telemetry import ARGUS_INCIDENT_ID
 from core.timestamps import utc_now
 
@@ -1308,6 +1310,13 @@ type IncidentEvent = Annotated[
 
 _events = TypeAdapter[IncidentEvent](IncidentEvent)
 
+# Every kind of event this release publishes, read off the union itself so
+# the two cannot disagree.
+_KINDS: frozenset[str] = frozenset(
+    member.model_fields["kind"].default
+    for member in get_args(get_args(IncidentEvent.__value__)[0])
+)
+
 
 def parse_event(row: dict[str, Any]) -> IncidentEvent:
     """Reads a stored event back as the type it was published as.
@@ -1316,6 +1325,25 @@ def parse_event(row: dict[str, Any]) -> IncidentEvent:
     dictionary it has to match on strings to interpret.
     """
     return _events.validate_python(row)
+
+
+def parse_stored_event(kind: str,
+                       shape: int,
+                       row: dict[str, Any],
+                       shapes: Shapes = SHIPPED) -> IncidentEvent:
+    """Reads an event as the log stored it - its `kind` and the `shape` it was
+    written in beside it - brought up to the shape its kind is at now.
+
+    A kind this release does not publish was written by a newer one, and is
+    `NewerShape` rather than a row nobody can read: a release adding a kind of
+    event is the commonest way one writes what an older reader cannot read,
+    and the release that knows the kind reads it. Told from the `kind` beside
+    the row, before anything is parsed.
+    """
+    if kind not in _KINDS:
+        raise NewerShape(f"event kind [{kind}], which this reader does not know")
+
+    return parse_event(up_to_date(kind, shape, row, shapes))
 
 
 def the_escalations(recorded: Sequence[IncidentEvent]) -> list[StatusChanged]:
@@ -1351,6 +1379,22 @@ class RecordedEvent(BaseModel):
 
     seq: int
     event: IncidentEvent
+
+
+@dataclass(frozen=True)
+class UnreadableEvent:
+    """An event the log holds that a reader could not read, and where it sits.
+
+    The place travels with it for the reason it travels with a
+    `RecordedEvent`: a reader following the log decides whether to move past
+    it - past a row nobody can read, but not past one a newer release wrote,
+    which the release that knows it will read. And the incident it belongs to,
+    which is what a reader says it about.
+    """
+
+    seq: int
+    incident_id: str
+    unreadable: Unreadable
 
 
 class Publisher(Protocol):

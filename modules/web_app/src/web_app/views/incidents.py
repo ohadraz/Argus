@@ -130,15 +130,10 @@ class IncidentDetail(BaseModel):
 
 
 def build_incident_summary(incident: Incident) -> IncidentSummary:
-    """Shapes one incident row for a list of them.
-
-    The alert comes back as an `Alert` rather than as the JSON column it was
-    stored in: the payload shape is how the row remembers it, not what a reader
-    asked for.
-    """
+    """Shapes one incident row for a list of them."""
     return IncidentSummary(
         id=incident.id,
-        alert=Alert.model_validate(incident.alert_payload),
+        alert=incident.alert,
         status=incident.status,
         created_at=incident.created_at
     )
@@ -188,7 +183,7 @@ def build_incident_detail(
 
     return IncidentDetail(
         id=incident.id,
-        alert=Alert.model_validate(incident.alert_payload),
+        alert=incident.alert,
         status=incident.status,
         created_at=incident.created_at,
         candidates=[

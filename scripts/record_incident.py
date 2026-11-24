@@ -66,7 +66,7 @@ from core.events import (
 )
 from core.models import ROLL_BACK_DEPLOYMENT, FixOutcome, IncidentStatus, Verdict
 from executive_synopsis import OVERVIEW_TOOL_NAME
-from incident_memory.filing import get_undelivered
+from incident_memory.filing import UnreadableRecord, get_undelivered
 from incident_record.repository import runs, synopses
 from incident_record.repository.runs import RunState
 from investigation_agent.tools.answer import ANSWER_TOOL
@@ -198,6 +198,10 @@ _A_DELIVERY_SECONDS: Final = 60.0
 # walked. Only whether any are waiting is asked; which ones is what a failure
 # names.
 _AS_MANY_AS_A_RUN_FILES: Final = 100
+
+# Who this script reads what waits as: a reader that parks nothing, so a record
+# the stack's deliverer parked is still waiting to it, and the wait says so.
+_A_READER_THAT_PARKS_NOTHING: Final = "the recording script"
 
 
 class _Published(NamedTuple):
@@ -1371,8 +1375,11 @@ def _long_term_memory_was_forgotten() -> None:
 
     while True:
         with psycopg.connect(DATABASE_URL) as connection:
-            waiting = [filed.record.incident_id
-                       for filed in get_undelivered(connection, _AS_MANY_AS_A_RUN_FILES)]
+            # One that cannot be read is waiting too, as its incident.
+            waiting = [filed.incident_id if isinstance(filed, UnreadableRecord)
+                       else filed.record.incident_id
+                       for filed in get_undelivered(connection, _AS_MANY_AS_A_RUN_FILES,
+                                                    deliverer=_A_READER_THAT_PARKS_NOTHING)]
 
         if not waiting:
             break

@@ -243,7 +243,7 @@ def write_synopsis_for(incident_id: str,
     if incident is None or postmortem is None:
         raise ValueError(f"no postmortem for incident [{incident_id}] to write a synopsis of")
 
-    alert = Alert.model_validate(incident.alert_payload)
+    alert = incident.alert
     rendered = render(postmortem, alert, account, address_of)
     # Priced before the figures are worded, since the cost is one of them.
     cost = the_response_priced(postmortem.minutes_by_title, money)
@@ -292,12 +292,14 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
 
     return IncidentEvidence(
         incident_id=incident_id,
-        service=Alert.model_validate(incident.alert_payload).service,
+        service=incident.alert.service,
         started_at=incident.created_at,
         ended_at=incident.ended_at,
-        alerted_at=_when_it_was_alerted(incident.alert_payload) or incident.created_at,
+        # As its sender dated it, where it did.
+        alerted_at=incident.alert.started_at or incident.created_at,
         onset_at=_when_it_actually_began(conn, incident_id),
-        onset_stated_by_the_alert=_when_the_alert_said_it_began(incident.alert_payload),
+        # `None` where it said nothing, as almost every alert does.
+        onset_stated_by_the_alert=incident.alert.stated_onset,
         anchored_at=_where_it_looked_from(conn, incident_id),
         recorded_recovery_at=_when_it_came_back(conn, incident_id),
         resolution=_the_resolution(account, told),
@@ -308,9 +310,9 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         # Off the row rather than the account: the status is how the incident
         # ended, and disproven is an ending nothing moves an incident on from.
         disproven=incident.status is IncidentStatus.DISPROVEN,
-        rule=_the_rule_that_paged(incident.alert_payload),
-        alert_title=_what_was_alerted(incident.alert_payload),
-        alert_finding=_what_the_alert_found(incident.alert_payload),
+        rule=incident.alert.rule,
+        alert_title=_what_was_alerted(incident.alert),
+        alert_finding=incident.alert.summary,
         timeline=_what_happened(told, [hypothesis.id for hypothesis in considered]),
         candidates=_what_was_considered(
             considered,
@@ -590,51 +592,19 @@ def _it_was_watched_and_never_came_back(conn: psycopg.Connection,
     return bool(looks) and not any(looks)
 
 
-def _the_rule_that_paged(alert_payload: dict[str, object]) -> str | None:
-    """The rule the alert named, read back through the alert's own model.
-
-    Through `Alert` rather than by key, so that what is read is the field the
-    alert declares and not a string that happens to sit under its name.
-    """
-    return Alert.model_validate(alert_payload).rule
-
-
-def _when_it_was_alerted(alert_payload: dict[str, object]) -> datetime | None:
-    """When the alert fired, as its sender dated it, read back through the
-    alert's own model as the rule is - `None` where the sender dated nothing."""
-    return Alert.model_validate(alert_payload).started_at
-
-
-def _when_the_alert_said_it_began(alert_payload: dict[str, object]) -> datetime | None:
-    """When the alert said the incident began, read back through the alert's
-    own model as the rule is - `None` where it said nothing, as almost every
-    alert does."""
-    return Alert.model_validate(alert_payload).stated_onset
-
-
-def _what_was_alerted(alert_payload: dict[str, object]) -> str:
+def _what_was_alerted(alert: Alert) -> str:
     """The alert in a line, for the postmortem's prompt.
 
     Two fields by name, and the naming is the safeguard rather than the
-    brevity. `alert_payload` is a whole serialised `Alert`, so it holds
-    `stale_entry_keys` as well - the addresses of the cache entries a
-    reconciliation found stale. Those are an address rather than a
-    description: the model is told how many entries disagree and by how much,
-    which is what it reasons about, and never where they live. A line here
-    that rendered more of this dict would put hundreds of keys into a prompt
-    without anything complaining, which is why the two are picked out by hand
-    and not the ones left over from a loop.
+    brevity. An `Alert` holds `stale_entry_keys` as well - the addresses of
+    the cache entries a reconciliation found stale. Those are an address
+    rather than a description: the model is told how many entries disagree
+    and by how much, which is what it reasons about, and never where they
+    live. A line here that rendered more of the alert would put hundreds of
+    keys into a prompt without anything complaining, which is why the two are
+    picked out by hand and not the ones left over from a loop.
     """
-    return f"{alert_payload.get('alert_name')} on {alert_payload.get('service')}"
-
-
-def _what_the_alert_found(alert_payload: dict[str, object]) -> str | None:
-    """The alert's own summary, as its sender wrote it - one field by name, for
-    `_what_was_alerted`'s reason: the payload also holds `stale_entry_keys`,
-    which no prompt should carry."""
-    summary = alert_payload.get("summary")
-
-    return summary if isinstance(summary, str) else None
+    return f"{alert.alert_name} on {alert.service}"
 
 
 def _what_happened(told: list[NarrationLine], considered: list[str]) -> list[TimelineEntry]:

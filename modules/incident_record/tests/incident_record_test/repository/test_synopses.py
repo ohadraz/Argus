@@ -8,19 +8,26 @@ import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, calling
 from core import utc_now
-from core.models import Alert, ExecutiveSynopsisDocument, TitleCost
+from core.models import Alert, ExecutiveSynopsis, ExecutiveSynopsisDocument, TitleCost
+from core.stored import EXECUTIVE_SYNOPSIS, Shapes
 from incident_record.repository import synopses
 from postgres import connect_from_env
 
 from incident_record_test.framework import no_column_is_empty, written_and_rolled_back
+from incident_record_test.framework.assertions import each_field_of
 from incident_record_test.framework.builders import an_incident_created_for
+
+# What a step from one shape to the next writes, where no release has shipped a
+# step: a value nothing here is written with, so a row carrying it was brought
+# up through the step and not read as it was stored.
+SOME_OVERVIEW_A_STEP_WROTE = "written by the step to the next shape"
 
 
 @pytest.mark.integration
 def test_a_complete_synopsis_leaves_no_column_of_its_row_empty() -> None:
-    # Both statements are built from the model's own fields, as the
-    # postmortem's are, so the question is not whether a column is named but
-    # whether a complete synopsis reaches its row complete.
+    # Both statements name every column of the synopsis, as the postmortem's
+    # do, so the question is not whether a column is named but whether a
+    # complete synopsis reaches its row complete.
     dont_care_overview = "dont care"
     dont_care_reason = "dont care"
     dont_care_title = "dont care"
@@ -180,6 +187,38 @@ def test_a_synopsis_rolled_back_by_its_caller_leaves_none_recorded() -> None:
             )
 
 
+@pytest.mark.integration
+def test_a_synopsis_written_in_an_older_shape_is_brought_up_before_it_is_read() -> None:
+    # Every column together, as the postmortem's are. Read with the shapes of
+    # a release one step on, which reads this release's as one step behind.
+    one_step_on = Shapes(upcasters={EXECUTIVE_SYNOPSIS: [_a_step_writing_the_overview]})
+
+    with connect_from_env() as conn:
+        incident_id = an_incident_created_for(conn, _an_alert())
+
+        Scenario() \
+            .given(
+                calling(lambda: synopses.record(conn, incident_id, _a_synopsis(),
+                                                at=utc_now()))
+            ) \
+            .when(
+                lambda: synopses.get_by_incident(conn, incident_id, one_step_on)
+            ) \
+            .then(
+                _its_overview_is(SOME_OVERVIEW_A_STEP_WROTE)
+            )
+
+
+@pytest.mark.unit
+def test_the_columns_written_are_the_documents_fields() -> None:
+    # Named in the repository rather than read off the model, so a field
+    # renamed cannot leave its column behind - and held to the model here, so
+    # one added is not left unwritten.
+    Scenario() \
+        .when(lambda: synopses.DOCUMENT_COLUMNS) \
+        .then(each_field_of(ExecutiveSynopsisDocument))
+
+
 def _the_stored_synopsis_was_written_at(conn: psycopg.Connection,
                                         incident_id: str,
                                         moment: datetime) -> Assertion[Any]:
@@ -297,3 +336,19 @@ def _a_synopsis() -> ExecutiveSynopsisDocument:
         withheld_because=None,
         cost_by_title=[]
     )
+
+
+def _a_step_writing_the_overview(raw: dict[str, Any]) -> dict[str, Any]:
+    return {**raw, "overview": SOME_OVERVIEW_A_STEP_WROTE}
+
+
+def _its_overview_is(expected: str) -> Assertion[ExecutiveSynopsis | None]:
+    def assertion(stored: ExecutiveSynopsis | None) -> bool:
+        overview = stored.overview if stored is not None else None
+
+        if overview != expected:
+            raise AssertionError(f"Expected the overview [{expected}], got [{overview}].")
+
+        return True
+
+    return assertion

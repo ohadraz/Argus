@@ -87,9 +87,13 @@ def _publish(conn: psycopg.Connection, *published: IncidentEvent) -> None:
     conn.commit()
 
 
-def _the_kinds_read_back_were(expected: list[str]) -> Assertion[list[events.RecordedEvent]]:
-    def assertion(read_back: list[events.RecordedEvent]) -> bool:
-        kinds = [entry.event.kind for entry in read_back]
+def _the_kinds_read_back_were(
+    expected: list[str]
+) -> Assertion[list[events.RecordedEvent | events.UnreadableEvent]]:
+    def assertion(read_back: list[events.RecordedEvent | events.UnreadableEvent]) -> bool:
+        # One that could not be read is listed as what stopped it.
+        kinds = [entry.event.kind if isinstance(entry, events.RecordedEvent)
+                 else str(entry.unreadable) for entry in read_back]
         if kinds != expected:
             raise AssertionError(f"Expected the kinds {expected}, got {kinds}.")
 

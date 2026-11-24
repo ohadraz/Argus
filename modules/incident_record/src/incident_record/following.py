@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from core.events import RecordedEvent
+from core.events import RecordedEvent, UnreadableEvent
 from postgres import Connections
 
 from incident_record.repository import cursors, events
@@ -27,10 +27,11 @@ class Backlog(Protocol):
     """What has been published since a place, oldest first and capped.
 
     A reader's whole view of the log: no incident to ask about, because a
-    reader follows everything rather than watching one thing.
+    reader follows everything rather than watching one thing. An event it
+    cannot read comes back in its place, as what stopped it.
     """
 
-    def __call__(self, since: int, batch: int, /) -> list[RecordedEvent]: ...
+    def __call__(self, since: int, batch: int, /) -> list[RecordedEvent | UnreadableEvent]: ...
 
 
 class Place(Protocol):
@@ -55,7 +56,7 @@ def events_since(connections: Connections) -> Backlog:
     in the signature of the thing that decides what to do with what it read.
     """
 
-    def read_since(since: int, batch: int, /) -> list[RecordedEvent]:
+    def read_since(since: int, batch: int, /) -> list[RecordedEvent | UnreadableEvent]:
         with connections() as conn:
             return events.get_since(conn, since, batch)
 

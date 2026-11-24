@@ -62,7 +62,7 @@ from core.models import (
     WhatArgusDid,
     WhatWasTried,
 )
-from incident_memory.filing import get_undelivered
+from incident_memory.filing import UnreadableRecord, get_undelivered
 from incident_memory.records import RememberedIncident
 from incident_record.publishing import events_into_connection
 from incident_record.repository import (
@@ -95,6 +95,10 @@ DONT_CARE_OTHER_WORDS = "it is the database again"
 # How the record says an action's change stands, in the write-up's words.
 PUT_BACK = "put back when it did not help"
 STILL_IN_PLACE = "still in place"
+
+# Who the cases read what waits to be delivered as: no deliverer, so nothing is
+# parked for it.
+A_READER_THAT_PARKS_NOTHING = "the walk's suite"
 
 
 @pytest.mark.component
@@ -834,8 +838,10 @@ def _it_waits_to_be_delivered(record: RememberedIncident) -> Assertion[None]:
 
         # One more than is expected, so a record filed twice is read back twice.
         with connect_from_env() as conn:
-            waiting = [filed.record
-                       for filed in get_undelivered(conn, limit=len(expected) + 1)]
+            # One that cannot be read is listed as what stopped it.
+            waiting = [filed if isinstance(filed, UnreadableRecord) else filed.record
+                       for filed in get_undelivered(conn, limit=len(expected) + 1,
+                                                    deliverer=A_READER_THAT_PARKS_NOTHING)]
 
         if waiting != expected:
             raise AssertionError(

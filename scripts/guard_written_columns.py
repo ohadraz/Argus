@@ -33,7 +33,6 @@ in Argus. That is a fact the schema states about itself, not a list kept here.
 from __future__ import annotations
 
 import ast
-import importlib
 import re
 import sys
 from dataclasses import dataclass, field
@@ -265,15 +264,13 @@ def _apply(ddl: str, to: dict[str, Table], named_by: str) -> list[str]:
 class _Constants:
     """The module-level names one file binds to a list of column names.
 
-    Two ways, because the repository writes them two ways and both are good.
-    A tuple of literals is read out of the syntax. A tuple built from a model's
-    fields is read out of the model itself - the same source of truth the
-    statement uses, which makes this guard schema-against-model drift detection
-    for those tables rather than a reading of what somebody typed.
+    Read out of the syntax alone: a tuple of literals, or one spread from
+    others the file binds. Never from a model's fields - a list read off a
+    model follows a field renamed and leaves its column behind, so no writer
+    here builds one, and a writer that did is reported as unreadable.
     """
 
     def __init__(self, tree: ast.Module) -> None:
-        self._imported = _imports_of(tree)
         self._bound: dict[str, list[str] | None] = {}
 
         for node in tree.body:
@@ -305,9 +302,6 @@ class _Constants:
                 and len(value.args) == 1):
             return self._resolve(value.args[0])
 
-        if isinstance(value, ast.Attribute) and value.attr == "model_fields":
-            return self._fields_of(value.value)
-
         if isinstance(value, ast.Name):
             return self._bound.get(value.id)
 
@@ -332,32 +326,6 @@ class _Constants:
             names.extend(spread)
 
         return names
-
-    def _fields_of(self, model: ast.expr) -> list[str] | None:
-        """The field names of a model this file imports, from the model itself."""
-        if not isinstance(model, ast.Name):
-            return None
-
-        module = self._imported.get(model.id)
-
-        if module is None:
-            return None
-
-        try:
-            imported = getattr(importlib.import_module(module), model.id)
-            return list(imported.model_fields)
-        except (ImportError, AttributeError):
-            return None
-
-
-def _imports_of(tree: ast.Module) -> dict[str, str]:
-    """Each name this file imports, and the module it came from."""
-    return {
-        alias.asname or alias.name: node.module
-        for node in tree.body
-        if isinstance(node, ast.ImportFrom) and node.module is not None
-        for alias in node.names
-    }
 
 
 def _sql_strings_of(tree: ast.Module, constants: _Constants) -> list[str]:
@@ -565,7 +533,7 @@ def _unreadable_in(statement: str, source: Path) -> str | None:
     return (
         f"{source}: cannot determine the columns written here - the statement is "
         f"built from an expression this guard cannot resolve. Bind the column list "
-        f"to a module-level name, or build it from a model's fields."
+        f"to a module-level name."
     )
 
 

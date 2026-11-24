@@ -30,8 +30,9 @@ from contextlib import contextmanager
 from typing import Final, Protocol
 
 import psycopg
+from core.telemetry import ARGUS_INCIDENT_ID
 
-from incident_memory.filing import get_undelivered, record_delivered
+from incident_memory.filing import UnreadableRecord, get_undelivered, park, record_delivered
 from incident_memory.keeping import Keeper
 
 logger = logging.getLogger(__name__)
@@ -82,7 +83,11 @@ def holding_the_delivery(conn: psycopg.Connection) -> Generator[bool]:
             conn.commit()
 
 
-def deliver_on(conn: psycopg.Connection, keep: Keeper, *, batch: int = A_BATCH) -> int:
+def deliver_on(conn: psycopg.Connection,
+               keep: Keeper,
+               *,
+               deliverer: str,
+               batch: int = A_BATCH) -> int:
     """Delivers what is waiting, a batch of it, and answers how many.
 
     Nothing where another deliverer holds the delivery. Each record is kept and
@@ -92,21 +97,35 @@ def deliver_on(conn: psycopg.Connection, keep: Keeper, *, batch: int = A_BATCH) 
     Raises whatever the store or the database raised. A failure must leave the
     record waiting: swallowing it here would hand the next pass a row that
     looks delivered and a store that never saw it.
+
+    A record this deliverer cannot bring up is parked under `deliverer`, with
+    an error, and the rest delivered: left waiting, it would come back first in
+    every batch and fail it. Parked rather than marked, since the store never
+    took it - and parked for this deliverer only, so the next one tries it.
     """
     with holding_the_delivery(conn) as ours:
         if not ours:
             return 0
 
-        waiting = get_undelivered(conn, batch)
+        delivered = 0
 
-        for filed in waiting:
+        for filed in get_undelivered(conn, batch, deliverer=deliverer):
+            if isinstance(filed, UnreadableRecord):
+                logger.error("record parked: it cannot be read", extra={
+                    ARGUS_INCIDENT_ID: filed.incident_id, "why": filed.unreadable.why
+                })
+                park(conn, filed.incident_id, deliverer)
+
+                continue
+
             keep(filed.record)
             record_delivered(conn, filed.record.incident_id, filed.version)
+            delivered += 1
 
-    if waiting:
-        logger.info("records delivered", extra={"records": len(waiting)})
+    if delivered:
+        logger.info("records delivered", extra={"records": delivered})
 
-    return len(waiting)
+    return delivered
 
 
 def deliver_forever(interval_seconds: float,

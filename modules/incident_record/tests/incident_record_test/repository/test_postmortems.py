@@ -8,11 +8,20 @@ import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, calling, the_answer_was
 from core import utc_now
-from core.models import Alert, ChannelReading, PostmortemLead, Standing
+from core.models import (
+    Alert,
+    ChannelReading,
+    Postmortem,
+    PostmortemDocument,
+    PostmortemLead,
+    Standing,
+)
+from core.stored import POSTMORTEM, Shapes
 from incident_record.repository import postmortems
 from postgres import connect_from_env
 
 from incident_record_test.framework import no_column_is_empty, written_and_rolled_back
+from incident_record_test.framework.assertions import each_field_of
 from incident_record_test.framework.builders import (
     a_lead_weighed_as,
     a_postmortem_document,
@@ -21,6 +30,11 @@ from incident_record_test.framework.builders import (
     an_opened_pull_request,
     every_section_of_the_template,
 )
+
+# What a step from one shape to the next writes, where no release has shipped a
+# step: a value nothing here is written with, so a row carrying it was brought
+# up through the step and not read as it was stored.
+SOME_CAUSE_A_STEP_WROTE = "written by the step to the next shape"
 
 
 @pytest.mark.integration
@@ -216,6 +230,39 @@ def test_a_document_rolled_back_by_its_caller_leaves_none_recorded() -> None:
             )
 
 
+@pytest.mark.integration
+def test_a_document_written_in_an_older_shape_is_brought_up_before_it_is_read() -> None:
+    # Every column together, through the steps after the shape it was written
+    # in. Read with the shapes of a release one step on, which reads this
+    # release's as one step behind.
+    one_step_on = Shapes(upcasters={POSTMORTEM: [_a_step_writing_the_cause]})
+
+    with connect_from_env() as conn:
+        incident_id = an_incident_created_for(conn, _an_alert())
+
+        Scenario() \
+            .given(
+                calling(lambda: postmortems.record(conn, incident_id, a_postmortem_document(),
+                                                   at=utc_now()))
+            ) \
+            .when(
+                lambda: postmortems.get_by_incident(conn, incident_id, one_step_on)
+            ) \
+            .then(
+                _its_root_cause_is(SOME_CAUSE_A_STEP_WROTE)
+            )
+
+
+@pytest.mark.unit
+def test_the_columns_written_are_the_documents_fields() -> None:
+    # Named in the repository rather than read off the model, so a field
+    # renamed cannot leave its column behind - and held to the model here, so
+    # one added is not left unwritten.
+    Scenario() \
+        .when(lambda: postmortems.DOCUMENT_COLUMNS) \
+        .then(each_field_of(PostmortemDocument))
+
+
 def _the_stored_postmortem_was_written_at(conn: psycopg.Connection,
                                           incident_id: str,
                                           moment: datetime) -> Assertion[Any]:
@@ -360,3 +407,19 @@ def _an_alert() -> Alert:
     """The alert the incident a postmortem belongs to was opened by - the row
     is keyed by the incident, and nothing here reads the alert."""
     return Alert(service="dont-care", alert_name="dont-care")
+
+
+def _a_step_writing_the_cause(raw: dict[str, Any]) -> dict[str, Any]:
+    return {**raw, "root_cause": SOME_CAUSE_A_STEP_WROTE}
+
+
+def _its_root_cause_is(expected: str) -> Assertion[Postmortem | None]:
+    def assertion(stored: Postmortem | None) -> bool:
+        cause = stored.root_cause if stored is not None else None
+
+        if cause != expected:
+            raise AssertionError(f"Expected the root cause [{expected}], got [{cause}].")
+
+        return True
+
+    return assertion

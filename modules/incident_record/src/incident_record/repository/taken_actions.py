@@ -21,7 +21,8 @@ from core.models import (
     leaves_something_to_put_back,
     the_kind,
 )
-from psycopg.rows import class_row
+from core.stored import SHIPPED, UNDO_DESCRIPTOR, Shapes, up_to_date
+from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 # The index that holds one open change per subject (`rev_001_the_schema`), by
@@ -30,6 +31,14 @@ _ONE_OPEN_CHANGE_PER_SUBJECT: Final = "action_open_once_per_subject_idx"
 # How many times a claim refused for its subject is asked: once, and once more
 # where the open change stopped being open before it could be named.
 _ASKINGS_FOR_AN_OPEN_SUBJECT: Final = 2
+
+# What an action is read from: every field of it, and the shape each of its two
+# descriptors was written in.
+_COLUMNS: Final = (
+    "id, incident_id, hypothesis_id, type, subject, has_a_way_back, "
+    "undo_descriptor, undo_shape, outcome, taken_at, progress, left_behind_known, "
+    "undone, plan, plan_shape, since, performed_at, put_back_because"
+)
 
 
 class NoLongerOpen(Enum):
@@ -160,6 +169,7 @@ def claim(
         at,
         ActionProgress.CLAIMED,
         _as_column(planned.descriptor if planned is not None else None),
+        _the_shape_of(planned.descriptor if planned is not None else None),
         planned.since if planned is not None else None
     )
 
@@ -185,8 +195,9 @@ def _inserted(conn: psycopg.Connection, columns: tuple[Any, ...]) -> ClaimAnswer
     with conn.transaction(), conn.cursor() as cursor:
         cursor.execute(
             "INSERT INTO action (incident_id, hypothesis_id, type, subject, realm, "
-            "                    has_a_way_back, taken_at, progress, plan, since) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+            "                    has_a_way_back, taken_at, progress, plan, plan_shape, "
+            "                    since) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
             "ON CONFLICT (incident_id, hypothesis_id) "
             "WHERE hypothesis_id IS NOT NULL DO NOTHING "
             "RETURNING id",
@@ -264,6 +275,7 @@ def complete(
     with conn.cursor() as cursor:
         cursor.execute(
             "UPDATE action SET outcome = %(outcome)s, undo_descriptor = %(undo)s, "
+            "                  undo_shape = %(undo_shape)s, "
             "                  progress = CASE WHEN progress = %(owed)s "
             "                                   AND %(undone)s::text IS NULL "
             "                                  THEN %(owed)s ELSE %(progress)s END, "
@@ -272,6 +284,7 @@ def complete(
             {
                 "outcome": outcome,
                 "undo": _as_column(undo_descriptor),
+                "undo_shape": _the_shape_of(undo_descriptor),
                 "owed": ActionProgress.PUTTING_BACK,
                 "progress": (ActionProgress.PERFORMED if performed
                              else ActionProgress.NOT_PERFORMED),
@@ -320,11 +333,13 @@ def advance(
     """
     with conn.cursor() as cursor:
         cursor.execute(
-            "UPDATE action SET progress = %s, undo_descriptor = %s, performed_at = %s "
+            "UPDATE action SET progress = %s, undo_descriptor = %s, undo_shape = %s, "
+            "                  performed_at = %s "
             " WHERE incident_id = %s AND hypothesis_id = %s AND progress = %s",
             (
                 to,
                 _as_column(undo_descriptor),
+                _the_shape_of(undo_descriptor),
                 performed_at,
                 incident_id,
                 hypothesis_id,
@@ -350,11 +365,12 @@ def plan_the_claim(conn: psycopg.Connection,
     """
     with conn.cursor() as cursor:
         cursor.execute(
-            "UPDATE action SET plan = %s, since = %s "
+            "UPDATE action SET plan = %s, plan_shape = %s, since = %s "
             " WHERE incident_id = %s AND hypothesis_id = %s "
             "   AND progress = %s AND plan IS NULL",
             (
                 _as_column(planned.descriptor),
+                _the_shape_of(planned.descriptor),
                 planned.since,
                 incident_id,
                 hypothesis_id,
@@ -515,7 +531,8 @@ def record(
 
 def get_action_for_hypothesis(conn: psycopg.Connection,
                               incident_id: str,
-                              hypothesis_id: str) -> TakenAction | None:
+                              hypothesis_id: str,
+                              shapes: Shapes = SHIPPED) -> TakenAction | None:
     """The action claimed for one candidate, whether or not it finished.
 
     What a resumed walk asks. An `outcome` of `None` on the row it finds is the
@@ -523,38 +540,43 @@ def get_action_for_hypothesis(conn: psycopg.Connection,
     before recording what happened, which is a question only the provider can
     answer.
     """
-    with conn.cursor(row_factory=class_row(TakenAction)) as cursor:
+    with conn.cursor(row_factory=dict_row) as cursor:
         cursor.execute(
-            "SELECT id, incident_id, hypothesis_id, type, subject, has_a_way_back, "
-            "       undo_descriptor, outcome, taken_at, progress, left_behind_known, "
-            "       undone, plan, since, performed_at, put_back_because "
+            f"SELECT {_COLUMNS} "
             "  FROM action "
             " WHERE incident_id = %s AND hypothesis_id = %s",
             (incident_id, hypothesis_id)
         )
+        row = cursor.fetchone()
 
-        return cursor.fetchone()
+    return _an_action(row, shapes) if row is not None else None
 
 
-def get_by_incident(conn: psycopg.Connection, incident_id: str) -> list[TakenAction]:
+def get_by_incident(conn: psycopg.Connection,
+                    incident_id: str,
+                    shapes: Shapes = SHIPPED) -> list[TakenAction]:
     """Everything the walk did during an incident, in the order it did it.
 
     A walk's actions are a sequence - tried, undone, tried again - and read back
     in any other order they describe a different incident. `taken_at` carries
     that order; `id` does not, because a random uuid says nothing about when its
     row was written.
+
+    Each brought up to the shape its descriptors are at now, and raising where
+    one cannot be: an incident's actions read in part would be told wrong, and
+    a put-back read wrong would put back the wrong thing.
     """
-    with conn.cursor(row_factory=class_row(TakenAction)) as cursor:
+    with conn.cursor(row_factory=dict_row) as cursor:
         cursor.execute(
-            "SELECT id, incident_id, hypothesis_id, type, subject, has_a_way_back, "
-            "       undo_descriptor, outcome, taken_at, progress, left_behind_known, "
-            "       undone, plan, since, performed_at, put_back_because "
+            f"SELECT {_COLUMNS} "
             "  FROM action "
             " WHERE incident_id = %s "
             "ORDER BY taken_at",
             (incident_id,)
         )
-        return cursor.fetchall()
+        rows = cursor.fetchall()
+
+    return [_an_action(row, shapes) for row in rows]
 
 
 def _as_column(undo_descriptor: UndoDescriptor | None) -> Jsonb | None:
@@ -562,3 +584,30 @@ def _as_column(undo_descriptor: UndoDescriptor | None) -> Jsonb | None:
     where there is none."""
     return (Jsonb(undo_descriptor.model_dump(mode="json"))
             if undo_descriptor is not None else None)
+
+
+def _the_shape_of(undo_descriptor: UndoDescriptor | None) -> int | None:
+    """The shape a descriptor is written in, beside it - NULL where it is."""
+    return SHIPPED.current(UNDO_DESCRIPTOR) if undo_descriptor is not None else None
+
+
+def _an_action(row: dict[str, Any], shapes: Shapes) -> TakenAction:
+    """The action a row of `_COLUMNS` holds, each descriptor brought up to
+    date before it is read."""
+    plan_shape = row.pop("plan_shape")
+    undo_shape = row.pop("undo_shape")
+
+    return TakenAction.model_validate({
+        **row,
+        "plan": _brought_up(row["plan"], plan_shape, shapes),
+        "undo_descriptor": _brought_up(row["undo_descriptor"], undo_shape, shapes)
+    })
+
+
+def _brought_up(descriptor: Any, shape: int | None, shapes: Shapes) -> Any:
+    """A descriptor brought up to the shape it is at now - absent where none
+    was written."""
+    if descriptor is None or shape is None:
+        return descriptor
+
+    return up_to_date(UNDO_DESCRIPTOR, shape, descriptor, shapes)

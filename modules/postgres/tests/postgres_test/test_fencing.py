@@ -16,6 +16,7 @@ import psycopg
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, attempting, calling
 from core import Fence, get_settings, was_lost
+from core.stored import ALERT, SHIPPED
 from postgres import connect_from_env, fence
 
 # What a worker's connections are called, and so what the database refuses a
@@ -23,6 +24,9 @@ from postgres import connect_from_env, fence
 # one word the worker and the schema agree on, and a test sharing the constant
 # would pass through a change that broke the agreement.
 THE_WORKER = "argus-worker"
+
+# The service the incident a run is held for is about: any will do.
+DONT_CARE_SERVICE = "some-service"
 
 # Refused because the run the write was made for is somebody else's now.
 RUN_LOST = "AR001"
@@ -216,8 +220,9 @@ def _a_run_held_at(epoch: int) -> Fence:
     here rather than claimed, because the queue belongs to a module this
     package cannot see."""
     with connect_from_env() as conn, conn.cursor() as cursor:
-        cursor.execute("INSERT INTO incident (alert_payload, status, created_at) "
-                       "VALUES ('{}', 'investigating', now()) RETURNING id")
+        cursor.execute("INSERT INTO incident (alert_payload, shape, alert_service, status, "
+                       "created_at) VALUES ('{}', %s, %s, 'investigating', now()) "
+                       "RETURNING id", (SHIPPED.current(ALERT), DONT_CARE_SERVICE))
         incident = cursor.fetchone()
         assert incident is not None
         cursor.execute("INSERT INTO incident_run (incident_id, state, claimed_by, leased_until, "

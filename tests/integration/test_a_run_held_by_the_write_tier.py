@@ -293,9 +293,13 @@ def _the_hold_was_had(still_held: bool) -> Assertion[Any]:
     return assertion
 
 
-def _the_batch_reads(expected: list[str]) -> Assertion[list[events.RecordedEvent]]:
-    def assertion(delivered: list[events.RecordedEvent]) -> bool:
-        kinds = [entry.event.kind for entry in delivered]
+def _the_batch_reads(
+    expected: list[str]
+) -> Assertion[list[events.RecordedEvent | events.UnreadableEvent]]:
+    def assertion(delivered: list[events.RecordedEvent | events.UnreadableEvent]) -> bool:
+        # One that could not be read is listed as what stopped it.
+        kinds = [entry.event.kind if isinstance(entry, events.RecordedEvent)
+                 else str(entry.unreadable) for entry in delivered]
 
         if kinds != expected:
             raise AssertionError(f"Expected the kinds {expected}, got {kinds}.")

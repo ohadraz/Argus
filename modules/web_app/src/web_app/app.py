@@ -11,7 +11,7 @@ from alert_source import AlertSource, AlertUnreadable, OnlyResolved
 from chat_platform import ChatDeliveryUnverified, ChatPlatformReads
 from core import DatabaseSettings
 from core.models import (
-    Incident,
+    IncidentStanding,
     IncidentStatus,
     Reference,
     Report,
@@ -558,7 +558,7 @@ class _TheIncidentRecord:
         # One holder or none: a name several incidents hold names none of them.
         return found[0].id if len(found) == 1 else None
 
-    def incidents_known_as(self, kind: str, values: Sequence[str]) -> list[Incident]:
+    def incidents_known_as(self, kind: str, values: Sequence[str]) -> list[IncidentStanding]:
         with self._connections() as conn:
             return references.get_incidents_by_values(conn, kind, values)
 

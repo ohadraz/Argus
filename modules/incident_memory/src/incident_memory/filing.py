@@ -12,11 +12,23 @@ versions: the one filed, moved on whenever what was tried changes, and the one
 the store last took. The difference is the work, the retry and the backlog - a
 deliverer that was down finds everything it missed still waiting, and memory
 switched on later finds every incident filed while it was off.
+
+Each row says the shape its record was written in (`core.stored`). A deliverer
+takes only the shapes it knows - one a newer release wrote waits for a
+deliverer that knows it - and brings an older one up before it reads it. One
+at a shape it knows that it still cannot read is parked (`park`) rather than
+stopping every pass - under the deliverer that parked it, which passes over it
+from then on. Every other deliverer still tries it, so the one a later release
+starts, which may hold the step it needed, delivers it.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Any
+
 import psycopg
+from core.stored import REMEMBERED_INCIDENT, SHIPPED, Shapes, Unreadable, up_to_date
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel
 
@@ -35,6 +47,15 @@ class Filed(BaseModel):
     version: int
 
 
+@dataclass(frozen=True)
+class UnreadableRecord:
+    """A filed record a deliverer could not bring up, and whose it is - which
+    is what parking it needs."""
+
+    incident_id: str
+    unreadable: Unreadable
+
+
 def file(conn: psycopg.Connection, record: RememberedIncident) -> None:
     """Files what this incident tried, for the store to be given.
 
@@ -42,47 +63,86 @@ def file(conn: psycopg.Connection, record: RememberedIncident) -> None:
     rather than beside it. A new version only where the record changed: a
     resume that composed the same record again owes the store nothing, and a
     version moved for it would embed and write the same record for every resume.
+
+    Changed means its JSON or the shape it is written in. A record filed again
+    by a release that writes another shape is a new version even where its JSON
+    matches, and is delivered again - harmless, and the only way the row never
+    holds new data under an old shape. Filing again clears a park as well, for
+    every deliverer: the record parked is not the record there now.
     """
     with conn.cursor() as cursor:
         cursor.execute(
             """
-            INSERT INTO incident_memory (incident_id, record)
-            VALUES (%s, %s)
+            INSERT INTO incident_memory (incident_id, record, shape)
+            VALUES (%s, %s, %s)
             ON CONFLICT (incident_id) DO UPDATE SET
                 record = EXCLUDED.record,
+                shape = EXCLUDED.shape,
+                parked_by = NULL,
                 version = incident_memory.version + 1
-            WHERE incident_memory.record IS DISTINCT FROM EXCLUDED.record
+            WHERE (incident_memory.record, incident_memory.shape)
+                  IS DISTINCT FROM (EXCLUDED.record, EXCLUDED.shape)
             """,
-            (record.incident_id, Jsonb(record.model_dump(mode="json")))
+            (record.incident_id, Jsonb(record.model_dump(mode="json")),
+             SHIPPED.current(REMEMBERED_INCIDENT))
         )
 
     conn.commit()
 
 
-def get_undelivered(conn: psycopg.Connection, limit: int) -> list[Filed]:
+def get_undelivered(conn: psycopg.Connection,
+                    limit: int,
+                    *,
+                    deliverer: str,
+                    shapes: Shapes = SHIPPED) -> list[Filed | UnreadableRecord]:
     """The records the store does not hold yet, oldest first, at most `limit`.
 
     Oldest first, so a deliverer that fell behind catches up in the order the
     incidents ended. Bounded, so one pass embeds a batch and marks it before it
     starts on the next, rather than embedding everything before marking any.
+
+    Only those at a shape `shapes` knows, and not parked by `deliverer`: a
+    record a newer release wrote waits for a deliverer that knows it, and one
+    another deliverer parked is tried again by this one. One that cannot be
+    brought up comes back as what stopped it, in its place, for the caller to
+    park - this reads, and writes nothing.
     """
     with conn.cursor() as cursor:
         cursor.execute(
             """
-            SELECT record, version
+            SELECT incident_id, record, shape, version
             FROM incident_memory
             WHERE delivered_version < version
+              AND parked_by IS DISTINCT FROM %s
+              AND shape <= %s
             ORDER BY filed_at, incident_id
             LIMIT %s
             """,
-            (limit,)
+            (deliverer, shapes.current(REMEMBERED_INCIDENT), limit)
         )
         found = cursor.fetchall()
 
-    return [
-        Filed(record=RememberedIncident.model_validate(record), version=version)
-        for record, version in found
-    ]
+    return [_filed(str(incident_id), record, shape, version, shapes)
+            for incident_id, record, shape, version in found]
+
+
+def park(conn: psycopg.Connection, incident_id: str, deliverer: str) -> None:
+    """Leaves the incident's record out of every pass `deliverer` makes, until
+    it is filed anew.
+
+    That deliverer's alone. Every release starts a deliverer of its own, so the
+    one that adds the step a parked record needed - or mends one under the
+    same shape - delivers what an older one parked, with no step of its own to
+    put the parks back. A park moves to whichever deliverer made it last: one
+    that a second deliverer cannot read either is that one's to pass over now.
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "UPDATE incident_memory SET parked_by = %s WHERE incident_id = %s",
+            (deliverer, incident_id)
+        )
+
+    conn.commit()
 
 
 def record_delivered(conn: psycopg.Connection, incident_id: str, version: int) -> None:
@@ -102,3 +162,22 @@ def record_delivered(conn: psycopg.Connection, incident_id: str, version: int) -
         )
 
     conn.commit()
+
+
+def _filed(incident_id: str,
+           record: Any,
+           shape: int,
+           version: int,
+           shapes: Shapes) -> Filed | UnreadableRecord:
+    """The record a row holds, brought up to date, or what stopped it.
+
+    Any failure, not a list of them: bringing a row up runs steps written for
+    whatever an older release stored, and what one of them raises over a row
+    it was not written for is not known in advance.
+    """
+    try:
+        brought_up = up_to_date(REMEMBERED_INCIDENT, shape, record, shapes)
+
+        return Filed(record=RememberedIncident.model_validate(brought_up), version=version)
+    except Exception as failure:
+        return UnreadableRecord(incident_id=incident_id, unreadable=Unreadable.of(failure))

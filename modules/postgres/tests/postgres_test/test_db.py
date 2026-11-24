@@ -33,6 +33,7 @@ from argus_testkit import (
     the_same_error_reached_the_caller,
 )
 from core import DatabaseSettings, Fence, Holding, get_settings
+from core.stored import ALERT, SHIPPED
 from postgres import (
     SchemaNotApplied,
     connect_from_env,
@@ -47,6 +48,9 @@ from psycopg_pool import ConnectionPool
 # What a worker's connections are called. Stated rather than imported, for the
 # reason `test_fencing` gives.
 THE_WORKER = "argus-worker"
+
+# The service the incident a run is held for is about: any will do.
+DONT_CARE_SERVICE = "some-service"
 
 # Refused because a worker wrote without saying which run it writes for.
 NO_RUN_HELD = "AR002"
@@ -335,8 +339,9 @@ def _a_run_held_at(epoch: int) -> Fence:
     """An incident with a run a worker holds, written here rather than claimed,
     for the reason `test_fencing` gives."""
     with connect_from_env() as conn, conn.cursor() as cursor:
-        cursor.execute("INSERT INTO incident (alert_payload, status, created_at) "
-                       "VALUES ('{}', 'investigating', now()) RETURNING id")
+        cursor.execute("INSERT INTO incident (alert_payload, shape, alert_service, status, "
+                       "created_at) VALUES ('{}', %s, %s, 'investigating', now()) "
+                       "RETURNING id", (SHIPPED.current(ALERT), DONT_CARE_SERVICE))
         incident = cursor.fetchone()
         assert incident is not None
         cursor.execute("INSERT INTO incident_run (incident_id, state, claimed_by, leased_until, "

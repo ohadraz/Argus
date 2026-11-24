@@ -17,7 +17,7 @@ from typing import Any, Final, cast
 
 import psycopg
 from core.events import StatusChanged
-from core.models import Alert, IncidentStatus
+from core.models import IncidentStatus
 from core.telemetry import (
     ARGUS_INCIDENT_ID,
     ARGUS_INCIDENT_OUTCOME,
@@ -174,7 +174,7 @@ def run_incident(incident_id: str,
 
     initial_state = IncidentState(
         incident_id=incident_id,
-        alert=Alert.model_validate(incident.alert_payload),
+        alert=incident.alert,
         status=IncidentStatus.INVESTIGATING,
     )
     measured_by = meter if meter is not None else metrics.get_meter(_SCOPE)

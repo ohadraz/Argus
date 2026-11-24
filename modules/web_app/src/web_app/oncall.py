@@ -27,7 +27,7 @@ from typing import Protocol
 from core.models import (
     NOTIFICATION_KEY,
     ON_CALL_INCIDENT,
-    Incident,
+    IncidentStanding,
     Lifespan,
     Reference,
     Report,
@@ -52,7 +52,7 @@ class IncidentRecord(Protocol):
     suite. What belongs here is which deliveries reach them, and with what.
     """
 
-    def incidents_known_as(self, kind: str, values: Sequence[str]) -> list[Incident]:
+    def incidents_known_as(self, kind: str, values: Sequence[str]) -> list[IncidentStanding]:
         """Every incident holding any of these names of this kind."""
         ...
 

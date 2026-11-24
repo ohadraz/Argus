@@ -44,7 +44,7 @@ from argus_testkit import (
 from core.models import (
     NOTIFICATION_KEY,
     ON_CALL_INCIDENT,
-    Incident,
+    IncidentStanding,
     IncidentStatus,
     Reference,
     Report,
@@ -348,30 +348,30 @@ def _a_platform(saying: Delivery, keys: list[str], note: str | None = None) -> A
 def _an_incident(incident_id: str,
                  status: IncidentStatus,
                  created_at: datetime,
-                 ended_at: datetime | None) -> Incident:
-    return Incident(id=incident_id, alert_payload={}, status=status,
-                    created_at=created_at, ended_at=ended_at)
+                 ended_at: datetime | None) -> IncidentStanding:
+    return IncidentStanding(id=incident_id, status=status,
+                            created_at=created_at, ended_at=ended_at)
 
 
-def _an_incident_during_the_page() -> Incident:
+def _an_incident_during_the_page() -> IncidentStanding:
     """`SOME_ARGUS_INCIDENT`, opened with the page and still being worked."""
     return _an_incident(SOME_ARGUS_INCIDENT, IncidentStatus.INVESTIGATING,
                         created_at=THE_PAGE_OPENED + A_MINUTE, ended_at=None)
 
 
-def _an_incident_over_before_the_page(incident_id: str) -> Incident:
+def _an_incident_over_before_the_page(incident_id: str) -> IncidentStanding:
     """An incident Argus escalated, which ended an hour before the page opened."""
     return _an_incident(incident_id, IncidentStatus.ESCALATED,
                         created_at=THE_PAGE_OPENED - 120 * A_MINUTE,
                         ended_at=THE_PAGE_OPENED - 60 * A_MINUTE)
 
 
-def _a_record(knowing: dict[tuple[str, str], list[Incident]]) -> Any:
+def _a_record(knowing: dict[tuple[str, str], list[IncidentStanding]]) -> Any:
     """An incident record holding these names, each as (kind, value) -> its
     holders."""
     record = create_autospec(IncidentRecord, instance=True)
 
-    def incidents_known_as(kind: str, values: list[str]) -> list[Incident]:
+    def incidents_known_as(kind: str, values: list[str]) -> list[IncidentStanding]:
         found = {incident.id: incident
                  for value in values
                  for incident in knowing.get((kind, value), [])}
