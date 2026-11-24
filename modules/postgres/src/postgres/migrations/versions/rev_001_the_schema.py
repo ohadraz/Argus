@@ -2,26 +2,55 @@
 
 Every table Argus has, created from nothing. There is no revision before this
 one and, until a column has to be added to a database somebody minds losing,
-there is none after it either: the job drops the schema and applies the chain
-again on every run, so this is what a database is. A change to the shape is a
-change to *this* file, written as though the schema had always said it - which
-is a licence that lasts exactly as long as no deployment outlives a restart.
+there is none after it either: a development stack applies it by dropping the
+schema first (`python -m apps.schema --destroy`), so this is what a database
+is. A change to the shape is a change to *this* file, written as though the
+schema had always said it - which is a licence that lasts exactly as long as no
+deployment outlives a restart. A deployment that keeps its data applies the
+chain without the drop, and an edit to this file made after that database
+reached `001` never reaches it: the licence ends at the first such deployment.
 
 The alters, when they come, come as 002. Editing a revision that has run
 somewhere it cannot be dropped is how a history stops describing any real
 database.
+
+The words the code also spells - how far an action got, what putting it back
+did, which names an incident shares, which run state a write needs, what a
+worker's connection is called and where its fence is said, the code a lost run
+is refused with - are spliced in from the code's own constants rather than
+written out again, so the two cannot drift apart while this file is the whole
+chain. That is a convenience of the licence above and ends with it: the change
+that adds `002` writes this file's spliced values back as the literals they
+render to, because a revision that has run somewhere must keep saying what it
+said, whatever the code's constants come to say. A value that changes after
+that gets a revision of its own.
 """
 
 from __future__ import annotations
 
+import re
+from collections.abc import Mapping, Sequence
+from typing import Final
+
 from alembic import op
+from core import RUN_LOST_SQLSTATE
+from core.models import (
+    ALERT_FIRING,
+    CHAT_THREAD,
+    NOTIFICATION_KEY,
+    ON_CALL_INCIDENT,
+    ActionProgress,
+    RunState,
+    Undone,
+)
+from postgres.fencing import A_WORKER, THE_FENCE
 
 revision: str = "001"
 down_revision: str | None = None
 branch_labels: None = None
 depends_on: None = None
 
-_DDL = """
+_DDL_AS_WRITTEN = """
 CREATE TABLE IF NOT EXISTS incident (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     -- The alert the incident was opened for, as its model dumps it, and the
@@ -223,10 +252,10 @@ CREATE TABLE IF NOT EXISTS action (
         open_until IS NULL
         AND CASE
             WHEN NOT has_a_way_back
-                THEN outcome IS NULL AND progress IN ('claimed', 'performed')
-            ELSE COALESCE(undone NOT IN ('restored', 'left-as-found', 'no-undo-was-owed'),
+                THEN outcome IS NULL AND progress IN (@@CHANGE_IN_FLIGHT@@)
+            ELSE COALESCE(undone NOT IN (@@NO_LONGER_STANDING@@),
                           true)
-                 AND NOT (progress = 'not-performed' AND left_behind_known
+                 AND NOT (progress = @@NOT_PERFORMED@@ AND left_behind_known
                           AND undo_descriptor IS NULL)
         END
     ) STORED,
@@ -245,7 +274,7 @@ CREATE TABLE IF NOT EXISTS action (
     -- A change owed back says why, and what puts it back: one with neither is
     -- a row nothing could resume the put-back from.
     CONSTRAINT action_owed_back_says_why CHECK (
-        progress <> 'putting-back'
+        progress <> @@PUTTING_BACK@@
         OR (put_back_because IS NOT NULL AND undo_descriptor IS NOT NULL)
     )
 );
@@ -657,7 +686,7 @@ CREATE TABLE IF NOT EXISTS incident_reference (
 -- on. `core.models.reference` names the three.
 CREATE UNIQUE INDEX IF NOT EXISTS incident_reference_one_holder_idx
     ON incident_reference (source, kind, value)
-    WHERE kind NOT IN ('notification-key', 'on-call-incident', 'alert-firing');
+    WHERE kind NOT IN (@@NAMES_SHARED_BY_INCIDENTS@@);
 CREATE INDEX IF NOT EXISTS incident_reference_name_idx
     ON incident_reference (kind, value);
 -- One conversation per incident per channel. A thread is a different name each
@@ -669,7 +698,7 @@ CREATE INDEX IF NOT EXISTS incident_reference_name_idx
 -- in a chat.
 CREATE UNIQUE INDEX IF NOT EXISTS incident_reference_one_chat_thread_idx
     ON incident_reference (incident_id, source, split_part(value, '/', 1))
-    WHERE kind = 'chat-thread';
+    WHERE kind = @@CHAT_THREAD@@;
 
 -- What people wrote in an incident's thread. The one input to an incident Argus
 -- did not produce, and so a fact about the incident rather than an account of
@@ -911,18 +940,19 @@ _OWNED_BY_A_DEPENDENCY = {"langgraph-checkpoint-postgres": _LANGGRAPH_DDL}
 # it fences every table the two before it made.
 #
 # Our own SQLSTATEs, in a class Postgres leaves unused: AR001 is the run lost,
-# AR002 the worker that named none. The messages are joined rather than
-# formatted, because the migration's SQL passes through a driver that reads a
-# percent sign as a parameter.
-_FENCING_DDL = """
+# spliced from what `core.was_lost` matches on, and AR002 the worker that named
+# none, which no code reads and so is written here alone. The messages are
+# joined rather than formatted, because the migration's SQL passes through a
+# driver that reads a percent sign as a parameter.
+_FENCING_DDL_AS_WRITTEN = """
 CREATE OR REPLACE FUNCTION argus_fence() RETURNS trigger LANGUAGE plpgsql AS $fence$
 DECLARE
     -- Null where this session never set it, empty where it was taken down: the
     -- same answer either way.
-    held TEXT := coalesce(current_setting('argus.fence', true), '');
+    held TEXT := coalesce(current_setting(@@THE_FENCE@@, true), '');
 BEGIN
     IF held = '' THEN
-        IF current_setting('application_name') = 'argus-worker' THEN
+        IF current_setting('application_name') = @@A_WORKER@@ THEN
             RAISE EXCEPTION USING ERRCODE = 'AR002',
                 MESSAGE = 'a worker wrote to ' || TG_TABLE_NAME || ' for no run';
         END IF;
@@ -933,11 +963,11 @@ BEGIN
     PERFORM 1 FROM incident_run
         WHERE id = split_part(held, ':', 1)::uuid
           AND epoch = split_part(held, ':', 2)::bigint
-          AND state = 'running'
+          AND state = @@RUNNING@@
         FOR SHARE;
 
     IF NOT FOUND THEN
-        RAISE EXCEPTION USING ERRCODE = 'AR001',
+        RAISE EXCEPTION USING ERRCODE = @@RUN_LOST@@,
             MESSAGE = 'run ' || held || ' is no longer held by this claim';
     END IF;
 
@@ -966,6 +996,77 @@ END
 $fencing$;
 """
 
+
+def _as_sql_literal(value: str) -> str:
+    """`value` as an SQL string literal, any quote in it doubled."""
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _as_sql_list(values: Sequence[str]) -> str:
+    """`values` as the inside of an SQL `IN (...)`, in the order given."""
+    return ", ".join(_as_sql_literal(value) for value in values)
+
+
+def _spliced(written: str, values: Mapping[str, str]) -> str:
+    """`written` with each `@@NAME@@` placeholder replaced by its value.
+
+    Refuses a placeholder `written` does not hold, and one left over after
+    every value is in: a misspelt name would otherwise leave a word of the
+    code out of the schema - and one left inside a `--` comment would ship
+    without the database ever refusing it.
+    """
+    spliced = written
+
+    for placeholder, value in values.items():
+        if placeholder not in spliced:
+            raise ValueError(f"the DDL holds no placeholder {placeholder}")
+
+        spliced = spliced.replace(placeholder, value)
+
+    left_over = sorted(set(_A_PLACEHOLDER.findall(spliced)))
+
+    if left_over:
+        raise ValueError(f"the DDL still holds the placeholders {left_over}")
+
+    return spliced
+
+
+# How a placeholder is written: distinctive enough that nothing else in SQL or in
+# a comment looks like one.
+_A_PLACEHOLDER: Final = re.compile(r"@@[A-Z_]+@@")
+
+# The members each list in the DDL names, spelled member by member and in the
+# DDL's order - never by walking the enum. Each is a subset, and its meaning is
+# exactly which members are in it: a member added to the enum joins a list only
+# by being named here.
+#
+# How far an action of a kind with no way back has got while it is still in
+# flight, and so open on its subject.
+_CHANGE_IN_FLIGHT: Final = (ActionProgress.CLAIMED, ActionProgress.PERFORMED)
+# What putting a change back did that leaves nothing of Argus's standing on its
+# subject. `left-standing` and `not-established` are not among them: a change
+# left standing still holds its subject, and so does one nobody could read back.
+_NO_LONGER_STANDING: Final = (Undone.RESTORED, Undone.LEFT_AS_FOUND, Undone.NO_UNDO_WAS_OWED)
+# The kinds of name several incidents may hold at once.
+_NAMES_SHARED_BY_INCIDENTS: Final = (NOTIFICATION_KEY, ON_CALL_INCIDENT, ALERT_FIRING)
+
+# What is applied: the DDL as written, with the code's words in it.
+_DDL: Final = _spliced(_DDL_AS_WRITTEN, {
+    "@@CHANGE_IN_FLIGHT@@": _as_sql_list(_CHANGE_IN_FLIGHT),
+    "@@NO_LONGER_STANDING@@": _as_sql_list(_NO_LONGER_STANDING),
+    "@@NOT_PERFORMED@@": _as_sql_literal(ActionProgress.NOT_PERFORMED),
+    "@@PUTTING_BACK@@": _as_sql_literal(ActionProgress.PUTTING_BACK),
+    "@@NAMES_SHARED_BY_INCIDENTS@@": _as_sql_list(_NAMES_SHARED_BY_INCIDENTS),
+    "@@CHAT_THREAD@@": _as_sql_literal(CHAT_THREAD)
+})
+_FENCING_DDL: Final = _spliced(_FENCING_DDL_AS_WRITTEN, {
+    "@@THE_FENCE@@": _as_sql_literal(THE_FENCE),
+    "@@A_WORKER@@": _as_sql_literal(A_WORKER),
+    "@@RUN_LOST@@": _as_sql_literal(RUN_LOST_SQLSTATE),
+    "@@RUNNING@@": _as_sql_literal(RunState.RUNNING)
+})
+
+
 def upgrade() -> None:
     """Every table, in one transaction: Argus's, LangGraph's, then the fence
     over all of them.
@@ -982,9 +1083,9 @@ def upgrade() -> None:
 def downgrade() -> None:
     """There is no way back, and saying so is more honest than a half of one.
 
-    A database here is replaced rather than migrated backwards - the job drops
-    the schema outright. A `downgrade` that dropped these tables would be a
-    second, worse spelling of that, kept in step by hand.
+    A database here is replaced rather than migrated backwards - a development
+    stack's job drops the schema outright. A `downgrade` that dropped these
+    tables would be a second, worse spelling of that, kept in step by hand.
     """
     raise NotImplementedError(
         "the schema is replaced rather than downgraded - apply it again instead"

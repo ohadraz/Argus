@@ -574,6 +574,15 @@ def _remove_the_containers_of(project: str) -> None:
               f"{removed.stderr.decode(errors='replace').strip()}")
 
 
+# How a development stack has the schema job apply the schema: by dropping it
+# first, which the job refuses unless the environment says the schema may be
+# destroyed. Said on each run that asks for it rather than in a `.env`, because
+# CI has none - and because a setting a developer's `.env` carried would carry
+# into whatever else that `.env` is pointed at.
+_DESTROYING_THE_SCHEMA: Final = ("--destroy",)
+_THE_SCHEMA_MAY_BE_DESTROYED: Final = {"SCHEMA_MAY_BE_DESTROYED": "true"}
+
+
 @_a_session()
 def schema(session: nox.Session) -> None:
     """
@@ -581,15 +590,18 @@ def schema(session: nox.Session) -> None:
     `uv run python -m nox -s schema`.
     Applies Argus's database schema to whatever database the environment names,
     by throwing away what is there and running Alembic's chain to head from
-    nothing. It is destructive and that is the design: while revision `001` is
-    the whole chain it is edited in place, so an edit to it reaches a database
-    only by replacing it. The drop goes when the first `002` lands.
+    nothing: the job told to destroy (`--destroy`), with the setting that lets
+    it. Destructive, and for a development database alone: while revision `001`
+    is the whole chain it is edited in place, so an edit to it reaches a
+    database only by replacing it. The drop goes when the first `002` lands. A
+    deployment that keeps its data runs the job bare, which drops nothing.
 
     A wrapper around `python -m apps.schema` rather than the job itself.
     The e2e stack applies the schema too, as does anyone with a bare checkout
     and a postgres container, and only some of those are nox.
     """
-    session.run("uv", "run", "python", "-m", "apps.schema", external=True)
+    session.run("uv", "run", "python", "-m", "apps.schema", *_DESTROYING_THE_SCHEMA,
+                env=_THE_SCHEMA_MAY_BE_DESTROYED, external=True)
 
 @_a_session()
 def index(session: nox.Session) -> None:
@@ -950,7 +962,8 @@ def integration(session: nox.Session) -> None:
         # reason. The job runs on the interpreter the tier is started with, so
         # the two cannot find different installs.
         session.run("docker", "compose", "up", "-d", "--wait", "postgres", external=True)
-        session.run(_venv_python_binary(), "-m", "apps.schema", external=True)
+        session.run(_venv_python_binary(), "-m", "apps.schema", *_DESTROYING_THE_SCHEMA,
+                    env=_THE_SCHEMA_MAY_BE_DESTROYED, external=True)
 
         services.append(_start_service(["-m", "apps.write_mcp"],
                                        env=github_at_the_double))
@@ -2500,7 +2513,8 @@ def _run_against_the_stack(
         # the whole of why it is a step of its own: no Argus process applies the
         # schema, so none of them can be the one that has to start first.
         session.run(
-            "uv", "run", "python", "-m", "apps.schema", external=True
+            "uv", "run", "python", "-m", "apps.schema", *_DESTROYING_THE_SCHEMA,
+            env=_THE_SCHEMA_MAY_BE_DESTROYED, external=True
         )
         services = _the_services_for(
             slack_stands_in, github_stands_in, pagerduty_stands_in, model_stands_in

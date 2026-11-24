@@ -25,7 +25,7 @@ def fence(conn: psycopg.Connection, held: Fence | None) -> None:
     made for no run at all.
     """
     conn.execute("SELECT set_config(%s, %s, false)",
-                  (_THE_FENCE, "" if held is None else held.spoken()))
+                  (THE_FENCE, "" if held is None else held.spoken()))
     conn.commit()
 
 
@@ -45,7 +45,7 @@ class FencedPool(ConnectionPool):
 
     def __init__(self, conninfo: str, holding: Holding, **pool: Any) -> None:
         self._holding = holding
-        named = {**(pool.pop("kwargs", None) or {}), "application_name": _A_WORKER}
+        named = {**(pool.pop("kwargs", None) or {}), "application_name": A_WORKER}
         super().__init__(conninfo, kwargs=named, **pool)
 
     def getconn(self, timeout: float | None = None) -> Any:
@@ -61,8 +61,10 @@ class FencedPool(ConnectionPool):
 
 
 # What a worker's connections are called, and so what the database refuses a
-# write from when it names no run. The schema says the same word.
-_A_WORKER: Final = "argus-worker"
+# write from when it names no run. Public because the schema's fence spells it
+# from here.
+A_WORKER: Final = "argus-worker"
 
-# The setting a connection's fence is said in, as `Fence.spoken` says it.
-_THE_FENCE: Final = "argus.fence"
+# The setting a connection's fence is said in, as `Fence.spoken` says it -
+# read by the schema's fence, which spells it from here.
+THE_FENCE: Final = "argus.fence"

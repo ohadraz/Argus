@@ -19,6 +19,7 @@ from postgres.fencing import fence
 from postgres.schema import (
     SchemaNotApplied,
     SchemaPresent,
+    apply_schema,
     require_schema,
     reset_schema,
 )
@@ -27,6 +28,7 @@ __all__ = [
     "Connections",
     "SchemaNotApplied",
     "SchemaPresent",
+    "apply_schema",
     "connect",
     "connect_from_env",
     "fence",

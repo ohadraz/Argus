@@ -5,10 +5,14 @@ is, and the alters will be `002` onwards. Applied from here and from nowhere
 else: no process that serves requests or drains work touches DDL, so the order
 the stack comes up in is nobody's promise to keep.
 
-Applied by replacing, for now. The chain is run against a database that was just
-dropped, which is why `001` can still be edited as though the schema had always
-said what it now says - a licence that lasts exactly as long as no deployment
-outlives a restart, and no longer.
+Two ways in, and only one of them destroys anything. `apply_schema` runs the
+chain from wherever the database is - what a deployment that keeps its data
+runs. `reset_schema` drops the schema first and runs the chain against nothing,
+which is what a development stack and every suite run: while `001` is the
+whole chain it can still be edited as though the schema had always said what it
+now says, and a database applied by dropping is one that edit reaches. That
+licence lasts exactly as long as no deployment outlives a restart, and no
+longer.
 """
 
 from __future__ import annotations
@@ -103,14 +107,32 @@ def require_schema(conn: psycopg.Connection,
         )
 
 
+def apply_schema(conn: psycopg.Connection) -> None:
+    """Runs the chain from wherever the database is to its head, dropping
+    nothing.
+
+    What the job does unless told to destroy (`apps.schema`), and the only
+    thing a database somebody minds losing may have done to it: an empty
+    database gets every table, and one already at the head is left as it is,
+    rows and all.
+
+    `conn` is the database being applied to, asked nothing: the chain opens a
+    connection of its own (`_upgrade_to_head`), to the database the same
+    `Settings` name. Taken all the same, so the two ways in are called alike
+    and a caller cannot tell from the signature which one destroys.
+    """
+    _upgrade_to_head()
+
+
 def reset_schema(conn: psycopg.Connection) -> None:
     """Throws the schema away and runs the chain against what is left.
 
-    The only way the schema is ever applied - by the job (`apps.schema`), and
-    by every suite on its way in. The drop goes first while `001` is still the
-    whole chain: a revision that has only ever run against an empty database is
-    one that can be edited, and the drop is what keeps that true. It goes when
-    the first `002` lands, and this becomes an upgrade like any other.
+    What a development stack applies the schema with - the job, told to
+    destroy (`apps.schema --destroy`) - and what every suite does on its way
+    in. The drop goes first while `001` is still the whole chain: a revision
+    that has only ever run against an empty database is one that can be
+    edited, and the drop is what keeps that true. It goes when the first `002`
+    lands, and the development stack applies as a deployment does.
 
     Dropping takes `alembic_version` with it, which is the point: the chain is
     then applied from nothing rather than found to be already at head.

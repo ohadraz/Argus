@@ -151,7 +151,7 @@ def was_lost(error: BaseException) -> bool:
     while reached is not None and id(reached) not in seen:
         seen.add(id(reached))
 
-        if isinstance(reached, RunLost) or getattr(reached, "sqlstate", None) == _RUN_LOST:
+        if isinstance(reached, RunLost) or getattr(reached, "sqlstate", None) == RUN_LOST_SQLSTATE:
             return True
 
         reached = reached.__cause__ or reached.__context__
@@ -162,4 +162,4 @@ def was_lost(error: BaseException) -> bool:
 # The SQLSTATE a write is refused with when the run it was made for is another
 # claim's now. Our own, in a class Postgres leaves unused; `AR002`, a worker
 # writing for no run, is a bug rather than a lost run and is not answered here.
-_RUN_LOST: Final = "AR001"
+RUN_LOST_SQLSTATE: Final = "AR001"

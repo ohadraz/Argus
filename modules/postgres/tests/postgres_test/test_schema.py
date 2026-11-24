@@ -16,6 +16,9 @@ of "no" is fatal is not. The asking is injected so that the second is stated
 without needing the first. The asking itself is put to a real database once,
 for what only a database can show: that the answer is read the same whatever
 rows the connection it is asked on hands out.
+
+And applying, the way a database somebody minds losing has it done: the chain
+run from wherever the database is, with nothing dropped on the way.
 """
 
 from __future__ import annotations
@@ -30,10 +33,19 @@ from argus_testkit import (
     all_of,
     an_error_was_raised,
     attempting,
+    calling,
     the_answer_was,
 )
 from core import DatabaseSettings, get_settings
-from postgres import SchemaNotApplied, SchemaPresent, connect, require_schema
+from postgres import (
+    SchemaNotApplied,
+    SchemaPresent,
+    apply_schema,
+    connect,
+    connect_from_env,
+    require_schema,
+    reset_schema,
+)
 from postgres.schema import schema_is_present
 from psycopg.rows import dict_row
 
@@ -41,6 +53,11 @@ A_PREPARED_DATABASE = True
 A_DATABASE_WITH_NO_SCHEMA = False
 
 THE_JOB = "nox -s schema"
+
+# A row the database holds before the schema is applied to it again: a reader's
+# place in the event log, the table with the fewest columns a row must fill.
+SOME_READER = "a reader whose place outlives the schema being applied"
+SOME_PLACE = 42
 
 
 @pytest.mark.unit
@@ -100,6 +117,98 @@ def test_the_schema_is_found_on_a_connection_handing_out_rows_by_name(postgres: 
         .then(
             the_answer_was(True)
         )
+
+
+@pytest.mark.integration
+def test_applying_the_schema_keeps_what_the_database_holds(a_clean_database: None) -> None:
+    # What a deployment that keeps its data runs, against a database already at
+    # the chain's head: there is nothing to apply, and nothing is taken away.
+    #
+    # Put at the head here rather than assumed to be: emptying the tables after
+    # a test empties Alembic's record of the chain with them, and a database
+    # whose record says nothing has run is one the chain is applied to again.
+    Scenario() \
+        .given(
+            calling(_a_database_at_the_chains_head),
+            calling(lambda: _a_place_kept_for(SOME_READER, SOME_PLACE))
+        ) \
+        .when(
+            lambda: _the_schema_applied()
+        ) \
+        .then(
+            _the_place_kept_for(SOME_READER, is_still=SOME_PLACE)
+        )
+
+
+@pytest.mark.integration
+def test_applying_the_schema_to_an_empty_database_gives_it_every_table(
+    a_clean_database: None
+) -> None:
+    # What a deployment's first start runs. Asked after the way every service
+    # asks before it serves, so a job that applied nothing would leave a
+    # database every service refuses.
+    Scenario() \
+        .given(
+            calling(_a_database_with_no_schema)
+        ) \
+        .when(
+            lambda: _the_schema_applied()
+        ) \
+        .then(
+            lambda _: _the_schema_is_there()
+        )
+
+
+def _a_database_with_no_schema() -> None:
+    with connect_from_env() as conn:
+        conn.execute("DROP SCHEMA public CASCADE")
+        conn.execute("CREATE SCHEMA public")
+        conn.commit()
+
+
+def _the_schema_is_there() -> bool:
+    with connect_from_env() as conn:
+        if not schema_is_present(conn):
+            raise AssertionError(
+                "Expected the schema to be there once it was applied to an empty "
+                "database, and the database has none."
+            )
+
+    return True
+
+
+def _a_database_at_the_chains_head() -> None:
+    with connect_from_env() as conn:
+        reset_schema(conn)
+
+
+def _a_place_kept_for(reader: str, place: int) -> None:
+    with connect_from_env() as conn:
+        conn.execute("INSERT INTO event_cursor (reader, seq) VALUES (%s, %s)", (reader, place))
+        conn.commit()
+
+
+def _the_schema_applied() -> None:
+    with connect_from_env() as conn:
+        apply_schema(conn)
+
+
+def _the_place_kept_for(reader: str, is_still: int) -> Assertion[object]:
+    def assertion(_result: object) -> bool:
+        with connect_from_env() as conn:
+            row = conn.execute("SELECT seq FROM event_cursor WHERE reader = %s",
+                               (reader,)).fetchone()
+
+        if row is None or row[0] != is_still:
+            raise AssertionError(
+                f"Expected the place [{reader}] keeps in the log to still be [{is_still}] "
+                f"once the schema was applied again, and the database held "
+                f"[{row[0] if row is not None else 'no such row'}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _asked_on_a_connection_handing_out_rows_by_name() -> bool:

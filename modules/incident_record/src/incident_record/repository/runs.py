@@ -18,31 +18,20 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta
-from enum import StrEnum
 from typing import Final
 
 import psycopg
 from core import Fence, UuidStr
 from core.models import IncidentStatus
+
+# Named here as well as in the kernel, where it lives because the schema's fence
+# spells `running` too: every reader of a run already has this module open.
+from core.models import RunState as RunState
 from psycopg.errors import LockNotAvailable
 from psycopg.rows import class_row
 from pydantic import BaseModel
 
 from incident_record.repository.advisory_locks import AdvisoryLock
-
-
-class RunState(StrEnum):
-    """Where a run is, which is not where its incident is.
-
-    An incident's status says what Argus knows about the failure; a run's state
-    says whether anything is currently thinking about it. A queued run on a
-    resolved incident is a bug, and it takes two columns to be able to see it.
-    """
-
-    QUEUED = "queued"
-    RUNNING = "running"
-    DONE = "done"
-    FAILED = "failed"
 
 
 class Run(BaseModel):

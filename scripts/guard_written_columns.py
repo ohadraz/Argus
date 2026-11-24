@@ -172,10 +172,11 @@ def _read_the_schema(migrations: Path) -> tuple[dict[str, Table], list[str]]:
 def _the_ddl_in(revision: Path) -> str | None:
     """The revision's DDL, taken from its module-level string constants.
 
-    Annotated and plain assignments alike. `rev_001` spells it `_DDL = "..."`
-    and the house style for a constant is `_DDL: Final = "..."`, so reading
-    only one of the two makes the next revision written properly the revision
-    this cannot read.
+    Annotated and plain assignments alike. `rev_001` spells it
+    `_DDL_AS_WRITTEN = "..."` - its `_DDL` is that text with the code's
+    vocabulary spliced in, a call this does not read - and the house style for
+    a constant is `_DDL: Final = "..."`, so reading only one of the two makes
+    the next revision written properly the revision this cannot read.
 
     Every constant that declares a table is read, but the ones the revision
     itself names as a dependency's, in `_OWNED_BY_A_DEPENDENCY`. Those tables

@@ -36,7 +36,7 @@ from core.config import (
     WriteMcpEndpoint,
     get_settings,
 )
-from core.fencing import Fence, Holding, RunLost, was_lost
+from core.fencing import RUN_LOST_SQLSTATE, Fence, Holding, RunLost, was_lost
 from core.ids import UuidStr, new_id
 from core.pytest_naming import is_a_test_file
 from core.timestamps import (
@@ -50,6 +50,7 @@ from core.timestamps import (
 )
 
 __all__ = [
+    "RUN_LOST_SQLSTATE",
     "AdapterSettings",
     "Clock",
     "DatabaseSettings",

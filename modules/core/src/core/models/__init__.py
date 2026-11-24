@@ -180,6 +180,7 @@ from core.models.refusal import (
 from core.models.remembered import RecalledIncident, WhatWasTried
 from core.models.report import Report, ReportChannel
 from core.models.rollout import RolloutAccount, RolloutProgress
+from core.models.run_state import RunState
 from core.models.service_dependency import Ownership, ServiceDependency
 from core.models.synopsis import (
     ExecutiveSynopsis,
@@ -407,6 +408,7 @@ __all__ = [
     "RollBackDeployment",
     "RolloutAccount",
     "RolloutProgress",
+    "RunState",
     "AlertRuleStanding",
     "ScaleOut",
     "RestartedService",

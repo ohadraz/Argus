@@ -48,6 +48,12 @@ class Settings(BaseSettings):
     database_password: str = Field(default="argus")
     database_host: str = Field(default="localhost")
     database_port: int = Field(default=5432)
+    # Whether the schema job may drop the schema, every row with it, before
+    # applying it (`python -m apps.schema --destroy`). A development stack's
+    # alone - set where a database is applied by dropping it while `001` is
+    # still edited in place, and never where a deployment keeps data. False
+    # by default, so a deployment cannot be one flag away from being wiped.
+    schema_may_be_destroyed: bool = Field(default=False)
 
     target_service_url: str = Field(default="http://localhost:8080")
 
