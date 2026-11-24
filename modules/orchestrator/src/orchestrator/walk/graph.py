@@ -104,9 +104,24 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
     two together - so a walk in a different process, against a different pool,
     is the same graph built with a different record.
 
-    Every node is wrapped so the status its work implies is derived, written
-    and published in one place. The actor is supplied here because which agent
-    a node belongs to is a fact about the graph, not about the node.
+    The graph is its steps (`_the_steps`) and the routes between them
+    (`_the_routes`), registered in that order."""
+    graph: StateGraph[IncidentState] = StateGraph(IncidentState)
+
+    _the_steps(graph, collaborators)
+    _the_routes(graph)
+
+    return graph.compile(checkpointer=checkpointer)
+
+
+def _the_steps(graph: StateGraph[IncidentState], collaborators: Collaborators) -> None:
+    """Registers every node of the walk on `graph`, each bound to the
+    collaborators it names.
+
+    Every node but remembering and the synopsis is wrapped so the status its
+    work implies is derived, written and published in one place. The actor is
+    supplied here because which agent a node belongs to is a fact about the
+    graph, not about the node.
 
     And every node is a step of the walk's trace, registered through `step` so
     that none can be added without one - the agent named beside it is what the
@@ -119,8 +134,6 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
     ending is asked, for the nodes it wraps, and around the node for the two it
     does not. Code-Fix keeps its interrupted attempt's account
     (`keeps_the_interrupted_fix`)."""
-    graph: StateGraph[IncidentState] = StateGraph(IncidentState)
-
     def step(name: str, actor: Actor, node: Callable[[IncidentState], Any]) -> None:
         """Registers a node, traced as a step of the walk that `actor` took."""
         graph.add_node(name, traced(name, actor, stepped(node)))
@@ -270,12 +283,17 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
         )
     )
 
+
+def _the_routes(graph: StateGraph[IncidentState]) -> None:
+    """Wires every edge from §10's diagram between the steps on `graph`.
+
+    Every router is wrapped so an incident a person ended goes where that
+    ending sends it from wherever the walk happens to be, and every mapping
+    carries both destinations. A withdrawn incident leaves the graph - the walk
+    is over, and nothing is written up for it. A resolved one goes on to be
+    remembered and written up, past anything still to try.
+    """
     graph.add_edge(START, INVESTIGATOR_NODE)
-    # Every router is wrapped so an incident a person ended goes where that
-    # ending sends it from wherever the walk happens to be, and every mapping
-    # carries both destinations. A withdrawn incident leaves the graph - the
-    # walk is over, and nothing is written up for it. A resolved one goes on to
-    # be remembered and written up, past anything still to try.
     graph.add_conditional_edges(
         INVESTIGATOR_NODE,
         stopping_when_a_person_ended_it(route_after_investigation),
@@ -356,5 +374,3 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any],
     # The synopsis is written from the stored postmortem, so after it.
     graph.add_edge(POSTMORTEM_NODE, SYNOPSIS_NODE)
     graph.add_edge(SYNOPSIS_NODE, END)
-
-    return graph.compile(checkpointer=checkpointer)
