@@ -972,30 +972,22 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
         if incident_id is not None:
             publish(event, publisher)
 
-    # Whether the service was ever actually looked at. What the expiry below
-    # means depends entirely on it: a window that ran out having read the shop
-    # and found it still bad is a refutation, and a window that ran out having
-    # read nothing is not a verdict at all.
-    anything_was_read = False
-    # When to stop watching: the configured bound while nothing has been
-    # measured, and the window's own answer from the first reading that comes
-    # back.
-    watch_until = nothing_measured_by
-    # Whether this incident's own minutes were ever published, which decides which
-    # of the two questions above is asked. `None` until a read answers, because it
-    # is measured from a window rather than declared by a caller.
-    the_sight_was_absent: bool | None = None
-    # The wait as measured off the first window that answered, held until a
-    # verdict is read off the minutes it names - `None` once said, or where none
-    # is due.
-    the_wait: AwaitingRecovery | None = None
-    # Whether the rule that paged was ever read, and whether any evaluation read
-    # covered only the time since the change. The second is what decides what
-    # running out of time means on that path, as `anything_was_read` does on
-    # this one: an evaluation over minutes from before the change judged nothing
-    # the change did, so a wait that read only those measured nothing.
-    the_rule_was_read = False
-    an_evaluation_since_the_change_was_read = False
+    watching = _Watching(
+        still_wanted=still_wanted,
+        settings=settings,
+        thresholds=thresholds,
+        action_type=action_type,
+        acted_from=acted_from,
+        incident_id=incident_id,
+        onset=onset,
+        incident_began=incident_began,
+        arrived_at=arrived_at,
+        first_minute_begins=first_minute_begins,
+        first_whole_minute=first_whole_minute,
+        a_read_may_go_unanswered_for=a_read_may_go_unanswered_for,
+        say=say,
+        watch_until=nothing_measured_by
+    )
 
     while True:
         # Asked before each look rather than only after it. A walk somebody
@@ -1045,73 +1037,18 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
             # is still asked, and its deadline still decides.
             buckets = []
         elif buckets is None:
-            # The deadline still decides, and it is held to the moment this look
-            # was asked, as an answered one is. A failure asked for in time is
-            # owed the look after it, as a late answer would have been.
-            #
-            # What it decides, though, is not `REFUTED` where nothing was ever
-            # read. That word means the explanation was tested and did not hold,
-            # and acting on it undoes the change and strikes the candidate off -
-            # so a mitigation that worked would be reversed, the service broken
-            # again, and the cause that was right removed from the list, on a
-            # measurement nobody took. Both times this was seen against the real
-            # stack the service had in fact recovered. `ESCALATED` is the member
-            # that already means no verdict was reached at all, and the one this
-            # is: Argus cannot say, so a person is asked.
-            if asked_at >= watch_until and not anything_was_read:
-                logger.warning("nothing was measured before the deadline")
+            settled = watching.after_an_unanswered_read(asked_at)
 
-                return _Settled(
-                    Verdict.ESCALATED,
-                    "the service could not be read once before the time "
-                    "allowed ran out - so nothing was measured either way"
-                )
-
-            # Nor where the service was read, but only before the deadline. Each
-            # of those looks could have confirmed a recovery, and none that did
-            # not was late enough to rule one out - so refuting on the last of
-            # them judged the change on minutes it had not had. The look owed is one
-            # from the deadline on, and it is asked again until one lands or a
-            # read has gone unanswered as long as one may.
-            if asked_at >= watch_until + a_read_may_go_unanswered_for:
-                logger.warning("nothing was measured after the deadline")
-
-                return _NOT_READ_SINCE_THE_DEADLINE
+            if settled is not None:
+                return settled
 
             sleep(_SECONDS_BETWEEN_METRIC_READS)
             continue
 
-        if not anything_was_read and read_the_rule is None:
-            # The first window to come back is what says how long this wait
-            # lasts, and it says it once. Re-derived on every pass it would be a
-            # moving deadline: a service still flapping extends the rhythm it is
-            # being judged by, so the wait would grow for exactly as long as the
-            # service kept misbehaving and the verdict would never be reached.
-            watch_until = _when_a_recovery_would_have_shown(
-                first_minute_begins, buckets, thresholds,
-                reporting_lag_minutes=settings.metrics_reporting_lag_minutes
-            )
+        if not watching.anything_was_read and read_the_rule is None:
+            watching.measure_the_first_window(buckets)
 
-            # Measured here rather than before the first read, because the
-            # figure is measured off that window: said earlier it would be a
-            # guess, and the page and the Slack line both say it aloud. A wait
-            # whose reads never answer therefore announces nothing - what the
-            # page carries then is a line per unanswered read, which is the same
-            # thing this was there to prevent.
-            #
-            # Held rather than said, and said before the first verdict read off
-            # the minutes it names. The receipt and a window that never departed
-            # settle this same pass on no minute at all, and announced before
-            # them the page said "Waiting ... up to 104s" and gave the verdict
-            # 44 ms later.
-            if incident_id is not None:
-                the_wait = AwaitingRecovery(
-                    incident_id=incident_id,
-                    from_minute=first_whole_minute,
-                    seconds_allowed=(watch_until - arrived_at).total_seconds()
-                )
-
-        anything_was_read = True
+        watching.anything_was_read = True
         # An incident paged by a rule watching a series is judged by that rule.
         # It defines what is acceptable for the service, and it sees what one
         # window of minutes cannot: a flap with no rhythm hands the levels a
@@ -1121,142 +1058,281 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
         # deciding - a window that never departed, a receipt, readings returning
         # - and an action the rule judges gets no verdict from the levels. The
         # window is read here only to date the recovery.
-        if read_the_rule is not None:
-            try:
-                standing = read_the_rule()
-            except Exception as rule_unanswered:
-                logger.warning("alert rule could not be read", exc_info=True)
+        settled = (watching.judged_by_the_rule(read_the_rule, asked_at, buckets)
+                   if read_the_rule is not None else
+                   watching.judged_by_the_window(asked_at, buckets))
 
-                # Asked after the rule's read for the reason it is asked after
-                # the window's.
-                if not still_wanted():
-                    return _ENDED_DURING_THE_WAIT
+        if settled is not None:
+            return settled
 
-                if incident_id is not None:
-                    say(RetrievalUnanswered(
-                        incident_id=incident_id,
-                        what_was_asked="the alert rule that fired",
-                        because=str(rule_unanswered),
-                        minute=first_whole_minute
-                    ))
+        sleep(_SECONDS_BETWEEN_METRIC_READS)
 
-                # Never refuted on a failed read. An evaluation read before the
-                # deadline could have confirmed the change, but one still firing
-                # was too early to rule its stopping out - and refuting on it
-                # puts the change back on a measurement nobody took.
-                # The look owed is one from the deadline on, asked again as the
-                # levels' is.
-                if asked_at >= watch_until and not the_rule_was_read:
-                    logger.warning("nothing was measured before the deadline")
 
-                    return _Settled(
-                        Verdict.ESCALATED,
-                        "the rule that fired could not be read once before "
-                        "the time allowed ran out - so nothing was measured "
-                        "either way"
-                    )
+@dataclass
+class _Watching:
+    """One watch of the service once the change was in force: what it was
+    handed, which stays as it was, and what its looks have found so far, which
+    each look reads and moves on.
 
-                if asked_at >= watch_until + a_read_may_go_unanswered_for:
-                    logger.warning("nothing was measured after the deadline")
+    What `_what_watching_the_service_settled` asks of every look is the loop's;
+    what a look is judged by - the rule that paged, or the window - is here,
+    each judge answering a verdict or `None`, which is the loop's next look.
+    """
 
-                    return (
-                        _RULE_NOT_READ_SINCE_THE_DEADLINE
-                        if an_evaluation_since_the_change_was_read else
-                        _NO_EVALUATION_SINCE_THE_CHANGE
-                    )
+    still_wanted: StillWanted
+    settings: MitigationSettings
+    thresholds: AnomalyThresholds
+    action_type: ActionType
+    acted_from: datetime
+    incident_id: str | None
+    onset: datetime | None
+    incident_began: str | None
+    arrived_at: datetime
+    first_minute_begins: datetime
+    first_whole_minute: str
+    a_read_may_go_unanswered_for: timedelta
+    say: Callable[[AwaitingRecovery | RecoveryChecked | RetrievalUnanswered], None]
+    # When to stop watching: the configured bound while nothing has been
+    # measured, and the window's own answer from the first reading that comes
+    # back.
+    watch_until: datetime
+    # Whether the service was ever actually looked at. What the expiry below
+    # means depends entirely on it: a window that ran out having read the shop
+    # and found it still bad is a refutation, and a window that ran out having
+    # read nothing is not a verdict at all.
+    anything_was_read: bool = False
+    # Whether this incident's own minutes were ever published, which decides which
+    # of the two questions above is asked. `None` until a read answers, because it
+    # is measured from a window rather than declared by a caller.
+    the_sight_was_absent: bool | None = None
+    # The wait as measured off the first window that answered, held until a
+    # verdict is read off the minutes it names - `None` once said, or where none
+    # is due.
+    the_wait: AwaitingRecovery | None = None
+    # Whether the rule that paged was ever read, and whether any evaluation read
+    # covered only the time since the change. The second is what decides what
+    # running out of time means on that path, as `anything_was_read` does on
+    # this one: an evaluation over minutes from before the change judged nothing
+    # the change did, so a wait that read only those measured nothing.
+    the_rule_was_read: bool = False
+    an_evaluation_since_the_change_was_read: bool = False
 
-                sleep(_SECONDS_BETWEEN_METRIC_READS)
-                continue
+    def after_an_unanswered_read(self, asked_at: datetime) -> _Settled | None:
+        """What a look whose window could not be read settles, where the
+        levels judge: no verdict, or `None` while a look is still owed.
 
-            if not still_wanted():
+        The deadline still decides, and it is held to the moment this look was
+        asked, as an answered one is. A failure asked for in time is owed the
+        look after it, as a late answer would have been."""
+        # What it decides, though, is not `REFUTED` where nothing was ever
+        # read. That word means the explanation was tested and did not hold,
+        # and acting on it undoes the change and strikes the candidate off -
+        # so a mitigation that worked would be reversed, the service broken
+        # again, and the cause that was right removed from the list, on a
+        # measurement nobody took. Both times this was seen against the real
+        # stack the service had in fact recovered. `ESCALATED` is the member
+        # that already means no verdict was reached at all, and the one this
+        # is: Argus cannot say, so a person is asked.
+        if asked_at >= self.watch_until and not self.anything_was_read:
+            logger.warning("nothing was measured before the deadline")
+
+            return _Settled(
+                Verdict.ESCALATED,
+                "the service could not be read once before the time "
+                "allowed ran out - so nothing was measured either way"
+            )
+
+        # Nor where the service was read, but only before the deadline. Each
+        # of those looks could have confirmed a recovery, and none that did
+        # not was late enough to rule one out - so refuting on the last of
+        # them judged the change on minutes it had not had. The look owed is one
+        # from the deadline on, and it is asked again until one lands or a
+        # read has gone unanswered as long as one may.
+        if asked_at >= self.watch_until + self.a_read_may_go_unanswered_for:
+            logger.warning("nothing was measured after the deadline")
+
+            return _NOT_READ_SINCE_THE_DEADLINE
+
+        return None
+
+    def measure_the_first_window(self, buckets: list[MetricBucket]) -> None:
+        """How long the wait lasts, read off the first window to come back,
+        and the wait line held to be said - settling nothing, so the same
+        look goes on to be judged."""
+        # The first window to come back is what says how long this wait
+        # lasts, and it says it once. Re-derived on every pass it would be a
+        # moving deadline: a service still flapping extends the rhythm it is
+        # being judged by, so the wait would grow for exactly as long as the
+        # service kept misbehaving and the verdict would never be reached.
+        self.watch_until = _when_a_recovery_would_have_shown(
+            self.first_minute_begins, buckets, self.thresholds,
+            reporting_lag_minutes=self.settings.metrics_reporting_lag_minutes
+        )
+
+        # Measured here rather than before the first read, because the
+        # figure is measured off that window: said earlier it would be a
+        # guess, and the page and the Slack line both say it aloud. A wait
+        # whose reads never answer therefore announces nothing - what the
+        # page carries then is a line per unanswered read, which is the same
+        # thing this was there to prevent.
+        #
+        # Held rather than said, and said before the first verdict read off
+        # the minutes it names. The receipt and a window that never departed
+        # settle this same pass on no minute at all, and announced before
+        # them the page said "Waiting ... up to 104s" and gave the verdict
+        # 44 ms later.
+        if self.incident_id is not None:
+            self.the_wait = AwaitingRecovery(
+                incident_id=self.incident_id,
+                from_minute=self.first_whole_minute,
+                seconds_allowed=(self.watch_until - self.arrived_at).total_seconds()
+            )
+
+    def judged_by_the_rule(self,
+                           read_the_rule: Callable[[], AlertRuleStanding],
+                           asked_at: datetime,
+                           buckets: list[MetricBucket]) -> _Settled | None:
+        """What one look settles where the rule that paged judges: a
+        verdict, or `None` while the rule is still to be read again."""
+        try:
+            standing = read_the_rule()
+        except Exception as rule_unanswered:
+            logger.warning("alert rule could not be read", exc_info=True)
+
+            # Asked after the rule's read for the reason it is asked after
+            # the window's.
+            if not self.still_wanted():
                 return _ENDED_DURING_THE_WAIT
 
-            if not the_rule_was_read:
-                # Read off the rule once, as the metrics' deadline is read off
-                # the first window: how far back it looks, plus one evaluation,
-                # plus how long it keeps firing, plus the source's lag.
-                watch_until = _when_the_rule_would_have_resolved(
-                    arrived_at, standing,
-                    reporting_lag_minutes=settings.metrics_reporting_lag_minutes
-                )
-
-                if incident_id is not None:
-                    say(AwaitingRecovery(
-                        incident_id=incident_id,
-                        from_minute=first_whole_minute,
-                        seconds_allowed=(watch_until - arrived_at).total_seconds()
-                    ))
-
-            the_rule_was_read = True
-            # Only an evaluation whose whole range followed the change says
-            # anything about it; one that began before may have caught a lull the
-            # action had no part in. So a look at one that began before has judged
-            # nothing yet, firing or quiet. Said as still at the incident's level,
-            # a look a second after a revert was read as the verdict.
-            followed_the_change = (
-                standing.evaluated_at - timedelta(seconds=standing.range_seconds)
-                >= arrived_at
-            )
-            resolved = standing.is_normal and followed_the_change
-            an_evaluation_since_the_change_was_read = (
-                an_evaluation_since_the_change_was_read or followed_the_change
-            )
-            came_back_at = (
-                find_recovery(buckets, thresholds, since=incident_began)
-                if resolved else None
-            )
-
-            if incident_id is not None:
-                say(RecoveryChecked(
-                    incident_id=incident_id,
-                    minute=first_whole_minute,
-                    recovered=resolved,
-                    recovered_minute=came_back_at,
-                    saw_no_minute=not followed_the_change
+            if self.incident_id is not None:
+                self.say(RetrievalUnanswered(
+                    incident_id=self.incident_id,
+                    what_was_asked="the alert rule that fired",
+                    because=str(rule_unanswered),
+                    minute=self.first_whole_minute
                 ))
 
-            if not still_wanted():
-                return _ENDED_DURING_THE_WAIT
-
-            if resolved:
-                return _Settled(
-                    Verdict.CONFIRMED, "the rule that fired stopped firing"
-                )
-
-            if asked_at >= watch_until:
-                if not an_evaluation_since_the_change_was_read:
-                    logger.warning("nothing was measured before the deadline")
-                    return _NO_EVALUATION_SINCE_THE_CHANGE
+            # Never refuted on a failed read. An evaluation read before the
+            # deadline could have confirmed the change, but one still firing
+            # was too early to rule its stopping out - and refuting on it
+            # puts the change back on a measurement nobody took.
+            # The look owed is one from the deadline on, asked again as the
+            # levels' is.
+            if asked_at >= self.watch_until and not self.the_rule_was_read:
+                logger.warning("nothing was measured before the deadline")
 
                 return _Settled(
-                    Verdict.REFUTED,
-                    "the rule that fired was still firing when the time it "
-                    "allows ran out"
+                    Verdict.ESCALATED,
+                    "the rule that fired could not be read once before "
+                    "the time allowed ran out - so nothing was measured "
+                    "either way"
                 )
 
-            sleep(_SECONDS_BETWEEN_METRIC_READS)
-            continue
+            if asked_at >= self.watch_until + self.a_read_may_go_unanswered_for:
+                logger.warning("nothing was measured after the deadline")
 
+                return (
+                    _RULE_NOT_READ_SINCE_THE_DEADLINE
+                    if self.an_evaluation_since_the_change_was_read else
+                    _NO_EVALUATION_SINCE_THE_CHANGE
+                )
+
+            return None
+
+        if not self.still_wanted():
+            return _ENDED_DURING_THE_WAIT
+
+        if not self.the_rule_was_read:
+            # Read off the rule once, as the metrics' deadline is read off
+            # the first window: how far back it looks, plus one evaluation,
+            # plus how long it keeps firing, plus the source's lag.
+            self.watch_until = _when_the_rule_would_have_resolved(
+                self.arrived_at, standing,
+                reporting_lag_minutes=self.settings.metrics_reporting_lag_minutes
+            )
+
+            if self.incident_id is not None:
+                self.say(AwaitingRecovery(
+                    incident_id=self.incident_id,
+                    from_minute=self.first_whole_minute,
+                    seconds_allowed=(self.watch_until - self.arrived_at).total_seconds()
+                ))
+
+        self.the_rule_was_read = True
+        # Only an evaluation whose whole range followed the change says
+        # anything about it; one that began before may have caught a lull the
+        # action had no part in. So a look at one that began before has judged
+        # nothing yet, firing or quiet. Said as still at the incident's level,
+        # a look a second after a revert was read as the verdict.
+        followed_the_change = (
+            standing.evaluated_at - timedelta(seconds=standing.range_seconds)
+            >= self.arrived_at
+        )
+        resolved = standing.is_normal and followed_the_change
+        self.an_evaluation_since_the_change_was_read = (
+            self.an_evaluation_since_the_change_was_read or followed_the_change
+        )
+        came_back_at = (
+            find_recovery(buckets, self.thresholds, since=self.incident_began)
+            if resolved else None
+        )
+
+        if self.incident_id is not None:
+            self.say(RecoveryChecked(
+                incident_id=self.incident_id,
+                minute=self.first_whole_minute,
+                recovered=resolved,
+                recovered_minute=came_back_at,
+                saw_no_minute=not followed_the_change
+            ))
+
+        if not self.still_wanted():
+            return _ENDED_DURING_THE_WAIT
+
+        if resolved:
+            return _Settled(
+                Verdict.CONFIRMED, "the rule that fired stopped firing"
+            )
+
+        if asked_at >= self.watch_until:
+            if not self.an_evaluation_since_the_change_was_read:
+                logger.warning("nothing was measured before the deadline")
+                return _NO_EVALUATION_SINCE_THE_CHANGE
+
+            return _Settled(
+                Verdict.REFUTED,
+                "the rule that fired was still firing when the time it "
+                "allows ran out"
+            )
+
+
+        return None
+
+    def judged_by_the_window(self,
+                             asked_at: datetime,
+                             buckets: list[MetricBucket]) -> _Settled | None:
+        """What one look settles where the window judges: a verdict, or
+        `None` while the service is still to be read again."""
         # Measured on the first pass that answered and not revisited: the span it
         # asks about ended when the action was taken, so a later pass would be
         # answering about a window the action itself has already changed. Ended
         # at the minute the action is dated from rather than the one it arrived
         # in: a write's answer can come back in the minute after the service
         # acted, and the service restores its rows from its own minute.
-        if the_sight_was_absent is None:
-            the_sight_was_absent = _nothing_was_seen_between(
-                buckets, onset, to_iso_minute(acted_from)
+        if self.the_sight_was_absent is None:
+            self.the_sight_was_absent = _nothing_was_seen_between(
+                buckets, self.onset, to_iso_minute(self.acted_from)
             )
             # What the wait waits for, said once this is known and before the
             # wait is: on a blind spot, for the minutes to be published again -
             # said as a level to come down from, it promised a reading nobody
             # took.
-            if the_wait is not None and the_sight_was_absent:
-                the_wait = the_wait.model_copy(update={"until_read_again": True})
+            if self.the_wait is not None and self.the_sight_was_absent:
+                self.the_wait = self.the_wait.model_copy(update={"until_read_again": True})
 
-        if the_sight_was_absent and has_a_reading_since(buckets, first_whole_minute):
-            if the_wait is not None:
-                say(the_wait)
+        if self.the_sight_was_absent and has_a_reading_since(buckets, self.first_whole_minute):
+            if self.the_wait is not None:
+                self.say(self.the_wait)
 
             # The look that saw the rows back, said as every other look is: left
             # unsaid, the page went from "no new minute read yet" straight to the
@@ -1264,13 +1340,13 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
             # first row after the onset rather than by the minute the verdict is
             # read from - the rows returning is a fact about the service, and
             # where the action restored them that is the minute it fell inside.
-            if incident_id is not None and onset is not None:
-                say(RecoveryChecked(
-                    incident_id=incident_id,
-                    minute=first_whole_minute,
+            if self.incident_id is not None and self.onset is not None:
+                self.say(RecoveryChecked(
+                    incident_id=self.incident_id,
+                    minute=self.first_whole_minute,
                     recovered=True,
                     recovered_minute=min(bucket.bucket_id for bucket in buckets
-                                         if bucket.bucket_id >= to_iso_minute(onset)),
+                                         if bucket.bucket_id >= to_iso_minute(self.onset)),
                     read_again=True
                 ))
 
@@ -1286,7 +1362,7 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
         # whatever was just done on the strength of a window that was never
         # evidence of anything. Asked here, on the first window that answered,
         # because that is where the window finally exists to be asked about.
-        departed = has_a_departure_in_it(buckets, thresholds)
+        departed = has_a_departure_in_it(buckets, self.thresholds)
 
         # An action that answers with what it changed is settled by its own
         # answer wherever the window holds no departure to judge it by - and it
@@ -1309,7 +1385,7 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
         # levels by the recovery check and the deadline: confirmed if the level
         # came down, refuted when the time runs out, exactly as every other kind
         # is.
-        if not departed and the_kind(action_type).reports_what_it_changed:
+        if not departed and the_kind(self.action_type).reports_what_it_changed:
             return _Settled(
                 Verdict.CONFIRMED,
                 "the store reported what it removed, which is the whole of "
@@ -1329,14 +1405,14 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
         # never moved, and whose action does not answer for itself. For that one
         # there is no evidence left to wait for: no level departed, so none can
         # come back, and nothing the action did says otherwise.
-        if not the_sight_was_absent and not departed:
+        if not self.the_sight_was_absent and not departed:
             return _Settled(
                 Verdict.REFUTED,
                 "nothing in this window ever departed, so there was no "
                 "improvement for it to show"
             )
 
-        recovered = has_recovered_since(buckets, first_whole_minute, thresholds)
+        recovered = has_recovered_since(buckets, self.first_whole_minute, self.thresholds)
         # Which minute the service came back at, asked only where it has come
         # back - and asked of the whole window rather than of the minutes since
         # the action. The two questions are different and only one of them is
@@ -1353,23 +1429,23 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
         # answer where this is absent, so an undatable confirmation costs the
         # document nothing.
         came_back_at = (
-            find_recovery(buckets, thresholds, since=incident_began)
+            find_recovery(buckets, self.thresholds, since=self.incident_began)
             if recovered else None
         )
 
-        if the_wait is not None:
-            say(the_wait)
-            the_wait = None
+        if self.the_wait is not None:
+            self.say(self.the_wait)
+            self.the_wait = None
 
-        if incident_id is not None:
-            say(RecoveryChecked(
-                incident_id=incident_id,
-                minute=first_whole_minute,
+        if self.incident_id is not None:
+            self.say(RecoveryChecked(
+                incident_id=self.incident_id,
+                minute=self.first_whole_minute,
                 recovered=recovered,
                 recovered_minute=came_back_at,
                 # Not recovered, and not still failing either: nothing since the
                 # change has been read to say which.
-                saw_no_minute=not any(bucket.bucket_id >= first_whole_minute
+                saw_no_minute=not any(bucket.bucket_id >= self.first_whole_minute
                                       for bucket in buckets)
             ))
 
@@ -1377,7 +1453,7 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
         # somebody withdrew is over whichever way this minute reads, and
         # claiming a confirmation on the pass the walk was stopped would credit
         # Argus with an ending it did not reach.
-        if not still_wanted():
+        if not self.still_wanted():
             return _ENDED_DURING_THE_WAIT
 
         # What the looks judge, in their words: whether the service left the
@@ -1388,14 +1464,14 @@ def _what_watching_the_service_settled(fetch_metrics: Callable[[], list[MetricBu
                 Verdict.CONFIRMED, "the service was no longer at the incident's level"
             )
 
-        if asked_at >= watch_until:
+        if asked_at >= self.watch_until:
             return _Settled(
                 Verdict.REFUTED,
                 "the service was still at the incident's level when the verification "
                 "wait ran out"
             )
 
-        sleep(_SECONDS_BETWEEN_METRIC_READS)
+        return None
 
 
 def _when_the_change_reached_the_service(has_arrived: HasArrived,

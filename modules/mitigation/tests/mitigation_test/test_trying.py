@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, cast
 from unittest.mock import MagicMock, call, create_autospec
@@ -1434,6 +1435,181 @@ def test_each_look_at_the_service_is_published_with_what_it_saw() -> None:
         ) \
         .then(
             _each_look_reported(published, True)
+        )
+
+
+@dataclass(frozen=True)
+class _Said:
+    """One line of a wait's narration, kept as far as its order needs: which
+    line it was, and what tells two lines of one kind apart."""
+
+    kind: type[object]
+    until_read_again: bool = False
+    read_again: bool = False
+    what_was_asked: str | None = None
+
+
+# The lines a wait can say. A wait for a level and a wait for readings to
+# return are one kind of line, told apart by what it waits for; so are a look
+# and the look that saw a blind spot's rows back. What an unanswered read was
+# asked for is quoted in the watch's own words, since it is what tells the
+# service's read from the rule's.
+_THE_WAIT = _Said(AwaitingRecovery)
+_THE_WAIT_FOR_ITS_READINGS = _Said(AwaitingRecovery, until_read_again=True)
+_A_LOOK = _Said(RecoveryChecked)
+_THE_LOOK_THAT_READ_IT_AGAIN = _Said(RecoveryChecked, read_again=True)
+_THE_METRICS_UNANSWERED = _Said(RetrievalUnanswered, what_was_asked="the service's metrics")
+_THE_RULE_UNANSWERED = _Said(RetrievalUnanswered, what_was_asked="the alert rule that fired")
+_NOTHING_SAID: tuple[_Said, ...] = ()
+
+# Somewhere the narration lands, and one action watched with it.
+type _Publish = Callable[[IncidentEvent], None]
+type _Watched = Callable[[_Publish], Outcome]
+
+
+def _a_flag_reverted(publish: _Publish,
+                     fetch_metrics: MetricsFetcher,
+                     onset: datetime | None = None,
+                     read_rule: RuleReader | None = None) -> Outcome:
+    """One flag revert on the incident, watched on a clock that never runs
+    out - so the looks the metrics and the rule allow are the looks taken -
+    and judged by `SOME_RULE` where `read_rule` is given. With none, no rule
+    is named either, as for an alert about no rule."""
+    return take_action(
+        an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=False)),
+        settings=_some_mitigation_settings(),
+        thresholds=_some_thresholds(),
+        incident_id=_SOME_INCIDENT_ID,
+        plan=DONT_CARE_PLAN,
+        acted_from=_CLAIMED_AT,
+        writes=the_writes(
+            set_state=_a_flag_setter_changing_from(DONT_CARE_FLAG, was_enabled=True)
+        ),
+        fetch_metrics=fetch_metrics,
+        now=a_clock_frozen_at(ACTION_TIME),
+        sleep=dont_care_sleep,
+        undo=an_undo_that_put_it_back(DONT_CARE_FLAG),
+        onset=onset,
+        publisher=publish,
+        rule=SOME_RULE if read_rule is not None else None,
+        read_rule=read_rule
+    )
+
+
+def _judged_on_its_levels(publish: _Publish) -> Outcome:
+    """A first look with no minute since the action, and a second that has
+    one and finds the service recovered."""
+    return _a_flag_reverted(publish, _metrics_recovering_only_after_the_action())
+
+
+def _judged_on_its_sight(publish: _Publish) -> Outcome:
+    """A blind spot whose rows come back in the action's own minute, and are
+    read again on the second look."""
+    return _a_flag_reverted(publish, _metrics_whose_rows_return_in_the_actions_own_minute(),
+                            onset=THE_ONSET)
+
+
+def _judged_on_its_receipt(publish: _Publish) -> Outcome:
+    """A discard on a service that publishes nothing, settled by what the
+    store says it removed."""
+    dont_care_count = 1
+
+    return take_action(
+        an_admission_of(_a_discard_of(SOME_APPLICATION, (SOME_CACHE_KEY,))),
+        settings=_some_mitigation_settings(),
+        thresholds=_some_thresholds(),
+        incident_id=_SOME_INCIDENT_ID,
+        plan=None,
+        acted_from=_CLAIMED_AT,
+        writes=the_writes(discard=a_discard_removing(dont_care_count)),
+        fetch_metrics=metrics_reading([]),
+        now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+        sleep=dont_care_sleep,
+        undo=an_undo_nobody_calls(),
+        onset=THE_ONSET,
+        publisher=publish
+    )
+
+
+def _refuted_for_never_departing(publish: _Publish) -> Outcome:
+    """A restart on a service whose window never departed."""
+    return take_action(
+        an_admission_of(an_action_restarting(SOME_APPLICATION)),
+        settings=_some_mitigation_settings(),
+        thresholds=_some_thresholds(),
+        incident_id=_SOME_INCIDENT_ID,
+        plan=None,
+        acted_from=_CLAIMED_AT,
+        writes=the_writes(restart=_a_restarter_bringing_up(SOME_APPLICATION)),
+        fetch_metrics=metrics_reading(a_window_that_never_departed()),
+        now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+        sleep=dont_care_sleep,
+        undo=an_undo_nobody_calls(),
+        publisher=publish
+    )
+
+
+def _the_rule_stopped_firing() -> RuleReader:
+    return _a_rule_reading(_a_rule_standing(is_normal=True,
+                                            evaluated_at=_AN_EVALUATION_SINCE_THE_CHANGE))
+
+
+def _judged_by_the_rule(publish: _Publish) -> Outcome:
+    """The rule read once, stopped firing over minutes since the change."""
+    return _a_flag_reverted(publish, metrics_reading(a_recovered_window()),
+                            read_rule=_the_rule_stopped_firing())
+
+
+def _read_again_after_its_metrics_went_unanswered(publish: _Publish) -> Outcome:
+    """The service's read failing once, and answering recovered on the next."""
+    return _a_flag_reverted(publish, _a_read_that_fails_once_then_answers(a_recovered_window()))
+
+
+def _judged_by_the_rule_after_it_went_unanswered(publish: _Publish) -> Outcome:
+    """The rule's read failing once, and answering stopped on the next."""
+    stopped = _a_rule_standing(is_normal=True, evaluated_at=_AN_EVALUATION_SINCE_THE_CHANGE)
+
+    return _a_flag_reverted(publish, metrics_reading(a_recovered_window()),
+                            read_rule=_a_rule_reading_in_turn(
+                                McpToolError(DONT_CARE_RULE_FAILURE), stopped))
+
+
+def _judged_by_the_rule_with_its_metrics_unanswered(publish: _Publish) -> Outcome:
+    """The service never read, and the rule stopped on the first pass - which
+    the rule's path judges all the same, the window only dating the recovery."""
+    return _a_flag_reverted(publish, _a_read_that_never_answers(),
+                            read_rule=_the_rule_stopped_firing())
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("watched", "said"), [
+    (_judged_on_its_levels, (_THE_WAIT, _A_LOOK, _A_LOOK)),
+    (_judged_on_its_sight, (_THE_WAIT_FOR_ITS_READINGS, _A_LOOK, _THE_LOOK_THAT_READ_IT_AGAIN)),
+    (_judged_on_its_receipt, _NOTHING_SAID),
+    (_refuted_for_never_departing, _NOTHING_SAID),
+    (_judged_by_the_rule, (_THE_WAIT, _A_LOOK)),
+    (_read_again_after_its_metrics_went_unanswered, (_THE_METRICS_UNANSWERED, _THE_WAIT, _A_LOOK)),
+    (_judged_by_the_rule_after_it_went_unanswered, (_THE_RULE_UNANSWERED, _THE_WAIT, _A_LOOK)),
+    (_judged_by_the_rule_with_its_metrics_unanswered,
+     (_THE_METRICS_UNANSWERED, _THE_WAIT, _A_LOOK))
+], ids=["levels", "sight", "receipt", "never-departed", "rule", "metrics-unanswered",
+        "rule-unanswered", "rule-with-its-metrics-unanswered"])
+def test_each_way_a_wait_is_judged_says_its_lines_in_order(watched: _Watched,
+                                                           said: tuple[_Said, ...]) -> None:
+    # The page and the Slack thread show these lines as they come, and the
+    # postmortem numbers them, so their order is part of what a wait says - a
+    # wait announced after the look that settled it read as Argus announcing
+    # a verdict it had already reached. The cases beside this one count each
+    # kind; this holds the order, for every way a wait can be judged.
+    Scenario() \
+        .given(
+            published := _a_page_listening()
+        ) \
+        .when(
+            lambda: watched(published.append)
+        ) \
+        .then(
+            _the_wait_said(published, said)
         )
 
 
@@ -4830,6 +5006,36 @@ def _the_wait_waits_for_its_metrics_to_be_read_again(published: list[IncidentEve
             raise AssertionError(
                 f"Expected the wait to wait for the metrics to be read again to be "
                 f"[{expected}], got [{announced.until_read_again}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _said_of(event: IncidentEvent) -> _Said | None:
+    """The line `event` is in a wait's narration, or `None` for an event that
+    is not one."""
+    match event:
+        case AwaitingRecovery():
+            return _Said(AwaitingRecovery, until_read_again=event.until_read_again)
+        case RecoveryChecked():
+            return _Said(RecoveryChecked, read_again=event.read_again)
+        case RetrievalUnanswered():
+            return _Said(RetrievalUnanswered, what_was_asked=event.what_was_asked)
+        case _:
+            return None
+
+
+def _the_wait_said(published: list[IncidentEvent],
+                   expected: tuple[_Said, ...]) -> Assertion[Outcome]:
+    def assertion(_outcome: Outcome) -> bool:
+        said = tuple(line for line in (_said_of(event) for event in published)
+                     if line is not None)
+
+        if said != expected:
+            raise AssertionError(
+                f"Expected the wait to say {expected}, in that order, and it said {said}"
             )
 
         return True
