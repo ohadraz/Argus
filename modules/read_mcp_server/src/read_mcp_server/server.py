@@ -102,6 +102,39 @@ def build_server(endpoint: ReadMcpEndpoint,
         port=endpoint.read_mcp_port
     )
 
+    _register_telemetry(mcp, retrieval_settings, target_service, metrics, flags,
+                        platform, code, rules)
+    _register_repository(mcp, repository_settings, platform, code)
+    _register_rollouts_and_code(mcp, platform, code, repository_settings, rules, classify,
+                                registry_settings)
+
+    # Everything below this line exists only where the deployment keeps an
+    # index. Not a tool that answers "no" when asked: a tool that is offered
+    # will be called, and one backed by an index nobody builds answers nothing
+    # for every description - which a model reads as a fact about the code.
+    # Skipping the registration also skips the store client and the model.
+    if not index_settings.searches_by_meaning:
+        logger.info("search by meaning not offered",
+                    extra={"code_search": index_settings.code_search})
+
+        return mcp
+
+    _register_meaning(mcp, index_settings, repository_settings, passages, embed, code,
+                      connections)
+
+    return mcp
+
+
+def _register_telemetry(mcp: TracedMCPServer,
+                        retrieval_settings: RetrievalSettings,
+                        target_service: TargetServiceSettings,
+                        metrics: MetricsSource,
+                        flags: FlagProviderReads,
+                        platform: DeploymentPlatformReads,
+                        code: CodeHostReads,
+                        rules: AlertingPlatform) -> None:
+    """Registers the tools that read what the service did and what changed
+    around it: its logs, its metrics, its changes and its flags."""
     fetch_logs = retrieval.target_service_logs(target_service)
 
     # The deploy history for a window, as the change channel asks for it. The
@@ -128,9 +161,6 @@ def build_server(endpoint: ReadMcpEndpoint,
     # the rule's standing is read from.
     def series_the_rule_watches(rule: str) -> RuleSeries | None:
         return rules.series_of(rule)
-
-    def registered(service: str) -> dict[str, object]:
-        return fetch_registered_service(service, registry_settings)
 
     @mcp.tool()
     def get_log_lines(alert_time: str | None = None,
@@ -238,6 +268,13 @@ def build_server(endpoint: ReadMcpEndpoint,
         only."""
         return flags.enabled()
 
+
+def _register_repository(mcp: TracedMCPServer,
+                         repository_settings: RepositoryReadSettings,
+                         platform: DeploymentPlatformReads,
+                         code: CodeHostReads) -> None:
+    """Registers the tools that read the service's source: searched, listed,
+    read, and what a deployment of it changed."""
     @mcp.tool(description=descriptions.SEARCH_REPOSITORY)
     def search_repository(
         query: Annotated[str, Field(description=descriptions.SEARCH_REPOSITORY_QUERY)],
@@ -308,6 +345,20 @@ def build_server(endpoint: ReadMcpEndpoint,
         return deployments.what_a_deployment_changed(
             service, revision, platform=platform, code=code
         )
+
+
+def _register_rollouts_and_code(mcp: TracedMCPServer,
+                                platform: DeploymentPlatformReads,
+                                code: CodeHostReads,
+                                repository_settings: RepositoryReadSettings,
+                                rules: AlertingPlatform,
+                                classify: SeriesClassifier,
+                                registry_settings: ServiceRegistrySettings) -> None:
+    """Registers the tools that read where the service runs and what it
+    stands on: its rollout, its placements, what it depends on, the rule that
+    paged, and the code around a patch and a revision."""
+    def registered(service: str) -> dict[str, object]:
+        return fetch_registered_service(service, registry_settings)
 
     @mcp.tool()
     def get_rollout_progress(service: str) -> RolloutProgress:
@@ -439,17 +490,16 @@ def build_server(endpoint: ReadMcpEndpoint,
         code host's reads port; this is registration only."""
         return code.contains(branch, revision)
 
-    # Everything below this line exists only where the deployment keeps an
-    # index. Not a tool that answers "no" when asked: a tool that is offered
-    # will be called, and one backed by an index nobody builds answers nothing
-    # for every description - which a model reads as a fact about the code.
-    # Skipping the registration also skips the store client and the model.
-    if not index_settings.searches_by_meaning:
-        logger.info("search by meaning not offered",
-                    extra={"code_search": index_settings.code_search})
 
-        return mcp
-
+def _register_meaning(mcp: TracedMCPServer,
+                      index_settings: IndexReadSettings,
+                      repository_settings: RepositoryReadSettings,
+                      passages: VectorSearch,
+                      embed: Embedder,
+                      code: CodeHostReads,
+                      connections: Connections) -> None:
+    """Registers the tools backed by the index of the service's source, for a
+    deployment that keeps one."""
     # Bound once, like the fetchers above. The embedder and the store are the
     # odd ones: each opens on first use rather than here, so a server that is
     # started and never asked to search by meaning loads no model and reaches
@@ -503,5 +553,3 @@ def build_server(endpoint: ReadMcpEndpoint,
             head_of=head_of,
             indexed_sha=indexed_sha
         )
-
-    return mcp
