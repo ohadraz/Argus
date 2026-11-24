@@ -130,6 +130,7 @@ from investigation_agent_test.framework.builders.investigation import (
 )
 from investigation_agent_test.framework.builders.model import (
     A_REASON,
+    ANSWER_TOOL,
     CHANGES_TOOL,
     LEAD_ARG,
     LOGS_TOOL,
@@ -2951,6 +2952,75 @@ def test_an_answer_sent_back_asks_for_the_lead_weighed_beside_it_to_be_weighed_a
         ))
 
 
+# A subject worded as a description rather than as one name, and an upstream
+# failure that names no dependency - each an answer refused on its own.
+LOOSELY_WORDED = "metrics port name"
+UPSTREAM = FailureMode.UPSTREAM_DEPENDENCY_FAILURE.value
+# The id the answer sent back is called with, so its reply can be found.
+THE_ANSWER_SENT_BACK = "toolu_answer_sent_back"
+
+# The refusals the model is sent back, whole and in its own words, restated
+# rather than imported for the reason the bounds above are: these are what the
+# model has to act on. The first goes back as it is; the other two are told the
+# answer is taken only with the lead weighed beside it.
+THE_REFUSAL_FOR_A_LEAD_UNWEIGHED = (
+    f"that answer was not taken: L1 not weighed in this turn. Call {WEIGH_TOOL} for "
+    f"each in the same turn as {ANSWER_TOOL}."
+)
+THE_REFUSAL_FOR_A_LOOSE_SUBJECT = (
+    f"that answer was not taken: explanation 1 names [{LOOSELY_WORDED}]. A subject is "
+    f"the one key, flag, revision, service or path the explanation blames, as a single "
+    f"name - or null. Call {ANSWER_TOOL} again. Send it again in the turn you weigh L1 in."
+)
+THE_REFUSAL_FOR_NO_DEPENDENCY_NAMED = (
+    f"that answer was not taken: explanation 1 blames an upstream dependency and names "
+    f"none. The subject of an upstream failure is the dependency that failed - its name "
+    f"or its host as the service register lists it. Call {ANSWER_TOOL} again. Send it "
+    f"again in the turn you weigh L1 in."
+)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("explanations", "weighed_beside", "refused_with"),
+    [
+        # Past a lead and loosely worded: the lead is what it is sent back for,
+        # and as the lead's refusal - nothing more to weigh beside the next.
+        ([an_explanation(subject=LOOSELY_WORDED)], False,
+         THE_REFUSAL_FOR_A_LEAD_UNWEIGHED),
+        # Its lead weighed, loosely worded, and blaming an upstream dependency it
+        # does not name: the wording is what it is sent back for.
+        ([an_explanation(subject=LOOSELY_WORDED),
+          an_explanation(failure_mode=UPSTREAM, subject=None)], True,
+         THE_REFUSAL_FOR_A_LOOSE_SUBJECT),
+        ([an_explanation(failure_mode=UPSTREAM, subject=None)], True,
+         THE_REFUSAL_FOR_NO_DEPENDENCY_NAMED)
+    ],
+    ids=["a-lead-unweighed-and-a-loose-subject", "a-loose-subject-and-no-dependency-named",
+         "no-dependency-named"]
+)
+def test_an_answer_failing_more_than_one_check_is_sent_back_for_the_first(
+    explanations: list[dict[str, Any]], weighed_beside: bool, refused_with: str
+) -> None:
+    # One refusal per answer, and which one is the model's next turn: a lead
+    # unweighed first, then a subject worded loosely, then an upstream failure
+    # naming no dependency. Each refusal is said whole, so what is added to it
+    # - the ask to weigh the lead beside the next answer, or nothing - is
+    # pinned with it.
+    investigation = an_investigation(a_model_that_says(
+        _an_answer_sent_back_as(explanations, weighed_beside),
+        _a_turn_of(a_turn_weighing("L1", Standing.SUPPORTED), a_turn_answering(an_explanation()))
+    ))
+
+    Scenario() \
+        .given(calling(investigation.metrics_showed(a_window_that_starts_calm()))) \
+        .when(lambda: investigation.investigate(leads=lambda: [_a_lead("some lead")])) \
+        .then(all_of(
+            _the_model_was_asked(investigation.model, times=2),
+            _the_reply_to_was(investigation.model, THE_ANSWER_SENT_BACK, refused_with)
+        ))
+
+
 @pytest.mark.unit
 @pytest.mark.parametrize(
     "explanation",
@@ -3136,6 +3206,41 @@ def _the_reply_to(model: Mock, call_id: str, mentions: str) -> Assertion[Finding
             raise AssertionError(
                 f"Expected the call [{call_id}] to be answered once, saying [{mentions}], "
                 f"and it was answered {replies}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _an_answer_sent_back_as(explanations: list[dict[str, Any]], weighed_beside: bool) -> Turn:
+    """A turn answering with `explanations` under `THE_ANSWER_SENT_BACK`, with
+    the one lead weighed beside it where `weighed_beside` says so."""
+    answering = a_turn_answering(*explanations, call_id=THE_ANSWER_SENT_BACK)
+
+    if not weighed_beside:
+        return answering
+
+    weighing = a_turn_weighing("L1", Standing.SUPPORTED, call_id="toolu_weighing")
+
+    return answering.model_copy(update={
+        "tool_calls": [*weighing.tool_calls, *answering.tool_calls]
+    })
+
+
+def _the_reply_to_was(model: Mock, call_id: str, expected: str) -> Assertion[Findings]:
+    """What the loop answered one call with, whole - found by its id as
+    `_the_reply_to` finds it."""
+    def assertion(dont_care_findings: Findings) -> bool:
+        transcript = model.call_args_list[-1].args[0]
+        replies = [result.content for exchange in transcript
+                   if isinstance(exchange, ToolResults)
+                   for result in exchange.results if result.call_id == call_id]
+
+        if replies != [expected]:
+            raise AssertionError(
+                f"Expected the call [{call_id}] to be answered once, with [{expected}], "
+                f"and it was answered {replies}"
             )
 
         return True

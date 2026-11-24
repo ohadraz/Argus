@@ -19,7 +19,7 @@ import re
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import replace
-from typing import Any, Final, NoReturn, assert_never
+from typing import Any, Final, NamedTuple, NoReturn, assert_never
 
 from core import parse_iso, to_iso, to_iso_minute
 from core.anomaly import (
@@ -379,168 +379,21 @@ def investigate(
         )
     )
 
-    # Read by the loop rather than offered as the first tool call, so that the
-    # onset is a measurement instead of a decision. Anchored on the alert
-    # rather than bounded, which is what the event says: the span is the
-    # metrics tool's own (spec §16), not this loop's to name. Read for the rule
-    # that paged, so the onset is measured on the series it fired on as well as
-    # on the five.
-    narrator.say(
-        RetrievalRequested, channel=RetrievalChannel.METRICS, window_start=alert_time
+    metric_buckets, metrics_answered = _the_metrics_read(
+        alert, alert_time, fetch_metrics, settings, thresholds, established_onset,
+        narrator, replay, sleep
+    )
+    the_onset = _the_onset_or_an_ending(
+        alert, incident_id, earlier_candidates, metric_buckets, metrics_answered,
+        thresholds, established_onset, narrator
     )
 
-    try:
-        metric_buckets = fetch_metrics(alert_time=alert_time, rule=alert.rule)
-        metrics_answered = True
-    except Exception as unanswered:
-        # The one read no channel guard can absorb, because it happens before
-        # there is a model to tell. It goes on the way a window with no minutes
-        # in it goes on - from whatever minute there is: an onset an earlier
-        # round established, one the alert states, or the minute the alarm fired
-        # in. A service nobody can see in its metrics is the one whose deploys
-        # and logs matter most. Only where none of them exists does it end, below.
-        #
-        # Said first, though. Letting it out of here ended the walk with nothing
-        # anywhere saying which read failed, and the incident's only account of
-        # its own first act was the run's failure row.
-        logger.warning("metrics could not be read", exc_info=True)
-        narrator.say(
-            RetrievalUnanswered,
-            what_was_asked="the service's metrics",
-            because=str(unanswered)
-        )
+    if isinstance(the_onset, Findings):
+        return the_onset
 
-        metric_buckets = []
-        metrics_answered = False
-
-    if metrics_answered and _a_flat_window_short_of_the_alarms_minute(
-        alert, metric_buckets, thresholds, established_onset
-    ):
-        # A source that reports a minute only once it is over has nothing yet for
-        # the minute the alert fired in, and that minute can hold the whole of
-        # what fired. Read again until it is there, or until the wait allowed
-        # runs out: only a window reaching it can call the alarm false.
-        metric_buckets = _read_until_the_alarms_minute(
-            alert, alert_time, metric_buckets, fetch_metrics, settings, sleep
-        )
-
-    # Only for a read that answered: one that did not is already said above, and
-    # a window of nothing said beside it would read as an answer.
-    if metrics_answered:
-        narrator.say(
-            MetricsRetrieved,
-            window_start=metric_buckets[0].bucket_id if metric_buckets else None,
-            window_end=metric_buckets[-1].bucket_id if metric_buckets else None,
-            buckets=metric_buckets,
-            # Measured here and said here, because the alert's firing time is not
-            # in the event and the story is told from the event alone.
-            stopped_before_the_alert=_where_the_rows_stop(metric_buckets, alert) is not None
-        )
-        # One of the two retrievals the dispatcher never sees - the placement is
-        # the other - and so one it cannot write down. Recorded here and now
-        # rather than at the end of the investigation: an incident whose metrics
-        # show nothing returns below without a model ever being asked, and that
-        # is exactly the run someone later asks what it actually had in front of
-        # it.
-        #
-        # Filed under the model's own name for this channel, because it is the
-        # same channel read by a different caller - a reader counting what an
-        # investigation retrieved should not have to know which of the two asked.
-        replay.record(
-            call_type=CallType.MCP,
-            target=METRICS_TOOL,
-            # No window of its own: the span belongs to the metrics source, and
-            # what identifies this read is the alert it was anchored on (spec §16).
-            request={"arguments": {}, "window_start": alert_time, "window_end": None},
-            # The buckets as they came back, rather than as the opening message
-            # renders them. Nothing rendered them at this point, and the numbers
-            # are what a later reader wants - the prose around them is
-            # reconstructible and the measurements are not.
-            response={"buckets": [bucket.model_dump(mode="json")
-                                  for bucket in metric_buckets]}
-        )
-
-    # Measured first, and preferred wherever there is one. A measured onset is
-    # evidence - derived from buckets Argus retrieved and re-derivable by anyone
-    # reading the incident - where a stated one is testimony from whatever fired
-    # the alert. Where both exist they should agree; where they do not, the one
-    # that can be checked is the one to keep.
-    #
-    # Neither, where an earlier round established one: this window is one Argus
-    # has since acted on, and the minute the incident began is not in question.
-    # Nothing below that asks whether there is an onset at all can fire then.
-    measured_onset = (
-        find_onset(metric_buckets, thresholds) if established_onset is None else None
-    )
-    stated_onset = _the_onset_the_alert_states(alert)
-    onset = (
-        established_onset.minute if established_onset is not None
-        else measured_onset or stated_onset
-    )
-    # Still short of the alarm's minute only where the reads above gave up on it.
-    # Its minute was never read, so the window says nothing about it either.
-    the_window_cannot_contradict_it = _a_flat_window_says_nothing_about(
-        alert, metric_buckets
-    ) or (bool(metric_buckets) and _where_the_rows_stop(metric_buckets, alert) is not None)
-
-    if onset is None and not the_window_cannot_contradict_it and metric_buckets:
-        # The window was read, it holds no departure in any judged signal, and
-        # those signals include whatever the rule that fired was watching - the
-        # five, or its own series where it named one - and it reaches the minute
-        # the alarm fired in. So the window is not short of evidence about this
-        # alarm - it is evidence against it.
-        #
-        # A window with no minutes in it is not that, and falls through. The
-        # retrieval answered and had nothing to say, which is nearer to not
-        # having been able to see than to having seen a well service - and an
-        # alarm closed on an empty window would be closed on no evidence.
-        return _the_alarm_was_disproven(
-            alert, incident_id, earlier_candidates, metric_buckets
-        )
-
-    if onset is None and (the_window_cannot_contradict_it or not metric_buckets):
-        # Nothing here contradicts the alarm and nothing dates it: a rule whose
-        # subject this window does not carry, or a window with no minutes in it
-        # at all - read and empty, or never answered. So the investigation goes
-        # on, but it has to be anchored on something, and the only minute anybody
-        # knows is the one the alarm fired in. That is where to look from and not
-        # when this began.
-        #
-        # The window with no minutes is here on purpose. It disproves nothing,
-        # and ending on it left a service nobody could see in its metrics with
-        # its deploys and its logs unread - the two reads a person picking it up
-        # would make first.
-        onset = _the_minute_the_alarm_fired_in(alert)
-
-    if onset is None:
-        # Nothing was read beyond the metrics, and nothing was spent. There is
-        # also nothing to converse about: every window the model could ask for
-        # is anchored on a minute, the metrics offered none, and nothing else
-        # has - not even the minute the alarm fired in, which this alert did not
-        # say. Told as what the metrics did: a read nobody could take is the
-        # opposite claim to one that answered with nothing.
-        if not metrics_answered:
-            return _nothing_could_be_read(alert, incident_id, earlier_candidates, narrator)
-
-        return _nothing_to_say(alert, incident_id, earlier_candidates, metric_buckets, narrator)
-
-    # The minute and its grade as one value, so a later round is handed both and
-    # never grades a minute it was given by a window it read itself.
-    established = established_onset or EstablishedOnset(
-        minute=onset,
-        how_known=_how_the_minute_is_known(measured_onset, stated_onset)
-    )
+    established, stated_onset = the_onset
+    onset = established.minute
     how_the_minute_is_known = established.how_known
-
-    # Announced by the round that found it and by no other: nothing was detected
-    # by a round handed its onset, and an incident's record says once when it
-    # began. The alarm's own minute is announced as what it is - where the
-    # investigation looked from - and never as a start, which nothing dated.
-    if established_onset is None:
-        if how_the_minute_is_known is HowTheMinuteIsKnown.NOTHING_DATES_IT:
-            narrator.say(AnchoredOnTheAlarm, minute=onset)
-        else:
-            narrator.say(OnsetDetected, onset=onset)
 
     # Read here, after the onset and before the model is asked anything, for the
     # reason the metrics are read above: a pin to a card is decided from it, and
@@ -775,19 +628,16 @@ class _Investigating:
             answered = _and_weighed_beside_the_next(answered, shown)
 
         # Only an answer the model gave can be sent back, and each refusal is
-        # addressed to the call it came in.
-        if answering is not None:
-            if isinstance(answered, list) and unweighed and not reached:
-                answered = _an_answer_past(unweighed, answering)
+        # addressed to the call it came in. The first check to refuse it is the
+        # one the model hears.
+        if answering is not None and isinstance(answered, list) and not reached:
+            for check in _ANSWER_CHECKS:
+                refused = check.refuses(answered, answering, unweighed)
 
-            if isinstance(answered, list) and not reached:
-                loose = _an_answer_naming_loosely(answered, answering)
-                answered = _and_weighed_beside_the_next(loose, shown) if loose else answered
-
-            if isinstance(answered, list) and not reached:
-                unnamed = _an_answer_naming_no_dependency(answered, answering)
-                answered = (_and_weighed_beside_the_next(unnamed, shown) if unnamed
-                            else answered)
+                if refused is not None:
+                    answered = (_and_weighed_beside_the_next(refused, shown)
+                                if check.told_to_weigh_beside_the_next else refused)
+                    break
 
         if isinstance(answered, list):
             for candidate in answered:
@@ -1075,10 +925,16 @@ def _the_leads_weighed(shown: Sequence[ThreadMessage],
             for label, lead in labelled(shown) if label in weighed]
 
 
-def _an_answer_past(unweighed: Sequence[str], answering: ToolCall) -> ToolResult:
+def _an_answer_past(_answered: list[Hypothesis],
+                    answering: ToolCall,
+                    unweighed: Sequence[str]) -> ToolResult | None:
     """The answer refused, because a lead the model was shown is not weighed
     beside it: a lead is weighed, never obeyed and never ignored, and weighed
-    against the answer it is reported with."""
+    against the answer it is reported with - or `None` where every lead shown
+    is weighed beside it."""
+    if not unweighed:
+        return None
+
     return ToolResult(
         call_id=answering.id,
         content=(f"that answer was not taken: {', '.join(unweighed)} not weighed in this "
@@ -1114,7 +970,8 @@ def _and_weighed_beside_the_next(refused: ToolResult,
 
 
 def _an_answer_naming_loosely(answered: list[Hypothesis],
-                              answering: ToolCall) -> ToolResult | None:
+                              answering: ToolCall,
+                              _unweighed: Sequence[str]) -> ToolResult | None:
     """The answer refused, because a candidate's subject is more than one name -
     or `None` where every subject is one name or none.
 
@@ -1146,7 +1003,8 @@ def _an_answer_naming_loosely(answered: list[Hypothesis],
 
 
 def _an_answer_naming_no_dependency(answered: list[Hypothesis],
-                                    answering: ToolCall) -> ToolResult | None:
+                                    answering: ToolCall,
+                                    _unweighed: Sequence[str]) -> ToolResult | None:
     """The answer refused, because a candidate blames an upstream dependency
     and names none - or `None` where every such candidate names one.
 
@@ -1176,6 +1034,27 @@ def _an_answer_naming_no_dependency(answered: list[Hypothesis],
                  f"register lists it. Call {ANSWER_TOOL} again."),
         failed=True
     )
+
+
+class _AnswerCheck(NamedTuple):
+    """One reason an answer is sent back: what refuses it, given the answer,
+    the call it came in and the leads shown that it was not weighed beside -
+    and whether the refusal also tells the model its next answer is taken only
+    with its leads weighed beside it."""
+
+    refuses: Callable[[list[Hypothesis], ToolCall, Sequence[str]], ToolResult | None]
+    told_to_weigh_beside_the_next: bool
+
+
+# Every reason an answer is sent back, in the order they are asked: the first
+# to refuse it is the refusal the model hears. An answer past an unweighed lead
+# is sent back saying so and nothing more, since what it asks for is that very
+# weighing; the others say the next answer needs its leads weighed beside it.
+_ANSWER_CHECKS: Final = (
+    _AnswerCheck(_an_answer_past, told_to_weigh_beside_the_next=False),
+    _AnswerCheck(_an_answer_naming_loosely, told_to_weigh_beside_the_next=True),
+    _AnswerCheck(_an_answer_naming_no_dependency, told_to_weigh_beside_the_next=True)
+)
 
 
 def _ran_out(alert: Alert,
@@ -2170,3 +2049,203 @@ def _what_was_done_in(attempt: Attempt) -> str:
         return f"held {subject}'s pods to one accelerator card"
 
     assert_never(kind)
+
+
+def _the_metrics_read(alert: Alert,
+                      alert_time: str | None,
+                      fetch_metrics: MetricsFetcher,
+                      settings: InvestigationSettings,
+                      thresholds: AnomalyThresholds,
+                      established_onset: EstablishedOnset | None,
+                      narrator: Narrator,
+                      replay: Replay,
+                      sleep: Callable[[float], None]) -> tuple[list[MetricBucket], bool]:
+    """The service's metrics, read before the model is asked anything, and
+    whether the read answered - said, and recorded, as every read the
+    investigation makes is."""
+    # Read by the loop rather than offered as the first tool call, so that the
+    # onset is a measurement instead of a decision. Anchored on the alert
+    # rather than bounded, which is what the event says: the span is the
+    # metrics tool's own (spec §16), not this loop's to name. Read for the rule
+    # that paged, so the onset is measured on the series it fired on as well as
+    # on the five.
+    narrator.say(
+        RetrievalRequested, channel=RetrievalChannel.METRICS, window_start=alert_time
+    )
+
+    try:
+        metric_buckets = fetch_metrics(alert_time=alert_time, rule=alert.rule)
+        metrics_answered = True
+    except Exception as unanswered:
+        # The one read no channel guard can absorb, because it happens before
+        # there is a model to tell. It goes on the way a window with no minutes
+        # in it goes on - from whatever minute there is: an onset an earlier
+        # round established, one the alert states, or the minute the alarm fired
+        # in. A service nobody can see in its metrics is the one whose deploys
+        # and logs matter most. Only where none of them exists does it end, below.
+        #
+        # Said first, though. Letting it out of here ended the walk with nothing
+        # anywhere saying which read failed, and the incident's only account of
+        # its own first act was the run's failure row.
+        logger.warning("metrics could not be read", exc_info=True)
+        narrator.say(
+            RetrievalUnanswered,
+            what_was_asked="the service's metrics",
+            because=str(unanswered)
+        )
+
+        metric_buckets = []
+        metrics_answered = False
+
+    if metrics_answered and _a_flat_window_short_of_the_alarms_minute(
+        alert, metric_buckets, thresholds, established_onset
+    ):
+        # A source that reports a minute only once it is over has nothing yet for
+        # the minute the alert fired in, and that minute can hold the whole of
+        # what fired. Read again until it is there, or until the wait allowed
+        # runs out: only a window reaching it can call the alarm false.
+        metric_buckets = _read_until_the_alarms_minute(
+            alert, alert_time, metric_buckets, fetch_metrics, settings, sleep
+        )
+
+    # Only for a read that answered: one that did not is already said above, and
+    # a window of nothing said beside it would read as an answer.
+    if metrics_answered:
+        narrator.say(
+            MetricsRetrieved,
+            window_start=metric_buckets[0].bucket_id if metric_buckets else None,
+            window_end=metric_buckets[-1].bucket_id if metric_buckets else None,
+            buckets=metric_buckets,
+            # Measured here and said here, because the alert's firing time is not
+            # in the event and the story is told from the event alone.
+            stopped_before_the_alert=_where_the_rows_stop(metric_buckets, alert) is not None
+        )
+        # One of the two retrievals the dispatcher never sees - the placement is
+        # the other - and so one it cannot write down. Recorded here and now
+        # rather than at the end of the investigation: an incident whose metrics
+        # show nothing returns below without a model ever being asked, and that
+        # is exactly the run someone later asks what it actually had in front of
+        # it.
+        #
+        # Filed under the model's own name for this channel, because it is the
+        # same channel read by a different caller - a reader counting what an
+        # investigation retrieved should not have to know which of the two asked.
+        replay.record(
+            call_type=CallType.MCP,
+            target=METRICS_TOOL,
+            # No window of its own: the span belongs to the metrics source, and
+            # what identifies this read is the alert it was anchored on (spec §16).
+            request={"arguments": {}, "window_start": alert_time, "window_end": None},
+            # The buckets as they came back, rather than as the opening message
+            # renders them. Nothing rendered them at this point, and the numbers
+            # are what a later reader wants - the prose around them is
+            # reconstructible and the measurements are not.
+            response={"buckets": [bucket.model_dump(mode="json")
+                                  for bucket in metric_buckets]}
+        )
+
+    return metric_buckets, metrics_answered
+
+
+class _TheOnset(NamedTuple):
+    """The minute the investigation works from, and its grade, beside the
+    minute the alert states, which is what the incident's reading is asked of."""
+
+    established: EstablishedOnset
+    stated: str | None
+
+
+def _the_onset_or_an_ending(alert: Alert,
+                            incident_id: str,
+                            earlier_candidates: int,
+                            metric_buckets: list[MetricBucket],
+                            metrics_answered: bool,
+                            thresholds: AnomalyThresholds,
+                            established_onset: EstablishedOnset | None,
+                            narrator: Narrator) -> _TheOnset | Findings:
+    """The minute the investigation works from, said where this round found it
+    - or the investigation's ending, where the window disproves the alarm or
+    nothing dates it and nothing could be read."""
+    # Measured first, and preferred wherever there is one. A measured onset is
+    # evidence - derived from buckets Argus retrieved and re-derivable by anyone
+    # reading the incident - where a stated one is testimony from whatever fired
+    # the alert. Where both exist they should agree; where they do not, the one
+    # that can be checked is the one to keep.
+    #
+    # Neither, where an earlier round established one: this window is one Argus
+    # has since acted on, and the minute the incident began is not in question.
+    # Nothing below that asks whether there is an onset at all can fire then.
+    measured_onset = (
+        find_onset(metric_buckets, thresholds) if established_onset is None else None
+    )
+    stated_onset = _the_onset_the_alert_states(alert)
+    onset = (
+        established_onset.minute if established_onset is not None
+        else measured_onset or stated_onset
+    )
+    # Still short of the alarm's minute only where the reads above gave up on it.
+    # Its minute was never read, so the window says nothing about it either.
+    the_window_cannot_contradict_it = _a_flat_window_says_nothing_about(
+        alert, metric_buckets
+    ) or (bool(metric_buckets) and _where_the_rows_stop(metric_buckets, alert) is not None)
+
+    if onset is None and not the_window_cannot_contradict_it and metric_buckets:
+        # The window was read, it holds no departure in any judged signal, and
+        # those signals include whatever the rule that fired was watching - the
+        # five, or its own series where it named one - and it reaches the minute
+        # the alarm fired in. So the window is not short of evidence about this
+        # alarm - it is evidence against it.
+        #
+        # A window with no minutes in it is not that, and falls through. The
+        # retrieval answered and had nothing to say, which is nearer to not
+        # having been able to see than to having seen a well service - and an
+        # alarm closed on an empty window would be closed on no evidence.
+        return _the_alarm_was_disproven(
+            alert, incident_id, earlier_candidates, metric_buckets
+        )
+
+    if onset is None and (the_window_cannot_contradict_it or not metric_buckets):
+        # Nothing here contradicts the alarm and nothing dates it: a rule whose
+        # subject this window does not carry, or a window with no minutes in it
+        # at all - read and empty, or never answered. So the investigation goes
+        # on, but it has to be anchored on something, and the only minute anybody
+        # knows is the one the alarm fired in. That is where to look from and not
+        # when this began.
+        #
+        # The window with no minutes is here on purpose. It disproves nothing,
+        # and ending on it left a service nobody could see in its metrics with
+        # its deploys and its logs unread - the two reads a person picking it up
+        # would make first.
+        onset = _the_minute_the_alarm_fired_in(alert)
+
+    if onset is None:
+        # Nothing was read beyond the metrics, and nothing was spent. There is
+        # also nothing to converse about: every window the model could ask for
+        # is anchored on a minute, the metrics offered none, and nothing else
+        # has - not even the minute the alarm fired in, which this alert did not
+        # say. Told as what the metrics did: a read nobody could take is the
+        # opposite claim to one that answered with nothing.
+        if not metrics_answered:
+            return _nothing_could_be_read(alert, incident_id, earlier_candidates, narrator)
+
+        return _nothing_to_say(alert, incident_id, earlier_candidates, metric_buckets, narrator)
+
+    # The minute and its grade as one value, so a later round is handed both and
+    # never grades a minute it was given by a window it read itself.
+    established = established_onset or EstablishedOnset(
+        minute=onset,
+        how_known=_how_the_minute_is_known(measured_onset, stated_onset)
+    )
+    how_the_minute_is_known = established.how_known
+
+    # Announced by the round that found it and by no other: nothing was detected
+    # by a round handed its onset, and an incident's record says once when it
+    # began. The alarm's own minute is announced as what it is - where the
+    # investigation looked from - and never as a start, which nothing dated.
+    if established_onset is None:
+        if how_the_minute_is_known is HowTheMinuteIsKnown.NOTHING_DATES_IT:
+            narrator.say(AnchoredOnTheAlarm, minute=onset)
+        else:
+            narrator.say(OnsetDetected, onset=onset)
+
+    return _TheOnset(established, stated_onset)
