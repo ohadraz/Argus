@@ -3,30 +3,22 @@
 One thing, and only for one kind of delivery: a person resolved the platform's
 incident, so Argus resolves its own - credited to that person, through that
 platform, with what they wrote. Everything else the platform says is noted and
-left alone, and the reasons are the platform adapter's to give; this suite is
-about the matching.
+left alone, and the reasons are the platform adapter's to give.
 
-The match is made when the resolution arrives, not when the alert did. Grafana
-pages the platform and Argus at the same moment, so at intake the platform's
-incident may not exist yet; by the time somebody resolves it, it does. It is
-found through the keys its senders stamped on it, and through its own id where
-an earlier read already linked it.
-
-A key does not name one incident. Every firing of an alert group pages under the
-group's one key, so an alert that stopped and started again leaves two Argus
-incidents holding it - and the platform opened a page for each. What tells them
-apart is time: the page is about the incidents going on while it was. Never an
-older one that merely shares the key, which is how a resolution of today's page
-used to resolve last week's incident and leave today's open.
+Which Argus incidents the page is about is the incident record's to decide, and
+its own suite says how. What belongs here is what the record is asked - the
+page, its keys, and a way to read when it was open - and what is done with its
+answer.
 
 Both parties are stood in for: the platform because it is somebody else's API,
-and the incident record because its rows are asserted against a real database
-in its own suite.
+and the incident record because its decisions and rows are asserted in its own
+suite.
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import call, create_autospec
@@ -41,15 +33,8 @@ from argus_testkit import (
     calling,
     one_record_was_logged,
 )
-from core.models import (
-    NOTIFICATION_KEY,
-    ON_CALL_INCIDENT,
-    IncidentStanding,
-    IncidentStatus,
-    Reference,
-    Report,
-    ReportChannel,
-)
+from core.models import ON_CALL_INCIDENT, Lifespan, Reference, Report, ReportChannel
+from incident_record import EndedAsSaid
 from oncall_source import OnCallUnavailable, ReportedIncident
 from oncall_source.platform import (
     Delivery,
@@ -75,23 +60,23 @@ SOME_KEY = "61118811129051d2ae8f1e4a0e1ba2b37f38f44a73bf44cb0b29ce81df1f57d3"
 # the person resolved it.
 THE_PAGE_OPENED = datetime(2026, 10, 14, 16, 0, tzinfo=UTC)
 THE_PAGE_RESOLVED = THE_PAGE_OPENED + timedelta(minutes=40)
-A_MINUTE = timedelta(minutes=1)
 
 DONT_CARE_BODY = b"{}"
 DONT_CARE_HEADERS: dict[str, str] = {}
+DONT_CARE_PERSON = "dont care"
 
 
 @pytest.mark.unit
-def test_a_persons_resolution_resolves_the_incident_its_keys_name() -> None:
-    # The whole of the feature, end to end at this seam: found by key, and
-    # credited to the person, through the platform, with their note.
+def test_a_persons_resolution_resolves_the_incident_the_page_is_about() -> None:
+    # The whole of the feature, end to end at this seam: credited to the
+    # person, through the platform, with their note.
     some_person = "some person"
     some_note = "rolled the flag back by hand"
     platform = _a_platform(saying=ResolvedByAPerson(platform_incident=SOME_PLATFORM_INCIDENT,
                                                     by=some_person),
                            keys=[SOME_KEY],
                            note=some_note)
-    record = _a_record(knowing={(NOTIFICATION_KEY, SOME_KEY): [_an_incident_during_the_page()]})
+    record = _a_record(about=[SOME_ARGUS_INCIDENT])
 
     Scenario() \
         .when(lambda: receive_delivery(DONT_CARE_BODY, DONT_CARE_HEADERS,
@@ -103,13 +88,32 @@ def test_a_persons_resolution_resolves_the_incident_its_keys_name() -> None:
 
 
 @pytest.mark.unit
+def test_the_record_is_asked_about_the_page_with_its_keys_and_when_it_was_open() -> None:
+    # The keys are read up front; when the page was open is handed over as a
+    # read the record makes only if it needs to, and it reads the platform's
+    # own account of the page.
+    platform = _a_platform(saying=ResolvedByAPerson(platform_incident=SOME_PLATFORM_INCIDENT,
+                                                    by=DONT_CARE_PERSON),
+                           keys=[SOME_KEY])
+    record = _a_record(about=[SOME_ARGUS_INCIDENT])
+
+    Scenario() \
+        .when(lambda: receive_delivery(DONT_CARE_BODY, DONT_CARE_HEADERS,
+                                       platform=platform, record=record)) \
+        .then(_the_record_was_asked_about(
+            record, SOME_PLATFORM_INCIDENT, [SOME_KEY],
+            Lifespan(began_at=THE_PAGE_OPENED, ended_at=THE_PAGE_RESOLVED)
+        ))
+
+
+@pytest.mark.unit
 def test_the_platforms_incident_becomes_a_name_for_the_argus_incident() -> None:
     # So that the next question about it - engagement, when the postmortem is
     # written - goes straight to it rather than through the keys again.
     platform = _a_platform(saying=ResolvedByAPerson(platform_incident=SOME_PLATFORM_INCIDENT,
-                                                    by="dont care"),
+                                                    by=DONT_CARE_PERSON),
                            keys=[SOME_KEY])
-    record = _a_record(knowing={(NOTIFICATION_KEY, SOME_KEY): [_an_incident_during_the_page()]})
+    record = _a_record(about=[SOME_ARGUS_INCIDENT])
 
     Scenario() \
         .when(lambda: receive_delivery(DONT_CARE_BODY, DONT_CARE_HEADERS,
@@ -121,76 +125,14 @@ def test_the_platforms_incident_becomes_a_name_for_the_argus_incident() -> None:
 
 
 @pytest.mark.unit
-def test_an_incident_already_linked_to_the_page_is_resolved() -> None:
-    # An earlier read matched the two, and that match stands whatever the keys
-    # say now.
-    platform = _a_platform(saying=ResolvedByAPerson(platform_incident=SOME_PLATFORM_INCIDENT,
-                                                    by="dont care"),
-                           keys=[])
-    record = _a_record(knowing={
-        (ON_CALL_INCIDENT, SOME_PLATFORM_INCIDENT): [_an_incident_during_the_page()]
-    })
-
-    Scenario() \
-        .when(lambda: receive_delivery(DONT_CARE_BODY, DONT_CARE_HEADERS,
-                                       platform=platform, record=record)) \
-        .then(_these_were_resolved(record, [SOME_ARGUS_INCIDENT]))
-
-
-@pytest.mark.unit
-def test_an_incident_both_linked_and_keyed_is_resolved_once() -> None:
-    platform = _a_platform(saying=ResolvedByAPerson(platform_incident=SOME_PLATFORM_INCIDENT,
-                                                    by="dont care"),
-                           keys=[SOME_KEY])
-    the_incident = _an_incident_during_the_page()
-    record = _a_record(knowing={(ON_CALL_INCIDENT, SOME_PLATFORM_INCIDENT): [the_incident],
-                                (NOTIFICATION_KEY, SOME_KEY): [the_incident]})
-
-    Scenario() \
-        .when(lambda: receive_delivery(DONT_CARE_BODY, DONT_CARE_HEADERS,
-                                       platform=platform, record=record)) \
-        .then(_these_were_resolved(record, [SOME_ARGUS_INCIDENT]))
-
-
-@pytest.mark.unit
-def test_of_incidents_sharing_the_key_only_the_one_the_page_was_open_for_is_resolved() -> None:
-    # The alert fired, Argus escalated, the alert stopped and the platform
-    # closed its page; then it fired again, under the same key, and the
-    # platform opened another. A person resolving that one is ending today's
-    # incident - and last week's, escalated and still resolvable, must stay as
-    # it was.
-    platform = _a_platform(saying=ResolvedByAPerson(platform_incident=SOME_PLATFORM_INCIDENT,
-                                                    by="dont care"),
-                           keys=[SOME_KEY])
-    record = _a_record(knowing={(NOTIFICATION_KEY, SOME_KEY): [
-        _an_incident_over_before_the_page(SOME_OTHER_ARGUS_INCIDENT),
-        _an_incident_during_the_page()
-    ]})
-
-    Scenario() \
-        .when(lambda: receive_delivery(DONT_CARE_BODY, DONT_CARE_HEADERS,
-                                       platform=platform, record=record)) \
-        .then(all_of(
-            _these_were_resolved(record, [SOME_ARGUS_INCIDENT]),
-            _it_was_never_given_a_name(record, SOME_OTHER_ARGUS_INCIDENT)
-        ))
-
-
-@pytest.mark.unit
-def test_every_incident_the_page_was_open_for_is_resolved() -> None:
+def test_every_incident_the_page_is_about_is_resolved() -> None:
     # Argus said it mitigated the first and the alarm went on, so its reminder
     # opened a second - while the platform kept the one page open across both.
     # The person resolving it is ending both.
     platform = _a_platform(saying=ResolvedByAPerson(platform_incident=SOME_PLATFORM_INCIDENT,
-                                                    by="dont care"),
+                                                    by=DONT_CARE_PERSON),
                            keys=[SOME_KEY])
-    record = _a_record(knowing={(NOTIFICATION_KEY, SOME_KEY): [
-        _an_incident(SOME_OTHER_ARGUS_INCIDENT, IncidentStatus.MITIGATED,
-                     created_at=THE_PAGE_OPENED, ended_at=THE_PAGE_OPENED + 10 * A_MINUTE),
-        _an_incident(SOME_ARGUS_INCIDENT, IncidentStatus.ESCALATED,
-                     created_at=THE_PAGE_OPENED + 20 * A_MINUTE,
-                     ended_at=THE_PAGE_OPENED + 25 * A_MINUTE)
-    ]})
+    record = _a_record(about=[SOME_ARGUS_INCIDENT, SOME_OTHER_ARGUS_INCIDENT])
 
     Scenario() \
         .when(lambda: receive_delivery(DONT_CARE_BODY, DONT_CARE_HEADERS,
@@ -199,42 +141,15 @@ def test_every_incident_the_page_was_open_for_is_resolved() -> None:
 
 
 @pytest.mark.unit
-def test_a_page_opened_after_every_incident_under_its_key_ended_resolves_nothing(
-    caplog: pytest.LogCaptureFixture
-) -> None:
-    # Argus never had today's firing - it arrived nowhere, or was refused -
-    # and the key's only holder is an incident that was over before the page
-    # opened. Resolving that one would be a person's word reaching the wrong
-    # incident.
-    platform = _a_platform(saying=ResolvedByAPerson(platform_incident=SOME_PLATFORM_INCIDENT,
-                                                    by="dont care"),
-                           keys=[SOME_KEY])
-    record = _a_record(knowing={(NOTIFICATION_KEY, SOME_KEY): [
-        _an_incident_over_before_the_page(SOME_ARGUS_INCIDENT)
-    ]})
-
-    Scenario() \
-        .given(calling(lambda: caplog.set_level(logging.INFO))) \
-        .when(lambda: receive_delivery(DONT_CARE_BODY, DONT_CARE_HEADERS,
-                                       platform=platform, record=record)) \
-        .then(all_of(
-            _nothing_was_resolved(record),
-            one_record_was_logged(caplog, "web_app.oncall", logging.INFO,
-                                  "on-call resolution matched no incident",
-                                  values={"platform_incident": SOME_PLATFORM_INCIDENT})
-        ))
-
-
-@pytest.mark.unit
-def test_a_resolution_of_an_incident_argus_never_had_resolves_nothing(
+def test_a_resolution_of_a_page_about_no_incident_resolves_nothing(
     caplog: pytest.LogCaptureFixture
 ) -> None:
     # The webhook covers every incident on the services it watches, and Argus
     # opened only some of them.
     platform = _a_platform(saying=ResolvedByAPerson(platform_incident=SOME_PLATFORM_INCIDENT,
-                                                    by="dont care"),
+                                                    by=DONT_CARE_PERSON),
                            keys=["some-key-argus-never-recorded"])
-    record = _a_record(knowing={})
+    record = _a_record(about=[])
 
     Scenario() \
         .given(calling(lambda: caplog.set_level(logging.INFO))) \
@@ -265,7 +180,7 @@ def test_what_is_not_a_persons_resolution_resolves_nothing_and_is_said(
     # moved the incident rather than ended it, and a reopen after Argus marked
     # the incident resolved does not unsay the person who resolved it.
     platform = _a_platform(saying=delivery, keys=[SOME_KEY])
-    record = _a_record(knowing={(NOTIFICATION_KEY, SOME_KEY): [_an_incident_during_the_page()]})
+    record = _a_record(about=[SOME_ARGUS_INCIDENT])
 
     Scenario() \
         .given(calling(lambda: caplog.set_level(logging.INFO))) \
@@ -281,7 +196,7 @@ def test_what_is_not_a_persons_resolution_resolves_nothing_and_is_said(
 @pytest.mark.unit
 def test_any_other_event_resolves_nothing() -> None:
     platform = _a_platform(saying=Irrelevant(event="incident.annotated"), keys=[SOME_KEY])
-    record = _a_record(knowing={(NOTIFICATION_KEY, SOME_KEY): [_an_incident_during_the_page()]})
+    record = _a_record(about=[SOME_ARGUS_INCIDENT])
 
     Scenario() \
         .when(lambda: receive_delivery(DONT_CARE_BODY, DONT_CARE_HEADERS,
@@ -292,10 +207,10 @@ def test_any_other_event_resolves_nothing() -> None:
 @pytest.mark.unit
 def test_an_unverified_delivery_is_refused_and_resolves_nothing() -> None:
     platform = _a_platform(saying=ResolvedByAPerson(platform_incident=SOME_PLATFORM_INCIDENT,
-                                                    by="dont care"),
+                                                    by=DONT_CARE_PERSON),
                            keys=[SOME_KEY])
     platform.parse_delivery.side_effect = OnCallDeliveryUnverified("forged")
-    record = _a_record(knowing={(NOTIFICATION_KEY, SOME_KEY): [_an_incident_during_the_page()]})
+    record = _a_record(about=[SOME_ARGUS_INCIDENT])
 
     Scenario() \
         .when(attempting(lambda: receive_delivery(DONT_CARE_BODY, DONT_CARE_HEADERS,
@@ -314,12 +229,13 @@ def test_a_platform_that_cannot_be_read_mid_match_resolves_nothing_and_says_so(
 ) -> None:
     # Raised rather than swallowed, so the delivery is answered as a failure
     # and the platform sends it again - a resolution lost to a blip would be a
-    # person's word Argus never heard.
+    # person's word Argus never heard. The record reads when the page was open
+    # where a key is held, as the one here does.
     platform = _a_platform(saying=ResolvedByAPerson(platform_incident=SOME_PLATFORM_INCIDENT,
-                                                    by="dont care"),
+                                                    by=DONT_CARE_PERSON),
                            keys=[SOME_KEY])
     getattr(platform, unreadable).side_effect = OnCallUnavailable("unreachable")
-    record = _a_record(knowing={(NOTIFICATION_KEY, SOME_KEY): [_an_incident_during_the_page()]})
+    record = _a_record(about=[SOME_ARGUS_INCIDENT])
 
     Scenario() \
         .when(attempting(lambda: receive_delivery(DONT_CARE_BODY, DONT_CARE_HEADERS,
@@ -345,43 +261,52 @@ def _a_platform(saying: Delivery, keys: list[str], note: str | None = None) -> A
     return platform
 
 
-def _an_incident(incident_id: str,
-                 status: IncidentStatus,
-                 created_at: datetime,
-                 ended_at: datetime | None) -> IncidentStanding:
-    return IncidentStanding(id=incident_id, status=status,
-                            created_at=created_at, ended_at=ended_at)
-
-
-def _an_incident_during_the_page() -> IncidentStanding:
-    """`SOME_ARGUS_INCIDENT`, opened with the page and still being worked."""
-    return _an_incident(SOME_ARGUS_INCIDENT, IncidentStatus.INVESTIGATING,
-                        created_at=THE_PAGE_OPENED + A_MINUTE, ended_at=None)
-
-
-def _an_incident_over_before_the_page(incident_id: str) -> IncidentStanding:
-    """An incident Argus escalated, which ended an hour before the page opened."""
-    return _an_incident(incident_id, IncidentStatus.ESCALATED,
-                        created_at=THE_PAGE_OPENED - 120 * A_MINUTE,
-                        ended_at=THE_PAGE_OPENED - 60 * A_MINUTE)
-
-
-def _a_record(knowing: dict[tuple[str, str], list[IncidentStanding]]) -> Any:
-    """An incident record holding these names, each as (kind, value) -> its
-    holders."""
+def _a_record(about: list[str]) -> Any:
+    """An incident record that says the page is about `about` - reading when
+    the page was open first, as the real decision does where a key is held -
+    and resolves each incident it is asked to."""
     record = create_autospec(IncidentRecord, instance=True)
 
-    def incidents_known_as(kind: str, values: list[str]) -> list[IncidentStanding]:
-        found = {incident.id: incident
-                 for value in values
-                 for incident in knowing.get((kind, value), [])}
+    def incidents_a_page_is_about(_page: str,
+                                  _keys: list[str],
+                                  the_pages_life: Callable[[], Lifespan]) -> list[str]:
+        the_pages_life()
 
-        return list(found.values())
+        return about
 
-    record.incidents_known_as.side_effect = incidents_known_as
-    record.resolve.return_value = True
+    record.incidents_a_page_is_about.side_effect = incidents_a_page_is_about
+    record.resolve.side_effect = lambda incident_id, _reported: EndedAsSaid(incident_id)
 
     return record
+
+
+def _the_record_was_asked_about(record: Any,
+                                page: str,
+                                keys: list[str],
+                                open_while: Lifespan) -> Assertion[object]:
+    """Asked once, about `page` with `keys`, and handed a read of when it was
+    open that answers `open_while`."""
+    def assertion(_: object) -> bool:
+        asked = record.incidents_a_page_is_about.call_args_list
+
+        if len(asked) != 1:
+            raise AssertionError(
+                f"Expected the record to be asked about the page once, got {asked}"
+            )
+
+        (asked_page, asked_keys, the_pages_life), _kwargs = asked[0]
+        read = the_pages_life()
+
+        if (asked_page, list(asked_keys), read) != (page, keys, open_while):
+            raise AssertionError(
+                f"Expected the record asked about [{page}] with keys {keys} and a page open "
+                f"[{open_while}], got [{asked_page}] with keys {list(asked_keys)} and a page "
+                f"open [{read}]."
+            )
+
+        return True
+
+    return assertion
 
 
 def _it_was_resolved(record: Any, incident_id: str, reported: Report) -> Assertion[object]:
@@ -389,7 +314,7 @@ def _it_was_resolved(record: Any, incident_id: str, reported: Report) -> Asserti
         if record.resolve.call_args_list != [call(incident_id, reported)]:
             raise AssertionError(
                 f"Expected [{incident_id}] resolved as reported by {reported!r}, got "
-                f"{record.resolve.call_args_list}."
+                f"{record.resolve.call_args_list}"
             )
 
         return True
@@ -405,7 +330,7 @@ def _these_were_resolved(record: Any, incident_ids: list[str]) -> Assertion[obje
 
         if sorted(resolved) != sorted(incident_ids):
             raise AssertionError(
-                f"Expected {sorted(incident_ids)} each resolved once, got {resolved}."
+                f"Expected {sorted(incident_ids)} each resolved once, got {resolved}"
             )
 
         return True
@@ -420,23 +345,7 @@ def _it_was_given_the_name(record: Any,
         if call(incident_id, reference) not in record.know_it_as.call_args_list:
             raise AssertionError(
                 f"Expected [{incident_id}] to be given the name {reference!r}, got "
-                f"{record.know_it_as.call_args_list}."
-            )
-
-        return True
-
-    return assertion
-
-
-def _it_was_never_given_a_name(record: Any, incident_id: str) -> Assertion[object]:
-    """Not linked to a page it was never about, where engagement would read it."""
-    def assertion(_: object) -> bool:
-        named = [args for args, _kwargs in record.know_it_as.call_args_list
-                 if args[0] == incident_id]
-
-        if named:
-            raise AssertionError(
-                f"Expected [{incident_id}] to be given no name, got {named}."
+                f"{record.know_it_as.call_args_list}"
             )
 
         return True
@@ -448,7 +357,7 @@ def _nothing_was_resolved(record: Any) -> Assertion[object]:
     def assertion(_: object) -> bool:
         if record.resolve.call_args_list:
             raise AssertionError(
-                f"Expected nothing resolved, got {record.resolve.call_args_list}."
+                f"Expected nothing resolved, got {record.resolve.call_args_list}"
             )
 
         return True

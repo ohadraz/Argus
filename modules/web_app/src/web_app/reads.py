@@ -35,17 +35,6 @@ from web_app.views import (
 )
 
 
-def read_trace_context(conn: psycopg.Connection, incident_id: str) -> Mapping[str, str] | None:
-    """The trace the incident's alert arrived in, or `None` where there is no such incident.
-
-    What a request acting on the incident continues, so that what it did is
-    read in the incident's own trace.
-    """
-    incident = incident_reads_on(conn).incident(incident_id)
-
-    return incident.trace_context if incident is not None else None
-
-
 def read_history(conn: psycopg.Connection) -> list[IncidentSummary]:
     """Every incident, in the order the repository returns them."""
     return [build_incident_summary(incident)

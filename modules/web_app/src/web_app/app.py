@@ -4,34 +4,35 @@ import logging
 from collections.abc import AsyncGenerator, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated, Final
+from typing import Annotated, Final, assert_never
 
 import psycopg
 from alert_source import AlertSource, AlertUnreadable, OnlyResolved
 from chat_platform import ChatDeliveryUnverified, ChatPlatformReads
 from core import DatabaseSettings
-from core.models import (
-    IncidentStanding,
-    IncidentStatus,
-    Reference,
-    Report,
-    ReportChannel,
-    ThreadMessage,
-)
+from core.models import IncidentStatus, Lifespan, Reference, Report, ReportChannel
 from core.telemetry import ARGUS_INCIDENT_ID
 from fastapi import APIRouter, Depends, FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from incident_record import (
+    Accepted,
+    AtAPersonsWord,
+    EndedAsSaid,
+    NoSuchIncident,
+    NotAccepted,
+    PersonsEnding,
+    Refused,
+    accept_offer,
+    at_a_persons_word_over,
     events_into_connection,
     incident_conversation_over,
     incident_names_over,
+    incidents_a_page_is_about,
     ingest_a_message,
-    inside_the_incidents_trace,
-    resolve_incident,
     start_incident,
-    withdraw_incident,
+    the_incident_of_thread,
 )
 from narration import said_as_a_confidence, said_as_a_share, said_as_a_time
 from oncall_source import OnCallUnavailable
@@ -59,14 +60,13 @@ from web_app.views import IncidentDetail, Story, the_rows_held
 
 logger = logging.getLogger(__name__)
 
-# The instrumentation scope this app's spans are reported under, and the
-# requests that are spans at all: the one an incident's trace begins in, and a
-# person ending the response. Every other route renders a page, and the
-# dashboard polls, so a span for each would be noise nobody reads.
+# The instrumentation scope this app's spans are reported under, and the one
+# request that is a span here: the one an incident's trace begins in. A person
+# ending the response is a span too, made by the incident record inside the
+# incident's own trace. Every other route renders a page, and the dashboard
+# polls, so a span for each would be noise nobody reads.
 _SCOPE: Final = __name__
 RECEIVE_ALERT_SPAN: Final = "receive alert"
-WITHDRAW_SPAN: Final = "withdraw incident"
-RESOLVE_SPAN: Final = "resolve incident"
 
 # Who a person ending an incident from this page is recorded as. Argus has no
 # users yet, so whoever pressed the button is the one person the demo has - and
@@ -247,6 +247,18 @@ def tracer_of() -> Tracer:
     return trace.get_tracer(_SCOPE)
 
 
+def at_a_persons_word_of(connections: Annotated[Connections, Depends(connections_of)],
+                       tracer: Annotated[Tracer, Depends(tracer_of)]) -> AtAPersonsWord:
+    """How a route ends an incident at a person's word: the incident record's
+    one path, whichever door the person said it through.
+
+    Built per request from the two dependencies it stands on, rather than once
+    at startup, so a test that hands in a tracer of its own reads the ending's
+    span back - and because the connections exist only inside the lifespan.
+    """
+    return at_a_persons_word_over(connections, tracer)
+
+
 type UsingConnections = Annotated[Connections, Depends(connections_of)]
 type UsingPushSettings = Annotated[PushSettings, Depends(push_settings_of)]
 type UsingAlertSources = Annotated[Mapping[str, AlertSource], Depends(alert_sources_of)]
@@ -256,6 +268,7 @@ type TheBody = Annotated[bytes, Depends(body_of)]
 type UsingOnCallPlatform = Annotated[OnCallPlatform | None, Depends(oncall_platform_of)]
 type UsingChatPlatform = Annotated[ChatPlatformReads | None, Depends(chat_platform_of)]
 type Tracing = Annotated[Tracer, Depends(tracer_of)]
+type EndingAtAPersonsWord = Annotated[AtAPersonsWord, Depends(at_a_persons_word_of)]
 
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
@@ -391,7 +404,7 @@ def receive_oncall_delivery(request: Request,
                             body: TheBody,
                             platform: UsingOnCallPlatform,
                             connections: UsingConnections,
-                            tracer: Tracing) -> dict[str, str]:
+                            ending: EndingAtAPersonsWord) -> dict[str, str]:
     """Where the on-call platform tells Argus what happened to its incidents.
 
     One delivery is acted on - a person resolving an incident Argus has - and
@@ -418,7 +431,7 @@ def receive_oncall_delivery(request: Request,
             body,
             request.headers,
             platform=platform,
-            record=_TheIncidentRecord(connections, tracer)
+            record=_TheOnCallRecord(ending, connections)
         )
     except OnCallDeliveryUnverified as refused:
         # Most often the deployment holding a different secret from the
@@ -438,7 +451,7 @@ def receive_chat_event(request: Request,
                        body: TheBody,
                        platform: UsingChatPlatform,
                        connections: UsingConnections,
-                       tracer: Tracing) -> dict[str, str]:
+                       ending: EndingAtAPersonsWord) -> dict[str, str]:
     """Where the chat platform tells Argus what was posted where it can see.
 
     One thing is acted on - a person replying in an incident's thread, which is
@@ -446,7 +459,7 @@ def receive_chat_event(request: Request,
     `chat.receive_chat_delivery`; this is registration and the answer the
     platform acts on.
     """
-    return _a_chat_delivery(body, request, platform, connections, tracer)
+    return _a_chat_delivery(body, request, platform, connections, ending)
 
 
 @router.post("/webhooks/slack/interactions")
@@ -454,21 +467,21 @@ def receive_chat_interaction(request: Request,
                              body: TheBody,
                              platform: UsingChatPlatform,
                              connections: UsingConnections,
-                             tracer: Tracing) -> dict[str, str]:
+                             ending: EndingAtAPersonsWord) -> dict[str, str]:
     """Where the chat platform tells Argus a button on one of its messages was
     pressed.
 
     A door of its own only because Slack is configured with a separate address
     for interactions; what is behind it is the same handling as the events'.
     """
-    return _a_chat_delivery(body, request, platform, connections, tracer)
+    return _a_chat_delivery(body, request, platform, connections, ending)
 
 
 def _a_chat_delivery(body: bytes,
                      request: Request,
                      platform: ChatPlatformReads | None,
                      connections: Connections,
-                     tracer: Tracer) -> dict[str, str]:
+                     ending: AtAPersonsWord) -> dict[str, str]:
     """Both chat doors' handling, and the answer the platform acts on.
 
     Handed the bytes that arrived, for the reason the push webhook is - the
@@ -492,7 +505,7 @@ def _a_chat_delivery(body: bytes,
             body,
             request.headers,
             platform=platform,
-            record=_TheChatRecord(_TheIncidentRecord(connections, tracer), connections)
+            record=_TheChatRecord(ending, connections)
         )
     except ChatDeliveryUnverified as refused:
         # Most often the deployment holding a different signing secret from the
@@ -505,83 +518,57 @@ def _a_chat_delivery(body: bytes,
 
 
 class _TheChatRecord:
-    """The incident record, as a delivery from the chat platform reaches it.
+    """The incident record, as a delivery from the chat platform reaches it:
+    its decisions about threads and offers, and a person's ending, which is
+    made the one way it is made from every door."""
 
-    Finding, resolving and withdrawing are the incident record's, unchanged - a
-    person ending the incident from a thread ends it inside the incident's
-    trace, as from anywhere else. Ingesting and finding an offer are the chat's
-    own.
-    """
-
-    def __init__(self, incidents: _TheIncidentRecord, connections: Connections) -> None:
-        self._incidents = incidents
+    def __init__(self, ending: AtAPersonsWord, connections: Connections) -> None:
+        self._ending = ending
         self._connections = connections
 
-    def incident_known_as(self, kind: str, values: Sequence[str]) -> str | None:
-        return self._incidents.incident_known_as(kind, values)
+    def incident_of_thread(self, thread: Reference) -> str | None:
+        return the_incident_of_thread(incident_names_over(self._connections), thread)
 
     def ingest(self, incident_id: str, message: Reference, person_id: str, text: str) -> bool:
         return ingest_a_message(incident_id, message, person_id, text, self._connections)
 
-    def message_written(self, incident_id: str, message: Reference) -> ThreadMessage | None:
-        written = incident_conversation_over(self._connections).message(message)
+    def accept_offer(self,
+                     thread: Reference,
+                     message: Reference,
+                     presser: str) -> Accepted | NotAccepted:
+        return accept_offer(incident_conversation_over(self._connections),
+                            incident_names_over(self._connections),
+                            thread, message, presser)
 
-        # A message is found by its own name, and belongs to one incident: a
-        # press in one incident's thread on another's message ends neither.
-        return written if written is not None and written.incident_id == incident_id else None
+    def resolve(self, incident_id: str, reported: Report) -> PersonsEnding:
+        return self._ending.resolve(incident_id, reported)
 
-    def resolve(self, incident_id: str, reported: Report) -> bool:
-        return self._incidents.resolve(incident_id, reported)
-
-    def withdraw(self, incident_id: str, reported: Report) -> bool:
-        return self._incidents.withdraw(incident_id, reported)
+    def withdraw(self, incident_id: str, reported: Report) -> PersonsEnding:
+        return self._ending.withdraw(incident_id, reported)
 
 
-class _TheIncidentRecord:
-    """The incident record, as a delivery from the on-call or the chat
-    platform reaches it.
+class _TheOnCallRecord:
+    """The incident record, as a delivery from the on-call platform reaches
+    it: its decision about which incidents a page is about, the names it gives
+    them, and a person's ending, made the one way it is made from every
+    door."""
 
-    A resolution or a withdrawal here is made inside the incident's own trace,
-    as one from the page is: a person ending the incident is part of its
-    story, wherever they said it.
-    """
-
-    def __init__(self, connections: Connections, tracer: Tracer) -> None:
+    def __init__(self, ending: AtAPersonsWord, connections: Connections) -> None:
+        self._ending = ending
         self._connections = connections
-        self._tracer = tracer
 
-    def incident_known_as(self, kind: str, values: Sequence[str]) -> str | None:
-        """The one incident holding these names, for a kind only one incident
-        ever holds - a thread, a message, an offer."""
-        found = self.incidents_known_as(kind, values)
-
-        # One holder or none: a name several incidents hold names none of them.
-        return found[0].id if len(found) == 1 else None
-
-    def incidents_known_as(self, kind: str, values: Sequence[str]) -> list[IncidentStanding]:
-        return incident_names_over(self._connections).incidents_known_as(kind, values)
+    def incidents_a_page_is_about(self,
+                                  page: str,
+                                  keys: Sequence[str],
+                                  the_pages_life: Callable[[], Lifespan]) -> list[str]:
+        return incidents_a_page_is_about(incident_names_over(self._connections),
+                                         page, keys, the_pages_life)
 
     def know_it_as(self, incident_id: str, reference: Reference) -> None:
         incident_names_over(self._connections).give(incident_id, [reference])
 
-    def resolve(self, incident_id: str, reported: Report) -> bool:
-        with self._connections() as conn:
-            kept = reads.read_trace_context(conn, incident_id) or {}
-
-        with inside_the_incidents_trace(incident_id, kept, RESOLVE_SPAN,
-                                        kind=SpanKind.SERVER, tracer=self._tracer):
-            return resolve_incident(incident_id, reported, self._connections,
-                                    events_into_connection)
-
-    def withdraw(self, incident_id: str, reported: Report) -> bool:
-        """Withdraws the incident inside its own trace, as a resolution is."""
-        with self._connections() as conn:
-            kept = reads.read_trace_context(conn, incident_id) or {}
-
-        with inside_the_incidents_trace(incident_id, kept, WITHDRAW_SPAN,
-                                        kind=SpanKind.SERVER, tracer=self._tracer):
-            return withdraw_incident(incident_id, reported, self._connections,
-                                     events_into_connection)
+    def resolve(self, incident_id: str, reported: Report) -> PersonsEnding:
+        return self._ending.resolve(incident_id, reported)
 
 
 def _the_watermark_kept_by(connections: Connections) -> Watermark:
@@ -600,9 +587,7 @@ def _the_watermark_kept_by(connections: Connections) -> Watermark:
 
 
 @router.post("/incidents/{incident_id}/withdraw")
-def withdraw(incident_id: str,
-             connections: UsingConnections,
-             tracer: Tracing) -> dict[str, str]:
+def withdraw(incident_id: str, ending: EndingAtAPersonsWord) -> dict[str, str]:
     """Withdraws an incident from Argus, at somebody's say-so.
 
     The one thing this application exposes that changes an incident, and it is
@@ -619,32 +604,14 @@ def withdraw(incident_id: str,
     have somebody believe they had undone a mitigation that is still
     holding the service up.
 
-    Done inside the incident's own trace, since a person stopping the response
-    is part of the incident's story.
+    Done by the incident record the one way a person's ending is done from
+    every door - inside the incident's own trace, since a person stopping the
+    response is part of the incident's story. The route answers what it was
+    told, and reads nothing itself.
     """
-    with connections() as conn:
-        kept = reads.read_trace_context(conn, incident_id)
-
-    if kept is None:
-        raise HTTPException(status_code=404, detail=f"no incident {incident_id}")
-
-    with inside_the_incidents_trace(incident_id, kept, WITHDRAW_SPAN,
-                                    kind=SpanKind.SERVER, tracer=tracer):
-        withdrawn = withdraw_incident(
-            incident_id,
-            Report(by=THE_DEMO_USER, channel=ReportChannel.ARGUS_UI),
-            connections,
-            events_into_connection
-        )
-
-        if not withdrawn:
-            # Inside the trace, so the line carries the incident it is about.
-            logger.info("withdrawal refused")
-
-    if not withdrawn:
-        raise HTTPException(
-            status_code=409, detail=f"incident {incident_id} has already ended"
-        )
+    _answer(ending.withdraw(incident_id, Report(by=THE_DEMO_USER,
+                                                channel=ReportChannel.ARGUS_UI)),
+            refused=f"incident {incident_id} has already ended")
 
     return {"incident_id": incident_id, "status": IncidentStatus.WITHDRAWN}
 
@@ -652,8 +619,7 @@ def withdraw(incident_id: str,
 @router.post("/incidents/{incident_id}/resolve")
 def resolve(incident_id: str,
             response: Response,
-            connections: UsingConnections,
-            tracer: Tracing,
+            ending: EndingAtAPersonsWord,
             note: Annotated[str, Form()] = "") -> dict[str, str]:
     """Records that a person reports the incident over, at their say-so.
 
@@ -673,34 +639,29 @@ def resolve(incident_id: str,
     has a page that stopped polling, so without it nothing would show the
     person what their press did.
     """
-    with connections() as conn:
-        kept = reads.read_trace_context(conn, incident_id)
-
-    if kept is None:
-        raise HTTPException(status_code=404, detail=f"no incident {incident_id}")
-
-    with inside_the_incidents_trace(incident_id, kept, RESOLVE_SPAN,
-                                    kind=SpanKind.SERVER, tracer=tracer):
-        resolved = resolve_incident(
-            incident_id,
-            Report(by=THE_DEMO_USER, channel=ReportChannel.ARGUS_UI,
-                   note=note.strip() or None),
-            connections,
-            events_into_connection
-        )
-
-        if not resolved:
-            # Inside the trace, so the line carries the incident it is about.
-            logger.info("resolution refused")
-
-    if not resolved:
-        raise HTTPException(
-            status_code=409, detail=f"incident {incident_id} cannot be resolved"
-        )
+    _answer(ending.resolve(incident_id, Report(by=THE_DEMO_USER,
+                                               channel=ReportChannel.ARGUS_UI,
+                                               note=note.strip() or None)),
+            refused=f"incident {incident_id} cannot be resolved")
 
     response.headers["HX-Refresh"] = "true"
 
     return {"incident_id": incident_id, "status": IncidentStatus.RESOLVED}
+
+
+def _answer(ended: PersonsEnding, *, refused: str) -> None:
+    """Answers a person's ending in HTTP's terms: a `404` where there is no such
+    incident, a `409` saying `refused` where the incident would not move, and
+    nothing - the route's own success - where it ended."""
+    match ended:
+        case NoSuchIncident(incident_id=incident_id):
+            raise HTTPException(status_code=404, detail=f"no incident {incident_id}")
+        case Refused():
+            raise HTTPException(status_code=409, detail=refused)
+        case EndedAsSaid():
+            return
+        case _:
+            assert_never(ended)
 
 
 @router.get("/", response_class=HTMLResponse)

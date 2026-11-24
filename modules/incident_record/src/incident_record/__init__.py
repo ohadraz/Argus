@@ -11,6 +11,15 @@ a walk holds off its next step while a person is asked to confirm,
 `tracing` is how any later work on an incident continues the trace its alert
 arrived in, and `dating` is when an action was taken, as every reader says it.
 
+A person ending an incident is one path whichever door they said it through:
+`AtAPersonsWord` resolves or withdraws it inside its own trace, and answers
+`NoSuchIncident`, `Refused` or `EndedAsSaid` for the door to answer in its own
+terms. The decisions a door asks before that are the record's too, so every
+process that hears from a tool asks them alike: `incidents_a_page_is_about` is
+which incidents an on-call page is about, `the_incident_of_thread` which
+incident a chat thread is, and `accept_offer` whether a press of an offer's
+button is accepted.
+
 What the record holds is reached by role, never by table. A reader of one
 incident at one moment holds `IncidentReads`, the pages choosing which incidents
 to show hold `IncidentsOnShow`, whatever hears from another tool holds
@@ -32,6 +41,21 @@ fixture reaches what it sets up.
 
 from __future__ import annotations
 
+from incident_record.a_persons_word import (
+    AtAPersonsWord,
+    EndedAsSaid,
+    NoSuchIncident,
+    PersonsEnding,
+    Refused,
+    at_a_persons_word_over,
+)
+from incident_record.chat_threads import (
+    Accepted,
+    NotAccepted,
+    NotAcceptedBecause,
+    accept_offer,
+    the_incident_of_thread,
+)
 from incident_record.dating import when_it_was_taken
 from incident_record.ending import (
     EndedByAPerson,
@@ -60,6 +84,7 @@ from incident_record.incident_reads import (
 from incident_record.incidents_on_show import IncidentsOnShow, incidents_on_show_on
 from incident_record.ingesting import ingest_a_message
 from incident_record.intake import start_incident
+from incident_record.on_call_pages import incidents_a_page_is_about
 from incident_record.publishing import (
     PublisherFor,
     acknowledge_alert,
@@ -81,8 +106,11 @@ from incident_record.walks_writes import TheWalksWrites, the_walks_writes_on
 from incident_record.withdrawal import withdraw_incident
 
 __all__ = [
+    "Accepted",
+    "AtAPersonsWord",
     "Backlog",
     "ChangeInFlight",
+    "EndedAsSaid",
     "EndedByAPerson",
     "IncidentConversation",
     "IncidentNames",
@@ -90,15 +118,22 @@ __all__ = [
     "IncidentsOnShow",
     "IsStillWanted",
     "NoLongerOpen",
+    "NoSuchIncident",
+    "NotAccepted",
+    "NotAcceptedBecause",
+    "PersonsEnding",
     "Place",
     "PublisherFor",
     "RatesCache",
+    "Refused",
     "Run",
     "RunQueue",
     "StillHeld",
     "TheWalksWrites",
     "WaitForPeople",
+    "accept_offer",
     "acknowledge_alert",
+    "at_a_persons_word_over",
     "calls_into",
     "ended_by_a_person_via",
     "events_into",
@@ -110,6 +145,7 @@ __all__ = [
     "incident_names_over",
     "incident_reads_on",
     "incident_reads_over",
+    "incidents_a_page_is_about",
     "incidents_on_show_on",
     "ingest_a_message",
     "inside_the_incidents_trace",
@@ -122,6 +158,7 @@ __all__ = [
     "start_incident",
     "still_held_via",
     "the_current_step",
+    "the_incident_of_thread",
     "the_walks_writes_on",
     "waiting_for_people_via",
     "wanted_until_a_person_ends_it",

@@ -5,20 +5,22 @@ Two things, for two deliveries. A person writing in an incident's thread is
 ingested: recorded on that incident, once, however often the platform delivers it,
 and classified for what it meant later and elsewhere - nothing slow happens inside
 the three seconds the platform waits. And a person pressing the button on an offer
-resolves or withdraws the incident, whichever the offer offered, credited to
-them, through the platform, with the words the offer was made about - but only
-if the offer was made to them.
+resolves or withdraws the incident, whichever the offer offered, credited as the
+record says, through the platform, with the words the offer was made about - but
+only where the record accepts the press.
+
+Whether it does is the incident record's decision, asserted in its own suite.
+What belongs here is that the press is put to it, and that each answer is acted
+on or said.
 
 Both parties are stood in for: the platform because it is somebody else's API,
-and the incident record because its rows are asserted against a real database
-in its own suite.
+and the incident record because its rows and its decisions are asserted in its
+own suite.
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
-from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import call, create_autospec
 
@@ -42,16 +44,21 @@ from chat_platform import (
     Written,
 )
 from core.models import (
-    CHAT_THREAD,
     IncidentStatus,
-    Meaning,
-    Offer,
+    OfferedEnding,
     Reference,
     Report,
     ReportChannel,
-    ThreadMessage,
     a_chat_message,
     a_chat_thread,
+)
+from incident_record import (
+    Accepted,
+    EndedAsSaid,
+    NotAccepted,
+    NotAcceptedBecause,
+    PersonsEnding,
+    Refused,
 )
 from web_app.chat import ChatRecord, receive_chat_delivery
 
@@ -64,30 +71,19 @@ SOME_THREAD = a_chat_thread(THE_CHAT_PLATFORM, "C-some-channel", "1760000000.000
 SOME_MESSAGE = a_chat_message(THE_CHAT_PLATFORM, "C-some-channel", "1760000100.000200")
 SOME_PERSON = "U-some-person"
 SOME_WORDS = "rolled the flag back by hand, we're fine"
-DONT_CARE_TIME = datetime(2026, 10, 11, 1, 0, tzinfo=UTC)
+DONT_CARE_NAME = "dont care"
 
 DONT_CARE_BODY = b"{}"
 DONT_CARE_HEADERS: dict[str, str] = {}
 
-# A message a person wrote, kept with the offer made back to them, named or not
-# - either kind, for the cases that hold for both.
-type OfferOf = Callable[[str, str | None], ThreadMessage]
+# The one person pressing the button on SOME_MESSAGE, in SOME_THREAD.
+A_PRESS = Pressed(thread=SOME_THREAD, person_id=SOME_PERSON, message=SOME_MESSAGE)
 
 
-def _an_offer(to: str, named: str | None) -> ThreadMessage:
-    return _a_message_offered(to, named, Meaning.RESOLVE,
-                              Offer(ending=IncidentStatus.RESOLVED))
-
-
-def _a_withdrawal_offer(to: str, named: str | None) -> ThreadMessage:
-    return _a_message_offered(to, named, Meaning.WITHDRAW,
-                              Offer(ending=IncidentStatus.WITHDRAWN))
-
-
-def _a_message_offered(to: str, named: str | None, meaning: Meaning, offer: Offer) -> ThreadMessage:
-    return ThreadMessage(incident_id=SOME_ARGUS_INCIDENT, message=SOME_MESSAGE,
-                         person_id=to, person_name=named, text=SOME_WORDS,
-                         written_at=DONT_CARE_TIME, meaning=meaning, offer=offer)
+def _accepted(ending: OfferedEnding, credited_to: str = DONT_CARE_NAME) -> Accepted:
+    """The record accepting the press on SOME_ARGUS_INCIDENT, for `ending`."""
+    return Accepted(incident_id=SOME_ARGUS_INCIDENT, ending=ending,
+                    credited_to=credited_to, note=SOME_WORDS)
 
 
 @pytest.mark.unit
@@ -142,66 +138,55 @@ def test_a_person_writing_in_a_thread_no_incident_holds_is_not_ingested(
 
 
 @pytest.mark.unit
-def test_the_person_an_offer_was_made_to_pressing_it_resolves_the_incident() -> None:
-    # Credited by the name the offer was made with, through the platform, with
-    # their own words as the note: all of it read off the message as the
-    # incident keeps it, which is the one record of what the person said and
-    # who they are.
-    some_name = "Some Person"
-    platform = _a_platform(saying=Pressed(thread=SOME_THREAD, person_id=SOME_PERSON,
-                                          message=SOME_MESSAGE))
-    record = _a_record(knowing={SOME_THREAD.value: SOME_ARGUS_INCIDENT},
-                       offers=[_an_offer(to=SOME_PERSON, named=some_name)])
+def test_a_press_is_put_to_the_record_as_the_thread_the_message_and_the_person() -> None:
+    # The record decides whether the press is accepted, and decides it from
+    # these three: where it was pressed, beside what, and by whom.
+    platform = _a_platform(saying=A_PRESS)
+    record = _a_record(knowing={}, answering=NotAccepted(NotAcceptedBecause.NO_OFFER))
 
     Scenario() \
         .when(lambda: receive_chat_delivery(DONT_CARE_BODY, DONT_CARE_HEADERS,
                                             platform=platform, record=record)) \
-        .then(_it_was_resolved(record, SOME_ARGUS_INCIDENT,
-                               Report(by=some_name, channel=ReportChannel.CHAT_PLATFORM,
-                                      platform=THE_CHAT_PLATFORM,
-                                      note=SOME_WORDS)))
+        .then(_the_press_was_put_as(record, SOME_THREAD, SOME_MESSAGE, SOME_PERSON))
 
 
 @pytest.mark.unit
-def test_an_offer_to_a_person_the_platform_could_not_name_credits_them_by_their_id() -> None:
-    # Somebody resolved it, and the account must say who. The platform's id is
-    # the one name for them Argus holds - one a reader can look up, where
-    # "could not say" would send them nowhere.
-    platform = _a_platform(saying=Pressed(thread=SOME_THREAD, person_id=SOME_PERSON,
-                                          message=SOME_MESSAGE))
-    record = _a_record(knowing={SOME_THREAD.value: SOME_ARGUS_INCIDENT},
-                       offers=[_an_offer(to=SOME_PERSON, named=None)])
+def test_an_accepted_offer_to_resolve_resolves_the_incident_as_the_record_credits_it() -> None:
+    # Credited to whom the record says, through the platform, with the words
+    # the offer was made about as the note.
+    some_credited = "Some Person"
+    platform = _a_platform(saying=A_PRESS)
+    record = _a_record(knowing={},
+                       answering=_accepted(IncidentStatus.RESOLVED, credited_to=some_credited))
 
     Scenario() \
         .when(lambda: receive_chat_delivery(DONT_CARE_BODY, DONT_CARE_HEADERS,
                                             platform=platform, record=record)) \
-        .then(_it_was_resolved(record, SOME_ARGUS_INCIDENT,
-                               Report(by=SOME_PERSON, channel=ReportChannel.CHAT_PLATFORM,
-                                      platform=THE_CHAT_PLATFORM,
-                                      note=SOME_WORDS)))
+        .then(all_of(
+            _it_was_resolved(record, SOME_ARGUS_INCIDENT,
+                             Report(by=some_credited, channel=ReportChannel.CHAT_PLATFORM,
+                                    platform=THE_CHAT_PLATFORM,
+                                    note=SOME_WORDS)),
+            _nothing_was_withdrawn(record)
+        ))
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(("named", "credited"), [("Some Person", "Some Person"),
-                                                 (None, SOME_PERSON)],
-                         ids=["named", "unnamed"])
-def test_the_person_a_withdrawal_offer_was_made_to_pressing_it_withdraws_the_incident(
-        named: str | None, credited: str) -> None:
-    # The resolution's twin, ending the other way: the offer kept on the
-    # message is what says which ending the press confirms, so the same button
-    # withdraws - credited, through the platform, with their words - and
+def test_an_accepted_offer_to_withdraw_withdraws_the_incident_as_the_record_credits_it() -> None:
+    # The resolution's twin, ending the other way: the accepted offer says
+    # which ending the press confirms, so the same button withdraws and
     # resolves nothing.
-    platform = _a_platform(saying=Pressed(thread=SOME_THREAD, person_id=SOME_PERSON,
-                                          message=SOME_MESSAGE))
-    record = _a_record(knowing={SOME_THREAD.value: SOME_ARGUS_INCIDENT},
-                       offers=[_a_withdrawal_offer(to=SOME_PERSON, named=named)])
+    some_credited = "Some Person"
+    platform = _a_platform(saying=A_PRESS)
+    record = _a_record(knowing={},
+                       answering=_accepted(IncidentStatus.WITHDRAWN, credited_to=some_credited))
 
     Scenario() \
         .when(lambda: receive_chat_delivery(DONT_CARE_BODY, DONT_CARE_HEADERS,
                                             platform=platform, record=record)) \
         .then(all_of(
             _it_was_withdrawn(record, SOME_ARGUS_INCIDENT,
-                              Report(by=credited, channel=ReportChannel.CHAT_PLATFORM,
+                              Report(by=some_credited, channel=ReportChannel.CHAT_PLATFORM,
                                      platform=THE_CHAT_PLATFORM,
                                      note=SOME_WORDS)),
             _nothing_was_resolved(record)
@@ -209,30 +194,24 @@ def test_the_person_a_withdrawal_offer_was_made_to_pressing_it_withdraws_the_inc
 
 
 @pytest.mark.unit
-def test_pressing_an_offer_to_resolve_withdraws_nothing() -> None:
-    platform = _a_platform(saying=Pressed(thread=SOME_THREAD, person_id=SOME_PERSON,
-                                          message=SOME_MESSAGE))
-    record = _a_record(knowing={SOME_THREAD.value: SOME_ARGUS_INCIDENT},
-                       offers=[_an_offer(to=SOME_PERSON, named="dont care")])
-
-    Scenario() \
-        .when(lambda: receive_chat_delivery(DONT_CARE_BODY, DONT_CARE_HEADERS,
-                                            platform=platform, record=record)) \
-        .then(_nothing_was_withdrawn(record))
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize("offer_of", [_an_offer, _a_withdrawal_offer],
-                         ids=["resolution", "withdrawal"])
-def test_somebody_else_pressing_an_offer_ends_nothing(
-        offer_of: OfferOf, caplog: pytest.LogCaptureFixture) -> None:
-    # The offer is to the person who asked. Anybody else pressing it would be
-    # ending the incident in their name.
-    someone_else = "U-someone-else"
-    platform = _a_platform(saying=Pressed(thread=SOME_THREAD, person_id=someone_else,
-                                          message=SOME_MESSAGE))
-    record = _a_record(knowing={SOME_THREAD.value: SOME_ARGUS_INCIDENT},
-                       offers=[offer_of(SOME_PERSON, "dont care")])
+@pytest.mark.parametrize(("not_accepted", "level", "logged", "values"), [
+    # Only reachable by a press Argus never posted the button for - so it is a
+    # warning, where every other refusal here is an ordinary day. No offer, so
+    # no incident it was made on.
+    (NotAccepted(NotAcceptedBecause.NO_OFFER), logging.WARNING, "press on no offer",
+     {"chat_message": SOME_MESSAGE.value}),
+    (NotAccepted(NotAcceptedBecause.EXPIRED, SOME_ARGUS_INCIDENT), logging.INFO,
+     "press on an expired offer", {"chat_message": SOME_MESSAGE.value}),
+    (NotAccepted(NotAcceptedBecause.NOT_THEIRS, SOME_ARGUS_INCIDENT), logging.INFO,
+     "offer pressed by someone else",
+     {"incident_id": SOME_ARGUS_INCIDENT, "chat_message": SOME_MESSAGE.value,
+      "person_id": SOME_PERSON})
+], ids=["no-offer", "expired", "not-theirs"])
+def test_a_press_the_record_does_not_accept_ends_nothing_and_says_why(
+        not_accepted: NotAccepted, level: int, logged: str, values: dict[str, str],
+        caplog: pytest.LogCaptureFixture) -> None:
+    platform = _a_platform(saying=A_PRESS)
+    record = _a_record(knowing={}, answering=not_accepted)
 
     Scenario() \
         .given(calling(lambda: caplog.set_level(logging.INFO))) \
@@ -240,93 +219,21 @@ def test_somebody_else_pressing_an_offer_ends_nothing(
                                             platform=platform, record=record)) \
         .then(all_of(
             _nothing_ended(record),
-            one_record_was_logged(caplog, "web_app.chat", logging.INFO,
-                                  "offer pressed by someone else",
-                                  values={"incident_id": SOME_ARGUS_INCIDENT,
-                                          "chat_message": SOME_MESSAGE.value,
-                                          "person_id": someone_else})
+            one_record_was_logged(caplog, "web_app.chat", level, logged, values=values)
         ))
 
 
 @pytest.mark.unit
-def test_a_press_on_no_offer_argus_made_ends_nothing(
-        caplog: pytest.LogCaptureFixture) -> None:
-    # Only reachable by a press Argus never posted the button for - so it is a
-    # warning, where every other refusal here is an ordinary day.
-    platform = _a_platform(saying=Pressed(thread=SOME_THREAD, person_id=SOME_PERSON,
-                                          message=SOME_MESSAGE))
-    record = _a_record(knowing={SOME_THREAD.value: SOME_ARGUS_INCIDENT}, offers=[])
-
-    Scenario() \
-        .when(lambda: receive_chat_delivery(DONT_CARE_BODY, DONT_CARE_HEADERS,
-                                            platform=platform, record=record)) \
-        .then(all_of(
-            _nothing_ended(record),
-            one_record_was_logged(caplog, "web_app.chat", logging.WARNING,
-                                  "press on no offer",
-                                  values={"chat_message": SOME_MESSAGE.value})
-        ))
-
-
-@pytest.mark.unit
-def test_a_press_on_a_message_kept_but_never_offered_ends_nothing(
-        caplog: pytest.LogCaptureFixture) -> None:
-    # Kept, but with nothing offered on it - a lead, or a request for an ending
-    # the incident no longer took. No button was posted beside it, so a press
-    # on it is the same warning as a press on no message at all.
-    platform = _a_platform(saying=Pressed(thread=SOME_THREAD, person_id=SOME_PERSON,
-                                          message=SOME_MESSAGE))
-    a_lead = ThreadMessage(incident_id=SOME_ARGUS_INCIDENT, message=SOME_MESSAGE,
-                           person_id=SOME_PERSON, text=SOME_WORDS, written_at=DONT_CARE_TIME,
-                           meaning=Meaning.INFORMATION)
-    record = _a_record(knowing={SOME_THREAD.value: SOME_ARGUS_INCIDENT}, offers=[a_lead])
-
-    Scenario() \
-        .when(lambda: receive_chat_delivery(DONT_CARE_BODY, DONT_CARE_HEADERS,
-                                            platform=platform, record=record)) \
-        .then(all_of(
-            _nothing_ended(record),
-            one_record_was_logged(caplog, "web_app.chat", logging.WARNING,
-                                  "press on no offer",
-                                  values={"chat_message": SOME_MESSAGE.value})
-        ))
-
-
-@pytest.mark.unit
-def test_a_press_in_a_thread_no_incident_holds_ends_nothing(
-        caplog: pytest.LogCaptureFixture) -> None:
-    # The same warning as a press on no offer: Argus posts the button only in
-    # an incident's own thread, so a press anywhere else is on a button it did
-    # not post, or in a thread whose incident it lost.
-    platform = _a_platform(saying=Pressed(thread=SOME_THREAD, person_id=SOME_PERSON,
-                                          message=SOME_MESSAGE))
-    record = _a_record(knowing={}, offers=[_an_offer(to=SOME_PERSON, named="dont care")])
-
-    Scenario() \
-        .when(lambda: receive_chat_delivery(DONT_CARE_BODY, DONT_CARE_HEADERS,
-                                            platform=platform, record=record)) \
-        .then(all_of(
-            _nothing_ended(record),
-            one_record_was_logged(caplog, "web_app.chat", logging.WARNING,
-                                  "press on no offer",
-                                  values={"chat_message": SOME_MESSAGE.value})
-        ))
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize("offer_of", [_an_offer, _a_withdrawal_offer],
+@pytest.mark.parametrize("ending", [IncidentStatus.RESOLVED, IncidentStatus.WITHDRAWN],
                          ids=["resolution", "withdrawal"])
 def test_a_press_on_an_incident_that_has_already_ended_is_said(
-        offer_of: OfferOf, caplog: pytest.LogCaptureFixture) -> None:
+        ending: OfferedEnding, caplog: pytest.LogCaptureFixture) -> None:
     # A button outlives the incident until the relay takes it away, so a press
     # can come after the incident ended some other way - or, for a withdrawal,
     # after Code-Fix left it mitigated. The record refuses to move it; this
     # says it did.
-    platform = _a_platform(saying=Pressed(thread=SOME_THREAD, person_id=SOME_PERSON,
-                                          message=SOME_MESSAGE))
-    record = _a_record(knowing={SOME_THREAD.value: SOME_ARGUS_INCIDENT},
-                       offers=[offer_of(SOME_PERSON, "dont care")],
-                       ends=False)
+    platform = _a_platform(saying=A_PRESS)
+    record = _a_record(knowing={}, answering=_accepted(ending), ends=False)
 
     Scenario() \
         .given(calling(lambda: caplog.set_level(logging.INFO))) \
@@ -336,33 +243,6 @@ def test_a_press_on_an_incident_that_has_already_ended_is_said(
                                     "offer pressed on an ended incident",
                                     values={"incident_id": SOME_ARGUS_INCIDENT,
                                             "chat_message": SOME_MESSAGE.value}))
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize("offer_of", [_an_offer, _a_withdrawal_offer],
-                         ids=["resolution", "withdrawal"])
-def test_a_press_on_an_offer_that_expired_ends_nothing(
-        offer_of: OfferOf, caplog: pytest.LogCaptureFixture) -> None:
-    # Argus stopped waiting for this answer and carried on. A button still on
-    # screen - the relay not yet round to taking it away - must not end the
-    # incident on a question nobody is asking any more; the person who means
-    # it writes again.
-    platform = _a_platform(saying=Pressed(thread=SOME_THREAD, person_id=SOME_PERSON,
-                                          message=SOME_MESSAGE))
-    record = _a_record(knowing={SOME_THREAD.value: SOME_ARGUS_INCIDENT},
-                       offers=[offer_of(SOME_PERSON, "dont care")],
-                       expired=True)
-
-    Scenario() \
-        .given(calling(lambda: caplog.set_level(logging.INFO))) \
-        .when(lambda: receive_chat_delivery(DONT_CARE_BODY, DONT_CARE_HEADERS,
-                                            platform=platform, record=record)) \
-        .then(all_of(
-            _nothing_ended(record),
-            one_record_was_logged(caplog, "web_app.chat", logging.INFO,
-                                  "press on an expired offer",
-                                  values={"chat_message": SOME_MESSAGE.value})
-        ))
 
 
 @pytest.mark.unit
@@ -384,7 +264,8 @@ def test_anything_else_is_answered_with_nothing_changes_nothing_and_says_why(
     # without being read every day.
     some_why = "a message no person wrote"
     platform = _a_platform(saying=Irrelevant(why=some_why))
-    record = _a_record(knowing={SOME_THREAD.value: SOME_ARGUS_INCIDENT})
+    record = _a_record(knowing={SOME_THREAD.value: SOME_ARGUS_INCIDENT},
+                       answering=_accepted(IncidentStatus.RESOLVED))
 
     Scenario() \
         .given(calling(lambda: caplog.set_level(logging.DEBUG))) \
@@ -402,11 +283,10 @@ def test_anything_else_is_answered_with_nothing_changes_nothing_and_says_why(
 
 @pytest.mark.unit
 def test_an_unverified_delivery_is_refused_and_changes_nothing() -> None:
-    platform = _a_platform(saying=Pressed(thread=SOME_THREAD, person_id=SOME_PERSON,
-                                          message=SOME_MESSAGE))
+    platform = _a_platform(saying=A_PRESS)
     platform.parse_delivery.side_effect = ChatDeliveryUnverified("forged")
     record = _a_record(knowing={SOME_THREAD.value: SOME_ARGUS_INCIDENT},
-                       offers=[_an_offer(to=SOME_PERSON, named="dont care")])
+                       answering=_accepted(IncidentStatus.RESOLVED))
 
     Scenario() \
         .when(attempting(lambda: receive_chat_delivery(DONT_CARE_BODY, DONT_CARE_HEADERS,
@@ -423,44 +303,27 @@ def _a_platform(saying: Delivery) -> Any:
 
 
 def _a_record(knowing: dict[str, str],
-              offers: list[ThreadMessage] | None = None,
+              answering: Accepted | NotAccepted | None = None,
               ingested_before: bool = False,
-              ends: bool = True,
-              expired: bool = False) -> Any:
-    """An incident record holding these threads, each as value -> incident, and
-    these messages with their offers - expired, where `expired` says so.
-    `ends` is whether a resolution or a withdrawal moves it."""
+              ends: bool = True) -> Any:
+    """An incident record holding these threads, each as value -> incident,
+    answering every press with `answering`. `ends` is whether a resolution or a
+    withdrawal moves the incident."""
     record = create_autospec(ChatRecord, instance=True)
-    kept = [_expired(written) if expired else written for written in offers or []]
 
-    def incident_known_as(kind: str, values: list[str]) -> str | None:
-        if kind != CHAT_THREAD:
-            return None
+    def incident_of_thread(thread: Reference) -> str | None:
+        return knowing.get(thread.value)
 
-        return next((knowing[value] for value in values if value in knowing), None)
+    def ending(incident_id: str, _reported: Report) -> PersonsEnding:
+        return EndedAsSaid(incident_id) if ends else Refused(incident_id)
 
-    def message_written(incident_id: str, message: Reference) -> ThreadMessage | None:
-        return next((written for written in kept
-                     if written.incident_id == incident_id and written.message == message),
-                    None)
-
-    record.incident_known_as.side_effect = incident_known_as
-    record.message_written.side_effect = message_written
+    record.incident_of_thread.side_effect = incident_of_thread
     record.ingest.return_value = not ingested_before
-    record.resolve.return_value = ends
-    record.withdraw.return_value = ends
+    record.accept_offer.return_value = answering
+    record.resolve.side_effect = ending
+    record.withdraw.side_effect = ending
 
     return record
-
-
-def _expired(written: ThreadMessage) -> ThreadMessage:
-    """The message, its offer expired."""
-    if written.offer is None:
-        return written
-
-    return written.model_copy(update={
-        "offer": written.offer.model_copy(update={"expired": True})
-    })
 
 
 def _it_was_ingested(record: Any,
@@ -473,6 +336,22 @@ def _it_was_ingested(record: Any,
             raise AssertionError(
                 f"Expected [{incident_id}] to ingest {person_id} saying [{text}] once, got "
                 f"{record.ingest.call_args_list}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_press_was_put_as(record: Any,
+                          thread: Reference,
+                          message: Reference,
+                          presser: str) -> Assertion[object]:
+    def assertion(_: object) -> bool:
+        if record.accept_offer.call_args_list != [call(thread, message, presser)]:
+            raise AssertionError(
+                f"Expected the press put to the record once as [{thread}], [{message}] and "
+                f"[{presser}], got {record.accept_offer.call_args_list}"
             )
 
         return True

@@ -5,15 +5,9 @@ incident, so Argus resolves its own - credited to that person, through that
 platform, with what they wrote (spec §16: a person saying it is over is fact).
 Everything else the platform says is noted and left alone. Which deliveries are
 a person's resolution is the platform adapter's to say, because only it can tell
-a person from an integration; this module is about finding the incident.
-
-The incident is found when the resolution arrives, not when the alert did.
-Grafana pages the platform and Argus at the same moment, so at intake the
-platform's incident may not exist yet; by the time somebody resolves it, it
-does. It is found through the keys its senders stamped on it - which a merge
-carries over to the incident merged into - among the incidents going on while
-the page was open, and by the platform's own id where an earlier match already
-linked it.
+a person from an integration; which incidents the page is about is the incident
+record's to say (`incidents_a_page_is_about`), because it is a decision about
+incidents; this module carries the delivery to it and the answer back.
 
 Nothing here knows which platform answered. It holds the port.
 """
@@ -21,18 +15,11 @@ Nothing here knows which platform answered. It holds the port.
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Protocol
 
-from core.models import (
-    NOTIFICATION_KEY,
-    ON_CALL_INCIDENT,
-    IncidentStanding,
-    Lifespan,
-    Reference,
-    Report,
-    ReportChannel,
-)
+from core.models import ON_CALL_INCIDENT, Lifespan, Reference, Report, ReportChannel
+from incident_record import PersonsEnding
 from oncall_source.platform import (
     Merged,
     OnCallPlatform,
@@ -47,21 +34,24 @@ logger = logging.getLogger(__name__)
 class IncidentRecord(Protocol):
     """The incident record, for what a platform's resolution asks of it.
 
-    A seam rather than the repository and `resolve_incident` themselves,
-    because their rows are asserted against a real database in their own
-    suite. What belongs here is which deliveries reach them, and with what.
+    A seam rather than the incident record's roles and decisions themselves,
+    because those are asserted in its own suite. What belongs here is which
+    deliveries reach them, and with what.
     """
 
-    def incidents_known_as(self, kind: str, values: Sequence[str]) -> list[IncidentStanding]:
-        """Every incident holding any of these names of this kind."""
+    def incidents_a_page_is_about(self,
+                                  page: str,
+                                  keys: Sequence[str],
+                                  the_pages_life: Callable[[], Lifespan]) -> list[str]:
+        """The Argus incidents the platform's page is about, each once."""
         ...
 
     def know_it_as(self, incident_id: str, reference: Reference) -> None:
         """Gives the incident one more name."""
         ...
 
-    def resolve(self, incident_id: str, reported: Report) -> bool:
-        """Resolves the incident as a person reported it; whether it moved."""
+    def resolve(self, incident_id: str, reported: Report) -> PersonsEnding:
+        """Resolves the incident as a person reported it."""
         ...
 
 
@@ -112,8 +102,20 @@ def _resolve(platform_incident: str,
              by: str,
              platform: OnCallPlatform,
              record: IncidentRecord) -> None:
-    """Resolves every Argus incident a person's resolution is about, if any."""
-    about = _the_incidents_about(platform_incident, platform, record)
+    """Resolves every Argus incident a person's resolution is about, if any.
+
+    The page's keys are read whether or not anything holds them; when it was
+    open is read only if the record asks, which it does only where an incident
+    holds one of the keys.
+    """
+    def the_pages_life() -> Lifespan:
+        reported = platform.reported_incident(platform_incident)
+
+        return Lifespan(began_at=reported.began_at, ended_at=reported.ended_at)
+
+    about = record.incidents_a_page_is_about(platform_incident,
+                                             platform.keys_of(platform_incident),
+                                             the_pages_life)
 
     if not about:
         # The webhook covers every incident on the services it watches, and
@@ -137,27 +139,3 @@ def _resolve(platform_incident: str,
             source=platform.name, kind=ON_CALL_INCIDENT, value=platform_incident
         ))
         record.resolve(incident_id, reported)
-
-
-def _the_incidents_about(platform_incident: str,
-                         platform: OnCallPlatform,
-                         record: IncidentRecord) -> list[str]:
-    """The Argus incidents the platform's incident is about.
-
-    Those an earlier read already linked to it, and those holding a key it
-    carries that were going on while it was open. A key alone names no
-    incident: every firing of an alert group pages under the group's one key,
-    so an alert that stopped and started again leaves an older incident
-    holding the key of a page opened long after it ended - and resolving that
-    one would leave the incident the page was about still open. The page's
-    life is read only where some incident holds a key to weigh against it.
-    """
-    linked = record.incidents_known_as(ON_CALL_INCIDENT, [platform_incident])
-    keyed = record.incidents_known_as(NOTIFICATION_KEY, platform.keys_of(platform_incident))
-
-    if keyed:
-        reported = platform.reported_incident(platform_incident)
-        page = Lifespan(began_at=reported.began_at, ended_at=reported.ended_at)
-        keyed = [incident for incident in keyed if incident.lifespan.overlaps(page)]
-
-    return list(dict.fromkeys(incident.id for incident in [*linked, *keyed]))

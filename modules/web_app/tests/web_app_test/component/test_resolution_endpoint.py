@@ -214,7 +214,7 @@ def test_a_resolution_refused_is_logged(caplog: pytest.LogCaptureFixture) -> Non
                 lambda: client.post(f"/incidents/{incident_id}/resolve")
             ) \
             .then(
-                one_record_was_logged(caplog, "web_app.app", logging.INFO,
+                one_record_was_logged(caplog, "incident_record.a_persons_word", logging.INFO,
                                       "resolution refused")
             )
 
