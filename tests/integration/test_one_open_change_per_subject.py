@@ -38,7 +38,6 @@ from core.models import (
     Refusal,
     RevertFeatureFlag,
     Undone,
-    Verdict,
     why_it_was_refused,
 )
 from incident_record import IsStillWanted
@@ -51,6 +50,7 @@ from orchestrator.walk.mitigating import mitigation_node
 from orchestrator.walk.state import (
     ActionInFlight,
     CandidateCursor,
+    Escalated,
     IncidentState,
     RoundEvidence,
     WhatWasLearnt,
@@ -174,7 +174,8 @@ def _an_incident_reverting_the_flag(candidate: Hypothesis) -> IncidentState:
                          cursor=CandidateCursor(hypothesis=candidate),
                          evidence=RoundEvidence(),
                          history=WhatWasLearnt(),
-                         action=ActionInFlight(proposed_action=_the_revert()))
+                         action=ActionInFlight(proposed_action=_the_revert()),
+                         ending=None)
 
 
 def _mitigating(state: IncidentState,
@@ -226,10 +227,11 @@ def _nobody_is_listening(_event: IncidentEvent) -> None:
 
 def _it_escalated_because(expected: str) -> Assertion[StateDelta]:
     def assertion(delta: StateDelta) -> bool:
-        if delta.action_outcome != Verdict.ESCALATED or delta.action_because != expected:
+        said = delta.narration.said() if delta.narration is not None else None
+        if not isinstance(delta.ending, Escalated) or said != expected:
             raise AssertionError(
-                f"Expected the walk to escalate because [{expected}], and it reported "
-                f"[{delta.action_outcome}] because [{delta.action_because}]."
+                f"Expected the walk to escalate saying [{expected}], and it reported "
+                f"[{delta.ending!r}] saying [{said}]."
             )
 
         return True

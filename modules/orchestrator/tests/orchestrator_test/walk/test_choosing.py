@@ -693,7 +693,8 @@ def _a_walk_at(incident_id: str,
             ),
             acted_at=acted_at,
             action_because=because
-        )
+        ),
+        ending=None
     )
 
 

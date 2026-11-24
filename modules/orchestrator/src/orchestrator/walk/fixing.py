@@ -21,7 +21,7 @@ from incident_record import IsStillWanted
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.ports import LeadsOf, ProposeFix, WhatArgusDidIn
 from orchestrator.walk.routes import POSTMORTEM_ROUTE
-from orchestrator.walk.state import IncidentState
+from orchestrator.walk.state import IncidentState, NoMitigationForTheMode
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,8 @@ def codefix_node(state: IncidentState,
     The agent is asked even when the walk concluded nothing, about nothing.
     "I looked and found no fix" and "nobody looked" reach the same human and
     only one of them would be true. The one candidate it is not asked about is
-    one the gate ruled another company's fault (`somebody_elses_fault_for`):
+    one the gate ruled another company's fault (`NoMitigationForTheMode`, naming
+    it as `somebody_elses_fault_for`):
     there "nobody looked" is the finding, and the gate's refusal line says it.
 
     Three outcomes rather than two, because a proposal that could not be *made*
@@ -96,7 +97,8 @@ def codefix_node(state: IncidentState,
     narrator = Narrator(state.incident_id, publisher)
 
     if (state.cursor.hypothesis is not None
-            and state.somebody_elses_fault_for == state.cursor.hypothesis.id):
+            and isinstance(state.ending, NoMitigationForTheMode)
+            and state.ending.somebody_elses_fault_for == state.cursor.hypothesis.id):
         # Nobody looked, and on purpose: the gate ruled this candidate's fault
         # another company's, and its refusal's line already says so, whom to
         # ask, and that no code fix is looked for. That line is this step's

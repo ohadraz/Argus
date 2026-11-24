@@ -71,7 +71,7 @@ from orchestrator.walk.routes import (
     FIXING_ROUTE,
     NEXT_CANDIDATE_ROUTE,
 )
-from orchestrator.walk.state import IncidentState
+from orchestrator.walk.state import Confirmed, Ending, Escalated, IncidentState
 
 logger = logging.getLogger(__name__)
 
@@ -448,8 +448,7 @@ def _the_subject_is_open(state: IncidentState,
     )
 
     return StateDelta(
-        action_outcome=Verdict.ESCALATED,
-        action_because=because,
+        ending=Escalated(),
         narration=Narration(action="mitigation refused", detail=because)
     )
 
@@ -492,8 +491,7 @@ def _not_admitted(state: IncidentState,
     )
 
     return StateDelta(
-        action_outcome=Verdict.ESCALATED,
-        action_because=because,
+        ending=Escalated(),
         narration=Narration(action="mitigation refused", detail=because)
     )
 
@@ -520,8 +518,7 @@ def _nobody_can_say_whether_it_was_carried_out(state: IncidentState,
                        undo_descriptor=planned.descriptor if planned is not None else None)
 
     return StateDelta(
-        action_outcome=Verdict.ESCALATED,
-        action_because=_A_CHANGE_LOST_AFTER_IT_WAS_ASKED_FOR,
+        ending=Escalated(),
         narration=Narration(action="mitigation attempted",
                             detail=_A_CHANGE_LOST_AFTER_IT_WAS_ASKED_FOR)
     )
@@ -648,7 +645,7 @@ def _the_attempt_recorded(state: IncidentState,
         )
 
         return StateDelta(
-            action_outcome=outcome,
+            ending=_the_ending_reached(outcome),
             action_because=result.because,
             acted_at=acted_at,
             unreachable_platforms=[*state.history.unreachable_platforms, platform],
@@ -656,13 +653,30 @@ def _the_attempt_recorded(state: IncidentState,
         )
 
     return StateDelta(
-        action_outcome=outcome,
+        ending=_the_ending_reached(outcome),
         # Carried for the round that reads this attempt, which is told how it
         # did not help and nothing else about it.
         action_because=result.because,
         acted_at=acted_at,
         narration=Narration(action="mitigation attempted", detail=result.detail)
     )
+
+
+def _the_ending_reached(verdict: Verdict) -> Ending | None:
+    """The ending a verdict brings the search for a mitigation to, where it
+    brings it to one.
+
+    Two of them do: a change the service recovered after, and one that settled
+    nothing Argus can go on from. Every other verdict leaves the walk to its next
+    candidate, or to a person who ended the incident.
+    """
+    if verdict is Verdict.CONFIRMED:
+        return Confirmed()
+
+    if verdict is Verdict.ESCALATED:
+        return Escalated()
+
+    return None
 
 
 def _whose_dependency_was_acted_on(action: Action,
@@ -821,13 +835,12 @@ def _the_earlier_attempt_resumed(state: IncidentState,
     """What a walk resumed inside the mitigation node answers with, picking the
     earlier attempt up at the step its row records (spec §11.1).
 
-    An outcome on file means the earlier attempt finished: this walk reports it
-    and lets the routing continue as though it had reached it. The recorded
-    outcome rather than a word of its own, because everything downstream reads
-    `action_outcome` as a verdict and a new spelling would have to be
-    understood in every one of those places. An outcome nobody here can read
-    escalates without asking anything: a verdict was reached, and every answer
-    available would be wrong.
+    An outcome on file means the earlier attempt finished: this walk reports
+    the ending it brought the walk to, if any, and lets the routing continue as
+    though it had reached it - the ending the walk that recorded it reported,
+    from the same verdict, rather than a reading of its own. An outcome nobody
+    here can read escalates without asking anything: a verdict was reached, and
+    every answer available would be wrong.
 
     No outcome means the worker died mid-action, and the claim's progress says
     how far it got - each step asked of the estate rather than taken on either
@@ -870,7 +883,7 @@ def _the_earlier_attempt_resumed(state: IncidentState,
         )
 
         return StateDelta(
-            action_outcome=outcome,
+            ending=_the_ending_reached(outcome),
             # Told outright: the claim records the verdict and not the reason,
             # and left unset the walk would keep an earlier round's reason and
             # hand it on as this action's.
@@ -1355,12 +1368,11 @@ def _the_resumed_walk_stops(why: str) -> StateDelta:
     """The incident handed to a person by a resumed walk that cannot carry the
     earlier attempt on, saying `why` in the words a person reads.
 
-    Said as the attempt's outcome, escalated, and not as a status: the status
-    is `status_after`'s to draw from the outcome, and the wrapper's to write
-    with the sentence that accounts for it."""
+    Said as the walk's ending, escalated, and not as a status: the status is
+    `status_after`'s to draw from the ending, and the wrapper's to write with
+    the sentence that accounts for it."""
     return StateDelta(
-        action_outcome=Verdict.ESCALATED,
-        action_because=why,
+        ending=Escalated(),
         narration=Narration(action="mitigation resumed", detail=why)
     )
 
@@ -1374,9 +1386,7 @@ def _nothing_to_act_on() -> StateDelta:
     discover it.
     """
     return StateDelta(
-        action_outcome=Verdict.ESCALATED,
-        # Nothing was watched, and an earlier round's reason is not this one's.
-        action_because=None,
+        ending=Escalated(),
         narration=Narration(
             action="mitigation attempted",
             detail="no action reached the mitigation step"

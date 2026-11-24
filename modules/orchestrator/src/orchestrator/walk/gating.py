@@ -33,7 +33,7 @@ from orchestrator.walk.routes import (
     MITIGATING_ROUTE,
     NEXT_CANDIDATE_ROUTE,
 )
-from orchestrator.walk.state import IncidentState
+from orchestrator.walk.state import IncidentState, NoMitigationForTheMode, Recommended
 
 logger = logging.getLogger(__name__)
 
@@ -204,19 +204,22 @@ def tier_gate_node(
         # incident, so they are narrated as the recommendation is.
         return StateDelta(
             proposed_action=None,
-            the_mode_has_no_mitigation=True,
-            # Whose fault it was, so Code-Fix is not asked to write a change
-            # around another company's outage: the refusal's line says whom
-            # to ask instead.
-            somebody_elses_fault_for=(state.cursor.hypothesis.id
-                                      if somebody_elses and state.cursor.hypothesis is not None
-                                      else None),
+            ending=NoMitigationForTheMode(
+                # Whose fault it was, so Code-Fix is not asked to write a change
+                # around another company's outage: the refusal's line says whom
+                # to ask instead.
+                somebody_elses_fault_for=(
+                    state.cursor.hypothesis.id
+                    if somebody_elses and state.cursor.hypothesis is not None
+                    else None
+                )
+            ),
             narration=Narration(action="no mitigation taken")
         )
 
     return StateDelta(
         proposed_action=None,
-        recommended_action=recommended,
+        ending=Recommended(action=recommended) if recommended is not None else None,
         # Only where there is a recommendation, because only then does this
         # return move the incident. The other five refusals that reach it end an
         # attempt and leave the status where it was, and the walk refuses a move
@@ -399,7 +402,7 @@ def route_after_gate(state: IncidentState) -> str:
     the fault is still where it was and still worth a patch. Here it is the
     only thing anybody gets.
     """
-    if state.recommended_action is not None or state.the_mode_has_no_mitigation:
+    if isinstance(state.ending, Recommended | NoMitigationForTheMode):
         return FIXING_ROUTE
 
     return MITIGATING_ROUTE if state.action is not None else NEXT_CANDIDATE_ROUTE

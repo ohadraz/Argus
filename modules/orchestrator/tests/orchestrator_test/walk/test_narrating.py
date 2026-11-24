@@ -31,13 +31,13 @@ from unittest.mock import MagicMock
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from core.events import StatusChanged
-from core.models import Actor, Alert, FailureMode, Hypothesis, IncidentStatus, Verdict
+from core.models import Actor, Alert, FailureMode, Hypothesis, IncidentStatus
 from incident_record.ending import EndedByAPerson
 from incident_record.waiting import WaitForPeople
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.discarding import Discard, discards_nothing
 from orchestrator.walk.narrating import with_status
-from orchestrator.walk.state import CandidateCursor, IncidentState
+from orchestrator.walk.state import CandidateCursor, Confirmed, IncidentState
 
 from orchestrator_test.framework.builders import (
     a_person_ended_the_incident,
@@ -480,7 +480,7 @@ def test_a_move_that_takes_an_ending_away_is_written_before_the_walk_waits(
         .given(
             calling(lambda: transition_incident.configure_mock(
                 side_effect=_a_move_noting(happened))),
-            a_mitigation_that_held := _a_node_returning({"action_outcome": Verdict.CONFIRMED}),
+            a_mitigation_that_held := _a_node_returning({"ending": Confirmed()}),
             an_incident_mitigating := _an_incident_mitigating()
         ) \
         .when(lambda: with_status(
@@ -506,7 +506,7 @@ def test_a_mitigated_incident_a_person_reported_resolved_while_the_walk_waited_i
 
     Scenario() \
         .given(
-            a_mitigation_that_held := _a_node_returning({"action_outcome": Verdict.CONFIRMED}),
+            a_mitigation_that_held := _a_node_returning({"ending": Confirmed()}),
             an_incident_mitigating := _an_incident_mitigating()
         ) \
         .when(lambda: with_status(

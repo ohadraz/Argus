@@ -84,7 +84,13 @@ from orchestrator.walk.choosing import nothing_left_to_try
 from orchestrator.walk.deltas import Narration, StateDelta
 from orchestrator.walk.investigating import investigator_node, route_after_investigation
 from orchestrator.walk.routes import ESCALATED_ROUTE, FIXING_ROUTE, MITIGATING_ROUTE
-from orchestrator.walk.state import IncidentState, RoundEvidence, WhatWasLearnt
+from orchestrator.walk.state import (
+    Disproven,
+    IncidentState,
+    NothingWorthTrying,
+    RoundEvidence,
+    WhatWasLearnt,
+)
 
 from orchestrator_test.framework.assertions import (
     assert_that,
@@ -238,7 +244,7 @@ def test_investigator_node_offers_the_cause_it_named_as_the_one_to_try(
                     rounds=1,
                     attempts_handed=0,
                     candidates_formed=1,
-                    nothing_worth_trying=False,
+                    ending=None,
                     narration=Narration(action="hypothesis formed")
                 )
             ),
@@ -287,7 +293,7 @@ def test_whether_the_incident_was_read_at_all_is_carried_to_the_gate(
                     rounds=1,
                     attempts_handed=0,
                     candidates_formed=1,
-                    nothing_worth_trying=False,
+                    ending=None,
                     narration=Narration(action="hypothesis formed")
                 )
             )
@@ -438,7 +444,7 @@ def test_a_doubtful_cause_is_still_offered_as_the_one_to_try(
         ) \
         .then(all_of(
             the_result_at("hypothesis", a_doubtful_hypothesis),
-            the_result_at("nothing_worth_trying", False)
+            the_result_at("ending", None)
         ))
 
 
@@ -452,7 +458,7 @@ def test_investigator_node_reports_a_round_that_named_no_cause_at_all(
     # the incident up needs to know whether to look for more evidence or to
     # doubt the one on file.
     #
-    # `nothing_worth_trying` is the fact that carries it: it is what tells this
+    # `NothingWorthTrying` is the ending that carries it: it is what tells this
     # round apart from a walk that has worked through everything it was offered,
     # since the two leave the same candidate list behind.
     an_investigating_incident = _an_investigating_incident()
@@ -487,7 +493,7 @@ def test_investigator_node_reports_a_round_that_named_no_cause_at_all(
                     rounds=1,
                     attempts_handed=0,
                     candidates_formed=1,
-                    nothing_worth_trying=True,
+                    ending=NothingWorthTrying(),
                     narration=Narration(action="insufficient evidence")
                 )
             ),
@@ -535,7 +541,7 @@ def test_a_round_that_disproved_the_alarm_carries_the_window_that_did_it(
         .then(all_of(
             the_result_is(
                 StateDelta(
-                    disproof=A_DISPROOF,
+                    ending=Disproven(disproof=A_DISPROOF),
                     rounds=1,
                     narration=Narration(
                         action="the alarm's own claim was not in the window"
@@ -2565,12 +2571,12 @@ def _the_round_spent_the_list() -> Assertion[StateDelta]:
         candidates = result.candidates or []
 
         if not candidates or result.candidate_index != len(candidates) \
-                or result.nothing_worth_trying:
+                or isinstance(result.ending, NothingWorthTrying):
             raise AssertionError(
                 f"Expected the round to leave no candidate of its {len(candidates)} "
                 f"under test without reporting nothing worth trying, it left the "
-                f"index at [{result.candidate_index}] and nothing worth trying "
-                f"[{result.nothing_worth_trying}]."
+                f"index at [{result.candidate_index}] and the ending "
+                f"[{result.ending!r}]."
             )
 
         return True

@@ -11,7 +11,7 @@ one of the two importing the other across a boundary.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Final
+from typing import Annotated, Final, Literal
 
 from core.models import (
     Action,
@@ -28,14 +28,15 @@ from core.models import (
     Reading,
     RecordedPlacement,
     ServiceDependency,
-    Verdict,
 )
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
-# Every group is checked afresh each time the state is built, as a field of the
-# state always was. A group arrives as an instance a node's update made by
-# copying, which checks nothing, and pydantic takes an instance as it is - so a
-# `None` written where none may stand would otherwise stay in the state unseen.
+# Every group and every ending is checked afresh each time the state is built,
+# as a field of the state always was. A group arrives as an instance a node's
+# update made by copying, and either can arrive as one a checkpoint rebuilt
+# without its constructor; neither checks anything, and pydantic takes an
+# instance as it is - so a `None` written where none may stand would otherwise
+# stay in the state unseen.
 _CHECKED_AFRESH: Final = ConfigDict(revalidate_instances="always")
 
 
@@ -190,6 +191,104 @@ class ActionInFlight(BaseModel):
     action_because: str | None = None
 
 
+class Disproven(BaseModel):
+    """The window held none of what the alarm claimed, where the alarm was one
+    a window can contradict and this one did.
+
+    Not `NothingWorthTrying`, though the two leave the same empty candidate list
+    behind: they are opposite findings. That one says Argus could not explain
+    the incident; this says there was none, and the service was well across
+    every minute that was judged. A reader of that one goes to look at the
+    service and a reader of this one goes to look at the rule.
+    """
+
+    model_config = _CHECKED_AFRESH
+
+    kind: Literal["disproven"] = "disproven"
+    # Carrying its evidence rather than standing as a flag: a disproof is the
+    # one claim in a walk that nothing later can check, so what it was made over
+    # travels with it.
+    disproof: Disproof
+
+
+class NothingWorthTrying(BaseModel):
+    """The round that just ran found no candidate worth acting on.
+
+    The Investigator's own answer, kept because it is the one thing that
+    distinguishes an investigation with nothing to offer from a walk that has
+    worked through everything it was offered - the two leave the same list
+    behind, and they are not the same incident.
+    """
+
+    model_config = _CHECKED_AFRESH
+
+    kind: Literal["nothing-worth-trying"] = "nothing-worth-trying"
+
+
+class Confirmed(BaseModel):
+    """An action was taken and the service, re-read after it, had recovered."""
+
+    model_config = _CHECKED_AFRESH
+
+    kind: Literal["confirmed"] = "confirmed"
+
+
+class Recommended(BaseModel):
+    """What Argus worked out to do and declined to do, because nothing would
+    say afterwards whether it worked.
+
+    The one thing a `recommended` incident is for saying, and the reason that
+    status is not escalation: a reader learns to go and do this, rather than to
+    work out what to do.
+    """
+
+    model_config = _CHECKED_AFRESH
+
+    kind: Literal["recommended"] = "recommended"
+    action: Action
+
+
+class NoMitigationForTheMode(BaseModel):
+    """The candidate the gate last held names a mode no mitigation answers.
+
+    Ends the mitigation phase rather than passing to the next candidate: the
+    candidate in hand is the likeliest explanation still standing, and where it
+    says no mitigation applies, acting on a less likely one is acting against
+    the diagnosis.
+    """
+
+    model_config = _CHECKED_AFRESH
+
+    kind: Literal["no-mitigation-for-the-mode"] = "no-mitigation-for-the-mode"
+    # The candidate whose fault is in a service another company runs, by id,
+    # where that is why. Code-Fix is not asked about it: a change written around
+    # somebody else's outage is nobody's to merge, and the refusal's own line has
+    # already said whom to ask. By the candidate rather than as a flag on the
+    # incident, so a walk that went on to another candidate - one whose fault is
+    # in this code - is asked about as any walk is.
+    somebody_elses_fault_for: str | None = None
+
+
+class Escalated(BaseModel):
+    """An action that settled nothing Argus can go on from: nothing was measured,
+    or nothing can be - a change that may or may not stand, or one nobody can
+    account for."""
+
+    model_config = _CHECKED_AFRESH
+
+    kind: Literal["escalated"] = "escalated"
+
+
+# How the walk's search for a mitigation ended, as one finding: two of them
+# cannot stand at once. Code-Fix's answer is not among them, since Code-Fix runs
+# after three of them; it is `fix_found`, beside this.
+type Ending = Annotated[
+    Disproven | NothingWorthTrying | Confirmed | Recommended | NoMitigationForTheMode
+    | Escalated,
+    Field(discriminator="kind")
+]
+
+
 class IncidentState(BaseModel):
     """LangGraph `StateGraph` state (spec §7.1), mirroring the Postgres
     schema (§11.1)."""
@@ -207,52 +306,13 @@ class IncidentState(BaseModel):
     history: WhatWasLearnt
     # `None` while no action is proposed.
     action: ActionInFlight | None
-    # What Argus worked out to do and declined to do, because nothing would say
-    # afterwards whether it worked. The one thing a `recommended` incident is
-    # for saying, and the reason that status is not escalation: a reader learns
-    # to go and do this, rather than to work out what to do.
-    recommended_action: Action | None = None
-    # Whether the candidate the gate last held names a mode no mitigation
-    # answers. Ends the mitigation phase rather than passing to the next
-    # candidate: the candidate in hand is the likeliest explanation still
-    # standing, and where it says no mitigation applies, acting on a less likely
-    # one is acting against the diagnosis.
-    the_mode_has_no_mitigation: bool = False
-    # The candidate the gate refused because its fault is in a service another
-    # company runs, by id. Code-Fix is not asked about it: a change written
-    # around somebody else's outage is nobody's to merge, and the refusal's own
-    # line has already said whom to ask. By the candidate rather than as a flag
-    # on the incident, so a walk that went on to another candidate - one whose
-    # fault is in this code - is asked about as any walk is.
-    somebody_elses_fault_for: str | None = None
-    # Whether the round that just ran found any candidate worth acting on. The
-    # Investigator's own answer, recorded because it is the one thing that
-    # distinguishes an investigation with nothing to offer from a walk that has
-    # worked through everything it was offered - the two leave the same list
-    # behind, and they are not the same incident.
-    nothing_worth_trying: bool = False
-    # The window that held none of what the alarm claimed, where the alarm was
-    # one a window can contradict and this one did.
-    #
-    # Beside `nothing_worth_trying` and not folded into it, because the two are
-    # opposite findings that leave the same empty candidate list behind. One says
-    # Argus could not explain the incident; this says there was none, and the
-    # service was well across every minute that was judged. A reader of the first
-    # goes to look at the service and a reader of the second goes to look at the
-    # rule.
-    #
-    # Carried rather than re-derived, and carrying its evidence rather than a
-    # flag: a disproof is the one claim in a walk that nothing later can check,
-    # so what it was made over travels with it.
-    disproof: Disproof | None = None
+    # How the search for a mitigation ended, `None` while it goes on. No
+    # default, for the groups' reason.
+    ending: Ending | None
     # What Code-Fix found, and `None` until it has run. Three-valued rather than
     # a bool, because "no fix yet" and "no fix to be had" are the difference
     # between an incident still being worked on and one a human now owns.
     fix_found: bool | None = None
-    # What the attempt concluded, as the verdict itself. Not its spelling: the
-    # state machine branches on this, and a comparison against a string is one
-    # that keeps compiling after somebody changes how a verdict is written.
-    action_outcome: Verdict | None = None
     # How many steps the walk has taken, counted by the wrapper every node runs
     # in (`stepping.stepped`) rather than by any node. What a step's rows are
     # stamped with, and so what a step run again from its checkpoint finds its
@@ -303,13 +363,13 @@ def status_after(state: IncidentState, max_rounds: int) -> IncidentStatus:
     node that set the previous one back in the business this function takes it
     out of.
     """
-    # Asked before everything below it, the confirmed action included, and the
-    # reason is not that the two can both be true - nothing is ever acted on in a
-    # disproven walk. It is that this is the one question here that is not about
-    # how far Argus got: every rule below decides what an incident Argus was
-    # working on has reached, and this one says there was no incident. A rule
-    # about whether the subject exists belongs above every rule about the
-    # subject's state.
+    ending = state.ending
+
+    # Asked first because this is the one question here that is not about how
+    # far Argus got: every rule below decides what an incident Argus was working
+    # on has reached, and this one says there was no incident. A rule about
+    # whether the subject exists belongs above every rule about the subject's
+    # state.
     #
     # Placed above the escalation rules rather than merely before them, because
     # a disproven walk leaves the fields those rules read exactly as an
@@ -317,10 +377,10 @@ def status_after(state: IncidentState, max_rounds: int) -> IncidentStatus:
     # last of them sends anything that reaches it onwards rather than to an
     # ending. A rule that sits below them answers a question they have already
     # answered differently.
-    if state.disproof is not None:
+    if isinstance(ending, Disproven):
         return IncidentStatus.DISPROVEN
 
-    if state.action_outcome == Verdict.CONFIRMED:
+    if isinstance(ending, Confirmed):
         return IncidentStatus.MITIGATED
 
     # Asked before `fix_found` for the reason `mitigated` is: this walk goes on
@@ -328,7 +388,7 @@ def status_after(state: IncidentState, max_rounds: int) -> IncidentStatus:
     # asking the fix first would report the incident escalated and lose the one
     # thing it exists to say. Escalated would also be untrue - Argus did not run
     # out of moves, it declined the move it had.
-    if state.recommended_action is not None:
+    if isinstance(ending, Recommended):
         return IncidentStatus.RECOMMENDED
 
     # A fix reached without a confirmed mitigation is one Argus arrived at
@@ -341,14 +401,14 @@ def status_after(state: IncidentState, max_rounds: int) -> IncidentStatus:
     # The gate ended the mitigation phase with its candidate still in hand, so
     # the index below would read as a candidate under test. Nothing is: no
     # mitigation answers the mode, and the walk is on its way to Code-Fix.
-    if state.the_mode_has_no_mitigation:
+    if isinstance(ending, NoMitigationForTheMode):
         return IncidentStatus.FIXING
 
     # Not a third opinion on the hypothesis: nothing was measured, or nothing
     # can be - a change that may or may not stand, or one nobody can account
     # for - so a further experiment would run against a world Argus cannot
     # describe.
-    if state.action_outcome == Verdict.ESCALATED:
+    if isinstance(ending, Escalated):
         return IncidentStatus.ESCALATED
 
     # The investigation's own answer, and the one place it differs from the
@@ -356,7 +416,7 @@ def status_after(state: IncidentState, max_rounds: int) -> IncidentStatus:
     # window as far as it can, so the rounds that remain would buy a re-read of
     # the same evidence - unlike a refuted attempt, which is evidence no amount
     # of reading produces.
-    if state.nothing_worth_trying:
+    if isinstance(ending, NothingWorthTrying):
         return IncidentStatus.ESCALATED
 
     # Every node that sets the index sets it to something worth trying, or past
@@ -372,7 +432,7 @@ def status_after(state: IncidentState, max_rounds: int) -> IncidentStatus:
     # thing that failed is how Argus acts at all.
     #
     # Asked *after* the index check and not before it, which is the whole of why
-    # this is here rather than beside `recommended_action` above. "A platform is
+    # this is here rather than beside the recommendation above. "A platform is
     # down and nothing is confirmed" is true the instant the first action on it
     # comes back - at which point a candidate on a reachable platform may still
     # be ahead, and the incident is mitigating. A rule that can only fire once
@@ -394,7 +454,7 @@ def another_round_is_bought(state: IncidentState, max_rounds: int) -> bool:
     no amount of re-reading produces and the model has never seen. A list spent
     without one - every action refused by the gate, or one the tier had nowhere
     to take - leaves the next round the evidence the last was handed, and a
-    re-read of it is the round `nothing_worth_trying` already declines to pay
+    re-read of it is the round `NothingWorthTrying` already declines to pay
     for.
 
     The first round is owed rather than bought: nothing has been read yet, so

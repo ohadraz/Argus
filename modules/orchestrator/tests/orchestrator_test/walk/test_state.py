@@ -14,13 +14,10 @@ node's first read a crash.
 """
 from __future__ import annotations
 
-from typing import TypedDict, Unpack
-
 import pytest
 from argus_testkit import Assertion, Scenario, an_error_was_raised, attempting
 from core.models import (
     DEPLOYMENT_PLATFORM,
-    Action,
     ActionIdentity,
     Alert,
     Attempt,
@@ -30,12 +27,18 @@ from core.models import (
     Hypothesis,
     IncidentStatus,
     RevertFeatureFlag,
-    Verdict,
 )
 from orchestrator.walk.deltas import StateDelta
 from orchestrator.walk.state import (
     CandidateCursor,
+    Confirmed,
+    Disproven,
+    Ending,
+    Escalated,
     IncidentState,
+    NoMitigationForTheMode,
+    NothingWorthTrying,
+    Recommended,
     RoundEvidence,
     WhatWasLearnt,
     status_after,
@@ -71,7 +74,7 @@ def test_a_confirmed_action_mitigates_the_incident() -> None:
         .given(
             a_confirmed_attempt := _an_incident(
                 cursor=CandidateCursor(candidates=[_a_candidate()]),
-                action_outcome=Verdict.CONFIRMED
+                ending=Confirmed()
             )
         ) \
         .when(
@@ -90,8 +93,7 @@ def test_a_refuted_action_with_a_candidate_left_is_still_mitigating() -> None:
         .given(
             a_refutation_with_somewhere_to_go := _an_incident(
                 cursor=CandidateCursor(candidates=[_a_candidate(), _a_candidate()],
-                                       candidate_index=0),
-                action_outcome=Verdict.REFUTED
+                                       candidate_index=0)
             )
         ) \
         .when(
@@ -111,7 +113,7 @@ def test_an_action_that_could_not_be_taken_escalates() -> None:
         .given(
             an_attempt_that_never_ran := _an_incident(
                 cursor=CandidateCursor(candidates=[_a_candidate()]),
-                action_outcome=Verdict.ESCALATED
+                ending=Escalated()
             )
         ) \
         .when(
@@ -132,7 +134,7 @@ def test_an_investigation_that_found_nothing_worth_trying_escalates() -> None:
         .given(
             a_round_that_found_nothing := _an_incident(
                 cursor=CandidateCursor(candidates=[_a_candidate()]),
-                nothing_worth_trying=True,
+                ending=NothingWorthTrying(),
                 history=WhatWasLearnt(rounds=1)
             )
         ) \
@@ -153,7 +155,6 @@ def test_a_walk_out_of_candidates_with_rounds_left_investigates_again() -> None:
             a_walk_past_its_last_candidate := _an_incident(
                 cursor=CandidateCursor(candidates=[_a_candidate(), _a_candidate()],
                                        candidate_index=2),
-                action_outcome=Verdict.REFUTED,
                 history=WhatWasLearnt(rounds=1,
                                       attempts=[_a_refuted_attempt()],
                                       attempts_handed=0)
@@ -178,7 +179,6 @@ def test_a_walk_out_of_candidates_with_nothing_refuted_since_its_round_looks_for
             a_walk_that_learnt_nothing_new := _an_incident(
                 cursor=CandidateCursor(candidates=[_a_candidate(), _a_candidate()],
                                        candidate_index=2),
-                action_outcome=Verdict.NOT_ATTEMPTED,
                 history=WhatWasLearnt(rounds=2,
                                       attempts=[_a_refuted_attempt()],
                                       attempts_handed=1)
@@ -198,7 +198,6 @@ def test_a_walk_out_of_candidates_and_rounds_looks_for_a_permanent_fix() -> None
         .given(
             a_walk_with_nothing_left := _an_incident(
                 cursor=CandidateCursor(candidates=[_a_candidate()], candidate_index=1),
-                action_outcome=Verdict.REFUTED,
                 history=WhatWasLearnt(rounds=SOME_MAX_ROUNDS)
             )
         ) \
@@ -220,7 +219,6 @@ def test_a_walk_out_of_reachable_candidates_escalates_rather_than_investigating(
             a_walk_whose_platform_is_down := _an_incident(
                 cursor=CandidateCursor(candidates=[_a_candidate(), _a_candidate()],
                                        candidate_index=2),
-                action_outcome=Verdict.PLATFORM_UNREACHABLE,
                 history=WhatWasLearnt(unreachable_platforms=[DEPLOYMENT_PLATFORM],
                                       rounds=1)
             )
@@ -250,7 +248,6 @@ def test_a_walk_with_a_reachable_candidate_left_is_still_mitigating() -> None:
             a_walk_with_the_flag_still_ahead := _an_incident(
                 cursor=CandidateCursor(candidates=[_a_candidate(), _a_candidate()],
                                        candidate_index=1),
-                action_outcome=Verdict.PLATFORM_UNREACHABLE,
                 history=WhatWasLearnt(unreachable_platforms=[DEPLOYMENT_PLATFORM],
                                       rounds=1)
             )
@@ -274,7 +271,7 @@ def test_a_platform_that_went_down_does_not_undo_a_confirmed_mitigation() -> Non
             a_walk_the_flag_revert_saved := _an_incident(
                 cursor=CandidateCursor(candidates=[_a_candidate(), _a_candidate()],
                                        candidate_index=2),
-                action_outcome=Verdict.CONFIRMED,
+                ending=Confirmed(),
                 history=WhatWasLearnt(unreachable_platforms=[DEPLOYMENT_PLATFORM],
                                       rounds=1)
             )
@@ -348,7 +345,7 @@ def test_an_action_nobody_could_confirm_is_recommended_rather_than_escalated() -
                 cursor=CandidateCursor(candidate_index=1),
                 history=WhatWasLearnt(rounds=SOME_MAX_ROUNDS),
                 fix_found=True,
-                recommended_action=_some_action()
+                ending=Recommended(action=_some_action())
             )
         ) \
         .when(
@@ -371,7 +368,7 @@ def test_a_mode_nothing_answers_is_looking_for_a_fix_with_its_candidate_still_in
         .given(
             an_incident_nothing_answers := _an_incident(
                 cursor=CandidateCursor(candidates=[_a_candidate()], candidate_index=0),
-                the_mode_has_no_mitigation=True
+                ending=NoMitigationForTheMode()
             )
         ) \
         .when(
@@ -393,7 +390,7 @@ def test_a_mode_nothing_answers_escalates_once_code_fix_has_answered() -> None:
         .given(
             an_incident_code_fix_answered := _an_incident(
                 cursor=CandidateCursor(candidates=[_a_candidate()], candidate_index=0),
-                the_mode_has_no_mitigation=True,
+                ending=NoMitigationForTheMode(),
                 fix_found=False
             )
         ) \
@@ -415,7 +412,7 @@ def test_a_mitigated_incident_stays_mitigated_once_a_fix_is_proposed() -> None:
         .given(
             a_mitigation_that_also_got_a_fix := _an_incident(
                 cursor=CandidateCursor(candidates=[_a_candidate()]),
-                action_outcome=Verdict.CONFIRMED,
+                ending=Confirmed(),
                 fix_found=True
             )
         ) \
@@ -437,7 +434,6 @@ def test_the_same_state_always_derives_the_same_status() -> None:
             some_state := _an_incident(
                 cursor=CandidateCursor(candidates=[_a_candidate(), _a_candidate()],
                                        candidate_index=1),
-                action_outcome=Verdict.REFUTED,
                 history=WhatWasLearnt(rounds=2)
             )
         ) \
@@ -454,12 +450,9 @@ def test_the_same_state_always_derives_the_same_status() -> None:
 
 @pytest.mark.unit
 def test_an_alarm_the_window_contradicted_is_disproven_rather_than_escalated() -> None:
-    # Asked before every other question here, and the ordering is the whole of
-    # it. An investigation that disproved the alarm also offered no candidate
-    # worth trying - it offered none at all - so `nothing_worth_trying` is set
-    # beside the disproof, and the first rule to match decides. Asked in the
-    # order the escalation rules already sit in, this would report `escalated`
-    # and lose the one thing the ending exists to say.
+    # An investigation that disproved the alarm also offered no candidate worth
+    # trying - it offered none at all - and still ends disproven rather than
+    # with nothing worth trying, since a walk has one ending and this is it.
     #
     # The two are opposite findings, not grades of one. Escalated sends a
     # responder to look at the service; this sends them to look at the rule,
@@ -467,8 +460,7 @@ def test_an_alarm_the_window_contradicted_is_disproven_rather_than_escalated() -
     Scenario() \
         .given(
             an_incident_whose_alarm_was_contradicted := _an_incident(
-                nothing_worth_trying=True,
-                disproof=_a_disproof()
+                ending=Disproven(disproof=_a_disproof())
             )
         ) \
         .when(
@@ -491,7 +483,7 @@ def test_an_investigation_that_found_nothing_is_escalated_as_it_always_was() -> 
     Scenario() \
         .given(
             an_incident_nothing_was_found_for := _an_incident(
-                nothing_worth_trying=True
+                ending=NothingWorthTrying()
             )
         ) \
         .when(
@@ -517,7 +509,8 @@ def test_a_state_nothing_has_been_found_for_yet_assumes_nothing() -> None:
                 cursor=CandidateCursor(),
                 evidence=RoundEvidence(),
                 history=WhatWasLearnt(),
-                action=None
+                action=None,
+                ending=None
             )
         ) \
         .then(
@@ -551,6 +544,24 @@ def test_a_state_without_one_of_its_groups_is_refused(group: str) -> None:
     Scenario() \
         .given(
             a_state_lacking_it := _all_of_a_state_but(group)
+        ) \
+        .when(
+            attempting(lambda: IncidentState.model_validate(a_state_lacking_it))
+        ) \
+        .then(
+            an_error_was_raised(ValidationError)
+        )
+
+
+@pytest.mark.unit
+def test_a_state_without_its_ending_is_refused() -> None:
+    # The shape of a checkpoint written while how a walk ended was six fields
+    # rather than one. Refused rather than taken as a walk still going: a walk
+    # that had ended would resume searching for a mitigation, and nothing would
+    # say so.
+    Scenario() \
+        .given(
+            a_state_lacking_it := _all_of_a_state_but("ending")
         ) \
         .when(
             attempting(lambda: IncidentState.model_validate(a_state_lacking_it))
@@ -638,28 +649,10 @@ def _nothing_was_assumed_about(*fields: tuple[str, str]) -> Assertion[IncidentSt
     return assertion
 
 
-class _WhatHasHappened(TypedDict, total=False):
-    """The parts of the walk's state these tests set, each typed as the state
-    types it.
-
-    Typed rather than `Any`, so mypy checks every name a test passes against
-    this list, and this list against the state's own constructor. A field
-    renamed in the state then fails the typecheck here instead of being
-    dropped without a word while the test goes on asserting against the
-    default.
-    """
-
-    recommended_action: Action | None
-    the_mode_has_no_mitigation: bool
-    nothing_worth_trying: bool
-    disproof: Disproof | None
-    fix_found: bool | None
-    action_outcome: Verdict | None
-
-
 def _an_incident(cursor: CandidateCursor | None = None,
                  history: WhatWasLearnt | None = None,
-                 **what_has_happened: Unpack[_WhatHasHappened]) -> IncidentState:
+                 ending: Ending | None = None,
+                 fix_found: bool | None = None) -> IncidentState:
     dont_care_alert = Alert(service="kuki", alert_name="HighErrorRate")
 
     return IncidentState(
@@ -674,7 +667,8 @@ def _an_incident(cursor: CandidateCursor | None = None,
         evidence=RoundEvidence(),
         history=history if history is not None else WhatWasLearnt(),
         action=None,
-        **what_has_happened
+        ending=ending,
+        fix_found=fix_found
     )
 
 

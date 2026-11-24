@@ -188,7 +188,8 @@ def run_incident(incident_id: str,
         cursor=CandidateCursor(),
         evidence=RoundEvidence(),
         history=WhatWasLearnt(),
-        action=None
+        action=None,
+        ending=None
     )
     measured_by = meter if meter is not None else metrics.get_meter(_SCOPE)
     walks = measured_by.create_counter(

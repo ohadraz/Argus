@@ -2,8 +2,8 @@
 
 LangGraph takes a mapping of field names from every node and merges it into the
 state. Written as a literal at each `return`, that mapping is unchecked in both
-directions: `"action_outcom"` type-checks, runs, and silently drops the verdict
-the walk turns on, and a field spelled right but typed wrong reaches the state
+directions: `"fix_fuond"` type-checks, runs, and silently drops the answer the
+walk turns on, and a field spelled right but typed wrong reaches the state
 machine as whatever the node happened to build.
 
 So a node returns this instead, and `with_status` - which every node already
@@ -32,7 +32,6 @@ from core.models import (
     Attempt,
     ChangeEvent,
     DeploymentChanges,
-    Disproof,
     EstablishedOnset,
     FlagChange,
     Hypothesis,
@@ -40,13 +39,13 @@ from core.models import (
     Reading,
     RecordedPlacement,
     ServiceDependency,
-    Verdict,
 )
 from pydantic import BaseModel, ConfigDict
 
 from orchestrator.walk.state import (
     ActionInFlight,
     CandidateCursor,
+    Ending,
     IncidentState,
     RoundEvidence,
     WhatWasLearnt,
@@ -161,29 +160,15 @@ class StateDelta(BaseModel):
     proposed_action: Action | None = None
     # Set by the mitigating node alone, to the moment it announced the action.
     acted_at: datetime | None = None
-    # The action the gate declined to take because nothing could confirm it, and
-    # which somebody else should take instead. Separate from `proposed_action`
-    # rather than left in it: that one means "about to be performed", and an
-    # action sitting there unperformed is what every reader of this walk, and
-    # the router after the gate, takes as an action in flight.
-    recommended_action: Action | None = None
-    # Set by the gate alone, when the candidate in hand names a mode no
-    # mitigation answers - which ends the mitigation phase.
-    the_mode_has_no_mitigation: bool | None = None
-    # Set by the gate alone, to the candidate whose fault is another company's.
-    somebody_elses_fault_for: str | None = None
-    nothing_worth_trying: bool | None = None
-    # The window that contradicted what the alarm claimed, where it did. Set by
-    # the investigating node alone, and the one thing that ends a walk without
-    # anything having been found or done.
-    disproof: Disproof | None = None
+    # How the search for a mitigation ended, built by the node that found it:
+    # the investigating node's disproof or empty round, the gate's
+    # recommendation or mode nothing answers, and the mitigating node's verdict.
+    # A recommendation is its own ending rather than left in `proposed_action`:
+    # that one means "about to be performed", and an action sitting there
+    # unperformed is what every reader of this walk, and the router after the
+    # gate, takes as an action in flight.
+    ending: Ending | None = None
     fix_found: bool | None = None
-    # The verdict itself, not its spelling. `str(verdict)` reaching the state
-    # was how one value came to have two representations - the router branching
-    # on `status` and the resume branching on the stringified outcome - and a
-    # comparison against a misspelt literal is a branch that silently never
-    # runs.
-    action_outcome: Verdict | None = None
     action_because: str | None = None
     # What the node says it did. Never a field of the state: `with_status`
     # takes it out, writes the row, and passes on what remains.

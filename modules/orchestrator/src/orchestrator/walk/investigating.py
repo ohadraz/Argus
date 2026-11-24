@@ -67,7 +67,7 @@ from orchestrator.walk.ports import (
     RecordWeighing,
 )
 from orchestrator.walk.routes import ESCALATED_ROUTE, FIXING_ROUTE, MITIGATING_ROUTE
-from orchestrator.walk.state import IncidentState
+from orchestrator.walk.state import Disproven, IncidentState, NothingWorthTrying
 
 _logger = logging.getLogger(__name__)
 
@@ -111,9 +111,10 @@ def investigator_node(
     """Forms a hypothesis, records every candidate it considered, and reports
     whether any of them is worth acting on (spec §7.2, §10).
 
-    It does not decide the incident's status. What it reports -
-    `nothing_worth_trying`, the candidate list, the index of the one to try - is
-    what the status is derived from, one place further out.
+    It does not decide the incident's status. What it reports - the candidate
+    list, the index of the one to try, and an ending where the round found
+    nothing worth trying - is what the status is derived from, one place
+    further out.
 
     `record_hypothesis` defaults to the real recorder, and
     repository write, injectable so this node's logic can be unit tested without
@@ -344,7 +345,7 @@ def investigator_node(
         # anything was refuted after it.
         attempts_handed=len(state.history.attempts),
         candidates_formed=state.history.candidates_formed + len(candidates),
-        nothing_worth_trying=nothing_worth_trying,
+        ending=NothingWorthTrying() if nothing_worth_trying else None,
         # The spent list in the walk's own words for one, since it is the same
         # move for the same reason.
         narration=(nothing_left_to_try(state.history.attempts) if the_list_is_spent
@@ -530,7 +531,7 @@ def _the_alarm_was_disproven(state: IncidentState,
     )
 
     return StateDelta(
-        disproof=disproof,
+        ending=Disproven(disproof=disproof),
         rounds=state.history.rounds + 1,
         narration=Narration(
             # Read in two places and written for the harder one. The

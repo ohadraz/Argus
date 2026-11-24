@@ -48,7 +48,7 @@ def an_incident_state(
 
     return IncidentState(incident_id=incident_id, alert=alert, status=status,
                          cursor=CandidateCursor(), evidence=RoundEvidence(),
-                         history=WhatWasLearnt(), action=None)
+                         history=WhatWasLearnt(), action=None, ending=None)
 
 
 def a_random_id() -> str:

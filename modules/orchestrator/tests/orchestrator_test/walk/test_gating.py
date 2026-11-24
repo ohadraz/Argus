@@ -63,6 +63,8 @@ from orchestrator.walk.state import (
     ActionInFlight,
     CandidateCursor,
     IncidentState,
+    NoMitigationForTheMode,
+    Recommended,
     RoundEvidence,
     WhatWasLearnt,
 )
@@ -241,7 +243,7 @@ def test_an_incident_carrying_a_recommendation_stops_trying_candidates() -> None
     Scenario() \
         .given(
             an_incident_carrying_a_recommendation := _a_mitigating_incident()
-            .model_copy(update={"recommended_action": _a_proposed_action()})
+            .model_copy(update={"ending": Recommended(action=_a_proposed_action())})
         ) \
         .when(lambda: route_after_gate(an_incident_carrying_a_recommendation)) \
         .then(the_route_is(FIXING_ROUTE))
@@ -973,7 +975,7 @@ def _a_mitigating_incident(proposing: Action | None = None,
         history=WhatWasLearnt(attempts=already_tried or []),
         action=(ActionInFlight(proposed_action=proposing) if proposing is not None
                 else None),
-        the_mode_has_no_mitigation=whose_mode_has_no_mitigation
+        ending=NoMitigationForTheMode() if whose_mode_has_no_mitigation else None
     )
 
 
@@ -1103,11 +1105,11 @@ def _it_was_kept_as_the_recommendation(action: Action) -> Assertion[StateDelta]:
     least announces that a person is needed.
     """
     def assertion(updates: StateDelta) -> bool:
-        if updates.recommended_action != action:
+        if updates.ending != Recommended(action=action):
             raise AssertionError(
                 f"Expected the refused action {action!r} to be kept as the "
-                f"recommendation, the gate returned "
-                f"{updates.recommended_action!r}."
+                f"recommendation, the gate returned the ending "
+                f"{updates.ending!r}."
             )
 
         return True
@@ -1117,11 +1119,11 @@ def _it_was_kept_as_the_recommendation(action: Action) -> Assertion[StateDelta]:
 
 def _nothing_was_recommended() -> Assertion[StateDelta]:
     def assertion(updates: StateDelta) -> bool:
-        if updates.recommended_action is not None:
+        if isinstance(updates.ending, Recommended):
             raise AssertionError(
                 f"Expected no recommendation from a refusal that is a judgement "
                 f"on the action itself, the gate returned "
-                f"{updates.recommended_action!r}."
+                f"{updates.ending.action!r}."
             )
 
         return True
@@ -1274,10 +1276,10 @@ def _the_recommendation_was_narrated(refusal: Refusal) -> Assertion[StateDelta]:
 
 def _it_was_recorded_that_the_mode_has_no_mitigation() -> Assertion[StateDelta]:
     def assertion(updates: StateDelta) -> bool:
-        if updates.the_mode_has_no_mitigation is not True:
+        if not isinstance(updates.ending, NoMitigationForTheMode):
             raise AssertionError(
                 f"Expected the gate to record that nothing answers the mode, it "
-                f"returned [{updates.the_mode_has_no_mitigation}] - so the walk "
+                f"returned the ending [{updates.ending!r}] - so the walk "
                 f"would go on to the next candidate and act on a reading the "
                 f"diagnosis ranked below this one."
             )
@@ -1409,10 +1411,10 @@ def _the_refusal_named_whose_service_it_is(expected: ServiceDependency | None,
 
 def _it_was_recorded_whose_fault_it_was(candidate: Hypothesis) -> Assertion[StateDelta]:
     def assertion(updates: StateDelta) -> bool:
-        if updates.somebody_elses_fault_for != candidate.id:
+        if updates.ending != NoMitigationForTheMode(somebody_elses_fault_for=candidate.id):
             raise AssertionError(
                 f"Expected the gate to record [{candidate.id}] as the candidate whose fault "
-                f"is another company's, it recorded [{updates.somebody_elses_fault_for}] - "
+                f"is another company's, it recorded the ending [{updates.ending!r}] - "
                 f"so Code-Fix would be asked to write a change around their outage."
             )
 

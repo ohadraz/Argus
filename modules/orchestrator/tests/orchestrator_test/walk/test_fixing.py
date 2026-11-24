@@ -60,6 +60,7 @@ from orchestrator.walk.routes import POSTMORTEM_ROUTE
 from orchestrator.walk.state import (
     CandidateCursor,
     IncidentState,
+    NoMitigationForTheMode,
     RoundEvidence,
     WhatWasLearnt,
 )
@@ -633,7 +634,9 @@ def test_a_failure_in_somebody_elses_service_asks_code_fix_nothing() -> None:
         .given(
             an_incident_in_somebody_elses_service := _an_incident_in(
                 IncidentStatus.FIXING, hypothesis=a_hypothesis
-            ).model_copy(update={"somebody_elses_fault_for": a_hypothesis.id}),
+            ).model_copy(update={"ending": NoMitigationForTheMode(
+                somebody_elses_fault_for=a_hypothesis.id
+            )}),
             the_agent := _AnAgentRememberingWhatItWasAsked()
         ) \
         .when(
@@ -658,7 +661,9 @@ def test_a_candidate_after_one_whose_fault_was_somebody_elses_is_still_asked_abo
         .given(
             an_incident_past_it := _an_incident_in(
                 IncidentStatus.FIXING, hypothesis=a_hypothesis
-            ).model_copy(update={"somebody_elses_fault_for": an_earlier_hypothesis.id}),
+            ).model_copy(update={"ending": NoMitigationForTheMode(
+                somebody_elses_fault_for=an_earlier_hypothesis.id
+            )}),
             the_agent := _AnAgentRememberingWhatItWasAsked()
         ) \
         .when(
@@ -1132,7 +1137,8 @@ def _an_incident_in(status: IncidentStatus,
                          cursor=CandidateCursor(hypothesis=hypothesis),
                          evidence=RoundEvidence(deployments=deployments),
                          history=WhatWasLearnt(),
-                         action=None)
+                         action=None,
+                         ending=None)
 
 
 def _a_deploy(revision: str, at: str) -> ChangeEvent:

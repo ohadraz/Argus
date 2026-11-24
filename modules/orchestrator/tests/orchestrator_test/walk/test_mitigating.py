@@ -103,6 +103,9 @@ from orchestrator.walk.routes import ESCALATED_ROUTE, FIXING_ROUTE, NEXT_CANDIDA
 from orchestrator.walk.state import (
     ActionInFlight,
     CandidateCursor,
+    Confirmed,
+    Ending,
+    Escalated,
     IncidentState,
     RoundEvidence,
 )
@@ -234,7 +237,7 @@ def owe_a_put_back() -> MagicMock:
 
 
 @pytest.mark.unit
-def test_a_confirmed_action_reports_the_verdict_it_measured(
+def test_a_confirmed_action_ends_the_walk_confirmed(
     take: MagicMock,
     record_action: MagicMock,
     complete_action: MagicMock,
@@ -262,7 +265,7 @@ def test_a_confirmed_action_reports_the_verdict_it_measured(
                                       already_taken=already_taken,
                                       acting_for=acting_for,
                                       still_wanted=still_wanted)) \
-        .then(_the_verdict_reported_is(Verdict.CONFIRMED))
+        .then(_the_ending_reported_is(Confirmed()))
 
 
 @pytest.mark.unit
@@ -439,7 +442,7 @@ def test_a_refuted_action_carries_what_the_wait_judged_for_the_next_round(
 
 
 @pytest.mark.unit
-def test_a_refuted_action_reports_the_verdict_it_measured(
+def test_a_refuted_action_leaves_the_walk_going_on_with_the_verdict_on_its_row(
     take: MagicMock,
     record_action: MagicMock,
     complete_action: MagicMock,
@@ -467,11 +470,14 @@ def test_a_refuted_action_reports_the_verdict_it_measured(
                                       already_taken=already_taken,
                                       acting_for=acting_for,
                                       still_wanted=still_wanted)) \
-        .then(_the_verdict_reported_is(Verdict.REFUTED))
+        .then(all_of(
+            _the_walk_goes_on(),
+            _the_action_row_records_the_outcome(Verdict.REFUTED, complete_action)
+        ))
 
 
 @pytest.mark.unit
-def test_an_escalated_outcome_is_reported_as_the_verdict_it_is(
+def test_an_escalated_outcome_ends_the_walk_escalated(
     take: MagicMock,
     record_action: MagicMock,
     complete_action: MagicMock,
@@ -499,7 +505,7 @@ def test_an_escalated_outcome_is_reported_as_the_verdict_it_is(
                                       already_taken=already_taken,
                                       acting_for=acting_for,
                                       still_wanted=still_wanted)) \
-        .then(_the_verdict_reported_is(Verdict.ESCALATED))
+        .then(_the_ending_reported_is(Escalated()))
 
 
 @pytest.mark.unit
@@ -625,7 +631,7 @@ def test_an_unreachable_platform_is_recorded_against_the_walk(
                                       acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(all_of(
-            _the_verdict_reported_is(Verdict.PLATFORM_UNREACHABLE),
+            _the_walk_goes_on(),
             _the_platforms_recorded_as_unreachable([DEPLOYMENT_PLATFORM])
         ))
 
@@ -1416,11 +1422,14 @@ def test_an_action_on_a_plan_is_dated_from_its_claim_not_from_the_plan_s_read(
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("verdict", [Verdict.NOT_ATTEMPTED, Verdict.PLATFORM_UNREACHABLE,
-                                     Verdict.ESCALATED],
-                         ids=lambda verdict: verdict.value)
+@pytest.mark.parametrize(("verdict", "ending"), [
+    pytest.param(Verdict.NOT_ATTEMPTED, None, id=Verdict.NOT_ATTEMPTED.value),
+    pytest.param(Verdict.PLATFORM_UNREACHABLE, None, id=Verdict.PLATFORM_UNREACHABLE.value),
+    pytest.param(Verdict.ESCALATED, Escalated(), id=Verdict.ESCALATED.value)
+])
 def test_a_plan_refused_is_recorded_as_the_attempt_and_the_action_is_not_taken(
     verdict: Verdict,
+    ending: Ending | None,
     take: MagicMock,
     record_action: MagicMock,
     complete_action: MagicMock,
@@ -1464,7 +1473,7 @@ def test_a_plan_refused_is_recorded_as_the_attempt_and_the_action_is_not_taken(
             _the_action_row_records_the_outcome(verdict, complete_action),
             _the_action_row_records_whether_it_was_performed(False, complete_action),
             _the_verdict_names_the_action_not_done(an_action_taking_incident, complete_action),
-            _the_verdict_reported_is(verdict),
+            _the_ending_reported_is(ending),
             _no_action_was_announced(published),
             _the_walk_carries_no_moment_of_change()
         ))
@@ -1704,7 +1713,7 @@ def test_a_plan_refused_after_a_person_ended_the_incident_is_recorded_as_the_sto
             _the_action_was_not_taken(take),
             _the_action_row_records_the_outcome(Verdict.STOPPED, complete_action),
             _the_action_row_records_whether_it_was_performed(False, complete_action),
-            _the_verdict_reported_is(Verdict.STOPPED)
+            _the_walk_goes_on()
         ))
 
 
@@ -1750,7 +1759,7 @@ def test_a_resumed_walk_reports_the_earlier_outcome_whatever_its_own_plan_found(
         .then(all_of(
             _the_action_was_not_taken(take),
             _nothing_was_completed(complete_action),
-            _the_verdict_reported_is(the_outcome_the_first_attempt_recorded)
+            _the_ending_reported_is(Confirmed())
         ))
 
 
@@ -1792,7 +1801,7 @@ def test_a_walk_resumed_after_the_action_was_taken_does_not_take_it_again(
                                       still_wanted=still_wanted)) \
         .then(all_of(_the_action_was_not_taken(take),
                      _nothing_was_completed(complete_action),
-                     _the_verdict_reported_is(the_outcome_the_first_attempt_recorded)))
+                     _the_ending_reported_is(Confirmed())))
 
 
 @pytest.mark.unit
@@ -2191,7 +2200,7 @@ def test_a_change_that_could_not_be_put_on_the_claim_does_not_stop_the_attempt(
                                       acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(all_of(
-            _the_verdict_reported_is(Verdict.CONFIRMED),
+            _the_ending_reported_is(Confirmed()),
             _the_action_row_records_the_outcome(Verdict.CONFIRMED, complete_action),
             one_record_was_logged(caplog, "orchestrator.walk.mitigating", logging.WARNING,
                                   "the change could not be recorded as made before the wait")
@@ -3275,8 +3284,8 @@ def test_a_claim_refused_for_an_open_subject_escalates_saying_whose_the_change_i
             _nothing_was_completed(complete_action),
             _the_candidate_was_left_untested_because(some_candidate, said, record_outcome),
             _the_subject_s_refusal_was_published(published, some_candidate, open_in),
-            _the_verdict_reported_is(Verdict.ESCALATED),
-            _the_reason_reported_is(said)
+            _the_ending_reported_is(Escalated()),
+            _the_sentence_said_is(said)
         ))
 
 
@@ -3328,8 +3337,8 @@ def test_a_resumed_walk_whose_claim_is_refused_for_an_open_subject_escalates_the
             _the_candidate_was_left_untested_because(some_candidate, said, record_outcome),
             _the_subject_s_refusal_was_published(published, some_candidate,
                                                  ANOTHER_INCIDENT_HOLDING_IT),
-            _the_verdict_reported_is(Verdict.ESCALATED),
-            _the_reason_reported_is(said)
+            _the_ending_reported_is(Escalated()),
+            _the_sentence_said_is(said)
         ))
 
 
@@ -3476,8 +3485,8 @@ def test_an_action_the_autonomy_policy_refuses_when_it_comes_to_be_taken_is_neve
                                                      record_outcome),
             _the_refusal_published_was(Refusal.OUTSIDE_WHAT_ARGUS_MAY_TOUCH, some_candidate,
                                        published),
-            _the_verdict_reported_is(Verdict.ESCALATED),
-            _the_reason_reported_is(WHY_IT_WAS_OUT_OF_REACH)
+            _the_ending_reported_is(Escalated()),
+            _the_sentence_said_is(WHY_IT_WAS_OUT_OF_REACH)
         ))
 
 
@@ -3533,8 +3542,8 @@ def test_a_resumed_walk_the_autonomy_policy_now_refuses_does_not_take_the_claime
                                                               complete_action),
             _the_candidate_was_left_untested_because(some_candidate, WHY_IT_WAS_OUT_OF_REACH,
                                                      record_outcome),
-            _the_verdict_reported_is(Verdict.ESCALATED),
-            _the_reason_reported_is(WHY_IT_WAS_OUT_OF_REACH)
+            _the_ending_reported_is(Escalated()),
+            _the_sentence_said_is(WHY_IT_WAS_OUT_OF_REACH)
         ))
 
 
@@ -3583,7 +3592,7 @@ def test_a_claimed_change_found_made_is_still_watched_when_the_autonomy_policy_n
             _the_change_made_earlier_was_watched(A_ROLLBACK_NOBODY_LISTED, resuming),
             _the_action_was_not_taken(take),
             _the_action_row_records_the_outcome(Verdict.CONFIRMED, complete_action),
-            _the_verdict_reported_is(Verdict.CONFIRMED)
+            _the_ending_reported_is(Confirmed())
         ))
 
 
@@ -3631,7 +3640,7 @@ def test_a_change_told_as_made_is_still_watched_when_the_autonomy_policy_now_ref
             _the_change_made_earlier_was_watched(A_ROLLBACK_NOBODY_LISTED, resuming),
             _the_action_was_not_taken(take),
             _the_action_row_records_the_outcome(Verdict.REFUTED, complete_action),
-            _the_verdict_reported_is(Verdict.REFUTED)
+            _the_walk_goes_on()
         ))
 
 
@@ -4013,17 +4022,38 @@ def _the_reason_reported_is(expected: str) -> Assertion[StateDelta]:
     return assertion
 
 
-def _the_verdict_reported_is(expected: Verdict) -> Assertion[StateDelta]:
+def _the_sentence_said_is(expected: str) -> Assertion[StateDelta]:
+    """The sentence the step's account carries - where a reader of an
+    escalation gets its reason, the walk keeping none."""
     def assertion(updates: StateDelta) -> bool:
-        reported = updates.action_outcome
-        if reported != expected:
+        said = updates.narration.said() if updates.narration is not None else None
+        if said != expected:
             raise AssertionError(
-                f"Expected the verdict [{expected}], the node reported [{reported}]."
+                f"Expected the step to say [{expected}], it said [{said}]."
             )
 
         return True
 
     return assertion
+
+
+def _the_ending_reported_is(expected: Ending | None) -> Assertion[StateDelta]:
+    def assertion(updates: StateDelta) -> bool:
+        if updates.ending != expected:
+            raise AssertionError(
+                f"Expected the walk's ending [{expected!r}], the node reported "
+                f"[{updates.ending!r}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_walk_goes_on() -> Assertion[StateDelta]:
+    """No ending reported: the verdict leaves the walk to its next candidate,
+    and the row is what says which verdict it was."""
+    return _the_ending_reported_is(None)
 
 
 def _the_walk_carries_the_moment_the_action_was_announced(
@@ -4125,24 +4155,20 @@ def _the_walk_carries(expected: datetime) -> Assertion[StateDelta]:
 
 
 def _the_incident_was_escalated() -> Assertion[StateDelta]:
-    """Nothing was measured and nothing can be: the node reports the verdict
-    that says so - escalated - with the sentence it says as the reason, which
-    `status_after` derives the status from."""
+    """Nothing was measured and nothing can be: the node reports the ending
+    that says so - escalated, which `status_after` derives the status from - and
+    says why, the one place a reader gets the reason."""
     def assertion(updates: StateDelta) -> bool:
-        told = updates.model_dump(exclude_unset=True)
         said = updates.narration.said() if updates.narration is not None else None
 
-        if told.get("action_outcome") is not Verdict.ESCALATED:
+        if not isinstance(updates.ending, Escalated):
             raise AssertionError(
-                f"Expected the node to report the verdict [{Verdict.ESCALATED}], it "
-                f"reported [{told.get('action_outcome', 'nothing at all')}]."
+                f"Expected the node to report the walk escalated, it reported "
+                f"[{updates.ending!r}]."
             )
 
-        if told.get("action_because") != said:
-            raise AssertionError(
-                f"Expected the node to report the reason it says, [{said}], it reported "
-                f"[{told.get('action_because', 'nothing at all')}]."
-            )
+        if not said:
+            raise AssertionError("Expected the node to say why it escalated, it said nothing.")
 
         return True
 
@@ -4969,7 +4995,7 @@ def test_a_put_back_that_could_not_be_put_on_the_claim_as_owed_does_not_stop_the
                                       acting_for=acting_for,
                                       still_wanted=still_wanted)) \
         .then(all_of(
-            _the_verdict_reported_is(Verdict.REFUTED),
+            _the_walk_goes_on(),
             _the_action_row_records_the_outcome(Verdict.REFUTED, complete_action),
             one_record_was_logged(caplog, "orchestrator.walk.mitigating", logging.WARNING,
                                   "the put-back could not be recorded as owed before it was "
@@ -5532,6 +5558,9 @@ def test_a_refutation_completed_owing_its_put_back_is_reported_as_the_outcome_on
     # the walk recorded the refutation with nothing put back. That is an
     # outcome on file like any other: reported, and not put back here - the
     # withdrawal's unwinding is what puts it back.
+    some_candidate = _a_candidate_blaming(SOME_FLAG_THE_CANDIDATE_BLAMES)
+    published: list[IncidentEvent] = []
+
     Scenario() \
         .given(
             calling(lambda: _an_earlier_attempt_holds_the_claim(
@@ -5539,7 +5568,7 @@ def test_a_refutation_completed_owing_its_put_back_is_reported_as_the_outcome_on
                 progress=ActionProgress.PUTTING_BACK,
                 undo_descriptor=THE_WAY_BACK_THE_ROW_KEPT, put_back_because=SOME_FINDING)),
             an_action_taking_incident := _a_mitigating_incident(
-                proposing=_an_action_with_an_undo_descriptor()
+                proposing=_an_action_with_an_undo_descriptor(), about=some_candidate
             )
         ) \
         .when(lambda: mitigation_node(an_action_taking_incident,
@@ -5553,8 +5582,11 @@ def test_a_refutation_completed_owing_its_put_back_is_reported_as_the_outcome_on
                                       record_outcome=record_outcome,
                                       already_taken=already_taken,
                                       acting_for=acting_for,
-                                      still_wanted=still_wanted)) \
-        .then(all_of(_the_verdict_reported_is(Verdict.REFUTED),
+                                      still_wanted=still_wanted,
+                                      publisher=published.append)) \
+        .then(all_of(_the_walk_goes_on(),
+                     _the_resumption_published_was(some_candidate, Verdict.REFUTED,
+                                                   published),
                      _the_action_was_not_taken(take),
                      _nothing_was_read_of_the_estate(resuming),
                      _nothing_was_completed(complete_action)))
@@ -5658,7 +5690,7 @@ def test_a_change_owed_back_is_recorded_as_the_live_walk_records_its_put_back(
             _the_action_row_records_the_way_back(THE_WAY_BACK_THE_ROW_KEPT, complete_action),
             _the_candidate_was_tested_and_settled(some_candidate, Verdict.REFUTED,
                                                   record_outcome),
-            _the_verdict_reported_is(Verdict.REFUTED)
+            _the_walk_goes_on()
         ))
 
 
@@ -6009,7 +6041,7 @@ def test_a_claimed_change_found_made_is_watched_in_the_words_it_was_made_with(
                                                  undo_descriptor=THE_WAY_BACK_THE_ROW_KEPT),
                                        resuming),
             _the_action_row_records_the_outcome(Verdict.CONFIRMED, complete_action),
-            _the_verdict_reported_is(Verdict.CONFIRMED)
+            _the_ending_reported_is(Confirmed())
         ))
 
 
@@ -6222,7 +6254,7 @@ def test_a_claimed_change_found_changed_since_is_recorded_as_the_live_write_s_re
             _the_action_row_records_the_outcome(Verdict.ESCALATED, complete_action),
             _the_action_row_records_the_way_back(THE_WAY_BACK_THE_ROW_KEPT, complete_action),
             _the_action_row_records_whether_it_was_performed(True, complete_action),
-            _the_verdict_reported_is(Verdict.ESCALATED),
+            _the_ending_reported_is(Escalated()),
             _the_action_was_not_taken(take),
             _it_was_not_watched(resuming)
         ))
@@ -6904,7 +6936,7 @@ def test_a_change_told_as_made_and_still_argus_s_is_watched_and_recorded(
                                        resuming),
             _the_action_was_not_taken(take),
             _the_action_row_records_the_outcome(Verdict.REFUTED, complete_action),
-            _the_verdict_reported_is(Verdict.REFUTED),
+            _the_walk_goes_on(),
             _the_walk_carries(SOME_MOMENT_IT_WAS_MADE)
         ))
 
@@ -7292,7 +7324,7 @@ def test_a_change_told_as_made_with_no_plan_is_asked_after_on_its_way_back_alone
                                       now=_the_clock_at(SOME_NOW))) \
         .then(all_of(
             _it_was_checked_whether_still_argus_s(no_plan, ITS_PLAN.descriptor, resuming),
-            _the_verdict_reported_is(Verdict.CONFIRMED)
+            _the_ending_reported_is(Confirmed())
         ))
 
 

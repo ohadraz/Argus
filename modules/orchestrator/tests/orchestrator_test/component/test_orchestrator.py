@@ -79,7 +79,7 @@ from orchestrator.walk.graph import (
     build_graph,
     recursion_limit,
 )
-from orchestrator.walk.state import IncidentState, WhatWasLearnt
+from orchestrator.walk.state import IncidentState, Recommended, WhatWasLearnt
 
 from orchestrator_test.framework.builders import (
     a_corruption_blamed_on,
@@ -1370,18 +1370,19 @@ def _a_rollback_of_the_alerting_service_was_recommended() -> Assertion[Walked]:
     """
     def assertion(walked: Walked) -> bool:
         final, dont_care_visited = walked
+        recommended = final.ending.action if isinstance(final.ending, Recommended) else None
 
-        if not isinstance(final.recommended_action, RollBackDeployment):
+        if not isinstance(recommended, RollBackDeployment):
             raise AssertionError(
                 f"Expected the incident to recommend rolling a deployment back, "
-                f"it recommends [{final.recommended_action!r}]."
+                f"it recommends [{recommended!r}]."
             )
 
-        if final.recommended_action.application != final.alert.service:
+        if recommended.application != final.alert.service:
             raise AssertionError(
                 f"Expected the rollback to be addressed to the alerting service "
                 f"[{final.alert.service}], it is addressed to "
-                f"[{final.recommended_action.application}]."
+                f"[{recommended.application}]."
             )
 
         return True
@@ -1398,17 +1399,18 @@ def _the_action_recommended_was(flag: str) -> Assertion[Walked]:
     """
     def assertion(walked: Walked) -> bool:
         final, dont_care_visited = walked
+        recommended = final.ending.action if isinstance(final.ending, Recommended) else None
 
-        if not isinstance(final.recommended_action, RevertFeatureFlag):
+        if not isinstance(recommended, RevertFeatureFlag):
             raise AssertionError(
                 f"Expected the incident to recommend reverting a flag, it "
-                f"recommends [{final.recommended_action!r}]."
+                f"recommends [{recommended!r}]."
             )
 
-        if final.recommended_action.flag != flag:
+        if recommended.flag != flag:
             raise AssertionError(
                 f"Expected the recommendation to name [{flag}], it names "
-                f"[{final.recommended_action.flag}]."
+                f"[{recommended.flag}]."
             )
 
         return True
