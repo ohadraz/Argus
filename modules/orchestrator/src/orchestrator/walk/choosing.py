@@ -110,8 +110,7 @@ def next_candidate_node(state: IncidentState,
         return StateDelta(
             attempts=attempts,
             candidate_index=next_index,
-            hypothesis=next_candidate,
-            confidence=next_candidate.confidence
+            hypothesis=next_candidate
         )
 
     # Nothing left that Argus can still reach, which is a different ending from

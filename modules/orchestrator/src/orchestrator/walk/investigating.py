@@ -344,7 +344,6 @@ def investigator_node(
         # anything was refuted after it.
         attempts_handed=len(state.attempts),
         candidates_formed=state.candidates_formed + len(candidates),
-        confidence=hypothesis.confidence,
         nothing_worth_trying=nothing_worth_trying,
         # The spent list in the walk's own words for one, since it is the same
         # move for the same reason.

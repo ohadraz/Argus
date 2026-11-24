@@ -238,7 +238,6 @@ def test_investigator_node_offers_the_cause_it_named_as_the_one_to_try(
                     rounds=1,
                     attempts_handed=0,
                     candidates_formed=1,
-                    confidence=some_hypothesis.confidence,
                     nothing_worth_trying=False,
                     narration=Narration(action="hypothesis formed")
                 )
@@ -288,7 +287,6 @@ def test_whether_the_incident_was_read_at_all_is_carried_to_the_gate(
                     rounds=1,
                     attempts_handed=0,
                     candidates_formed=1,
-                    confidence=some_hypothesis.confidence,
                     nothing_worth_trying=False,
                     narration=Narration(action="hypothesis formed")
                 )
@@ -489,7 +487,6 @@ def test_investigator_node_reports_a_round_that_named_no_cause_at_all(
                     rounds=1,
                     attempts_handed=0,
                     candidates_formed=1,
-                    confidence=None,
                     nothing_worth_trying=True,
                     narration=Narration(action="insufficient evidence")
                 )

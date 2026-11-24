@@ -154,7 +154,6 @@ class StateDelta(BaseModel):
     # anything having been found or done.
     disproof: Disproof | None = None
     fix_found: bool | None = None
-    confidence: float | None = None
     # The verdict itself, not its spelling. `str(verdict)` reaching the state
     # was how one value came to have two representations - the router branching
     # on `status` and the resume branching on the stringified outcome - and a

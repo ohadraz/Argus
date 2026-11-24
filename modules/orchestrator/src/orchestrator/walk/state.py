@@ -197,9 +197,6 @@ class IncidentState(BaseModel):
     # a bool, because "no fix yet" and "no fix to be had" are the difference
     # between an incident still being worked on and one a human now owns.
     fix_found: bool | None = None
-    # Derivable from `hypothesis`, kept because the graph's state is what the
-    # Dashboard reads (§7.7) and a confidence-over-time view wants it flat.
-    confidence: float | None = None
     # What the attempt concluded, as the verdict itself. Not its spelling: the
     # state machine branches on this, and a comparison against a string is one
     # that keeps compiling after somebody changes how a verdict is written.

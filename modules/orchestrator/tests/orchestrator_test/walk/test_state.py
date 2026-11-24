@@ -8,9 +8,9 @@ graph, because a rule that can only be exercised by running the whole machine
 is a rule nobody checks.
 
 The state's own defaults are asserted here too, for the reason they are asserted
-anywhere: `hypothesis` and `confidence` arriving as `None` is what lets a node
-tell "not yet" from "nothing to find", and a model that silently required them
-would make every node's first read a crash.
+anywhere: `hypothesis` arriving as `None` is what lets a node tell "not yet"
+from "nothing to find", and a model that silently required it would make every
+node's first read a crash.
 """
 from __future__ import annotations
 
@@ -508,7 +508,7 @@ def test_a_state_nothing_has_been_found_for_yet_assumes_nothing() -> None:
             )
         ) \
         .then(
-            _nothing_was_assumed_about("hypothesis", "confidence", "placement")
+            _nothing_was_assumed_about("hypothesis", "placement")
         )
 
 
