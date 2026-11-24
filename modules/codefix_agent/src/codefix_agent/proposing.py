@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from functools import partial
 from typing import Final, NamedTuple, NoReturn, Protocol
 
@@ -586,6 +587,33 @@ def _what_the_model_submitted(hypothesis: Hypothesis | None,
     )
 
 
+@dataclass(frozen=True)
+class _StillWriting:
+    """Nothing submitted yet: the model is reading, or has only said things."""
+
+
+@dataclass(frozen=True)
+class _Asked:
+    """A submission the question is open about, and how the code outside its
+    patch uses what it changes. A second submission replaces it, and is asked
+    about in turn."""
+
+    fix: SubmittedFix
+    outside: list[CodeUse]
+
+
+@dataclass(frozen=True)
+class _SentBack:
+    """The last submission was sent back, for any reason, with nothing
+    submitted since. A submission sent back withdraws the one asked before it,
+    as a second submission replaces the first: what is awaited now is the
+    submission sent again, and no question is open."""
+
+
+# Where the fix's conversation stands between two turns.
+type _Phase = _StillWriting | _Asked | _SentBack
+
+
 class _Writing:
     """The fix's conversation as the turn loop drives it (`converse_until`):
     what each turn means, what the model is told next, and every way it ends.
@@ -615,29 +643,22 @@ class _Writing:
         self._read_file = read_file
         self._code_outside = code_outside
         self._leads = leads
-        # The submission the question is open about, and how the code outside its
-        # patch uses what it changes.
-        self._asked: SubmittedFix | None = None
-        self._asked_outside: list[CodeUse] = []
+        self._phase: _Phase = _StillWriting()
         # Whether a submission has been sent back for speaking of code outside its
         # patch as a group - which happens once.
         self._group_sent_back = False
-        # Whether the last submission was sent back, for any reason, with nothing
-        # submitted since.
-        self._last_sent_back = False
         # Whether the budget is stretched past its bounds by one call, for the
-        # rewrite of a submission sent back or for the answer to its question - and
-        # whether the answer's has been given. Each is given once, and the
-        # rewrite's never after the answer's: a rewrite then would be written and
-        # never asked about.
-        self._room_for_its_rewrite = False
-        self._room_for_its_answer = False
+        # rewrite of a submission sent back or for the answer to its question -
+        # granted by the turn that sent it back or asked it, and spent by the
+        # next - and whether the answer's has been given. Each is given once,
+        # and the rewrite's never after the answer's: a rewrite then would be
+        # written and never asked about.
+        self._one_call_past_the_bounds = False
         self._answer_room_given = False
 
     def goes_on(self) -> bool:
-        going_on = (not self._spend.bounds_reached() or self._room_for_its_rewrite
-                    or self._room_for_its_answer)
-        self._room_for_its_rewrite = self._room_for_its_answer = False
+        going_on = not self._spend.bounds_reached() or self._one_call_past_the_bounds
+        self._one_call_past_the_bounds = False
 
         return going_on
 
@@ -704,24 +725,26 @@ class _Writing:
                 # trips the check is asked its question rather than sent back
                 # until the budget runs out and the fix with it.
                 logger.info("explanation speaks of code outside the patch as a group")
-                self._group_sent_back = self._last_sent_back = True
-                self._room_for_its_rewrite = (bool(self._spend.bounds_reached())
-                                              and not self._answer_room_given)
+                self._group_sent_back = True
+                self._phase = _SentBack()
+                self._one_call_past_the_bounds = (bool(self._spend.bounds_reached())
+                                                  and not self._answer_room_given)
                 results = _sent_back(turn, _spoken_of_together(turn, group, outside.read))
             else:
                 # Asked about rather than returned. A second submission
                 # replaces the first, and is asked about in turn.
-                self._last_sent_back = False
-                self._asked = submitted
-                self._asked_outside = outside.read.uses if outside is not None else []
-                self._room_for_its_answer = (bool(self._spend.bounds_reached())
-                                             and not self._answer_room_given)
-                self._answer_room_given = self._answer_room_given or self._room_for_its_answer
+                self._phase = _Asked(submitted,
+                                     outside.read.uses if outside is not None else [])
+                self._one_call_past_the_bounds = (bool(self._spend.bounds_reached())
+                                                  and not self._answer_room_given)
+                self._answer_room_given = (self._answer_room_given
+                                           or self._one_call_past_the_bounds)
                 results = [_the_question_or_not_run(call) for call in turn.tool_calls]
-        elif answered is not None and self._asked is not None and submitted is None:
+        elif answered is not None and isinstance(self._phase, _Asked) and submitted is None:
             # The answer about the patch in hand. Yes holds it back; no lets it
             # be opened.
-            return Ended(((answered if answered.answer else self._asked), self._asked_outside))
+            return Ended(((answered if answered.answer else self._phase.fix),
+                          self._phase.outside))
         elif submitted is not None and submitted.files and (
             not_source := the_paths_whose_content_is_not_source(submitted.files)
         ):
@@ -730,7 +753,7 @@ class _Writing:
             # propose. Sent back for the reason an empty one is: the model has
             # decided what to write and is one turn from writing it properly.
             logger.warning("patch is not source", extra={"paths": not_source})
-            self._last_sent_back = True
+            self._phase = _SentBack()
             results = _sent_back(turn, _that_is_not_source(turn, not_source))
         elif submitted is not None and submitted.files:
             # A patch to code that brings no test, which proves nothing however
@@ -738,7 +761,7 @@ class _Writing:
             # model that keeps sending it runs out, and no pull request is
             # opened on a fix its postmortem would send a reader to test.
             logger.warning("patch brings no test")
-            self._last_sent_back = True
+            self._phase = _SentBack()
             results = _sent_back(turn, _no_test_was_brought(turn))
         elif submitted is not None:
             # A patch with nothing in it, which the submission's own schema
@@ -754,11 +777,13 @@ class _Writing:
             # model that keeps sending this runs out instead, and running out
             # is what a reader is told.
             logger.warning("patch was empty")
-            self._last_sent_back = True
+            self._phase = _SentBack()
             results = _sent_back(turn, _no_patch_was_attached(turn))
         else:
             results = [
-                _an_answer_that_counts_for_nothing(call, self._asked)
+                _an_answer_that_counts_for_nothing(
+                    call, self._phase.fix if isinstance(self._phase, _Asked) else None
+                )
                 if call.name == ANSWER_TOOL_NAME
                 else the_answer_to(
                     call, self._settings, self._search, self._search_by_meaning,
@@ -766,12 +791,6 @@ class _Writing:
                 )
                 for call in turn.tool_calls
             ]
-
-        if self._last_sent_back:
-            # A submission sent back withdraws the one asked before it, as a
-            # second submission replaces the first: what is awaited now is the
-            # submission sent again, and no question is open.
-            self._asked, self._asked_outside = None, []
 
         # Asked after every turn, as `still_wanted` is before one: a person
         # writes while the model reads, and what they wrote rides on this
@@ -782,15 +801,17 @@ class _Writing:
         # No warning to submit while a question is open: what is wanted then
         # is the answer, and "submit the fix now" would ask for the patch
         # already sent.
+        question_open = isinstance(self._phase, _Asked)
+
         return _what_it_is_told_next(
             results,
-            one_call_left=self._spend.is_on_its_last_call() and self._asked is None,
+            one_call_left=self._spend.is_on_its_last_call() and not question_open,
             news=what_people_wrote_since(written_since),
-            question_open=self._asked is not None
+            question_open=question_open
         )
 
     def ran_out(self) -> NoReturn:
-        if self._asked is not None:
+        if isinstance(self._phase, _Asked):
             raise FixNotAnswered(
                 "the agent submitted a fix and never said whether it needs code "
                 "outside the repository"
@@ -804,7 +825,7 @@ class _Writing:
 
         # A submission was made and sent back, which is not the same as none made:
         # told none was, a reader looks at an agent that never got as far as a fix.
-        if self._last_sent_back:
+        if isinstance(self._phase, _SentBack):
             raise FixNotAnswered(
                 f"the agent's last submission was sent back, and it ran out of {bounds} "
                 "before submitting again"
