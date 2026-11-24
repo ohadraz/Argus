@@ -89,6 +89,8 @@ SOME_OTHER_FLAG = "recommendations-v2"
 # Whether the branch Code-Fix reads contains the revision that ran, which Code-Fix
 # is told before it reads anything.
 THE_BRANCH_CONTAINING = "branch_contains_revision"
+# Where a branch points, which Code-Fix keeps with a patch before it writes it.
+THE_BRANCH_HEAD = "get_branch_head"
 THE_FILE_READER = "read_repository_file"
 # A file read at a commit, and a revision asked after on a branch.
 SOME_PATH = "src/io_shop/spend_summary.py"
@@ -96,6 +98,7 @@ SOME_REF = "9abaec7"
 SOME_SOURCE = "def average(account): ...\n"
 SOME_BRANCH = "release"
 SOME_REVISION = "7c3ca00c7528df68d533f6e87acd4f23a55ab342"
+SOME_HEAD = "544cef36a8eaf45c5b030c3d5c21473d8176cef3"
 # How the code a patch does not change uses what it changes, which Code-Fix's
 # submission is held to before it is asked anything.
 THE_CODE_OUTSIDE_A_PATCH = "get_code_outside_the_patch"
@@ -201,6 +204,19 @@ def test_every_deployment_offers_whether_the_branch_read_contains_what_ran() -> 
         )) \
         .when(lambda: _the_tools_offered_by(a_deployment_that_keeps_no_index)) \
         .then(_the_tools_include(THE_BRANCH_CONTAINING))
+
+
+@pytest.mark.unit
+def test_every_deployment_offers_where_a_branch_points() -> None:
+    # Above the index guard for the rollout counts' reason: where a branch
+    # points is not a search, and a tier offering it under one mode only would
+    # leave Code-Fix with no commit to cut a fix from on half the deployments.
+    Scenario() \
+        .given(a_deployment_that_keeps_no_index := _a_read_tier_searching(
+            SEARCHING_BY_GREP_ALONE
+        )) \
+        .when(lambda: _the_tools_offered_by(a_deployment_that_keeps_no_index)) \
+        .then(_the_tools_include(THE_BRANCH_HEAD))
 
 
 @pytest.mark.unit
@@ -341,6 +357,21 @@ def test_whether_a_branch_holds_a_revision_is_asked_of_the_code_host_as_named() 
         .then(all_of(
             the_answer_was({"result": True}),
             lambda _: _the_code_host_was_asked(code.contains, (SOME_BRANCH, SOME_REVISION))
+        ))
+
+
+@pytest.mark.unit
+def test_where_a_branch_points_is_asked_of_the_code_host_for_the_branch_named() -> None:
+    code = _a_code_host()
+    code.head_of.return_value = SOME_HEAD
+
+    Scenario() \
+        .given(read_tier := _a_read_tier(SEARCHING_BY_GREP_ALONE, code=code)) \
+        .when(lambda: _asked(read_tier, THE_BRANCH_HEAD,
+                             branch=SOME_BRANCH).structured_content) \
+        .then(all_of(
+            the_answer_was({"result": SOME_HEAD}),
+            lambda _: _the_code_host_was_asked(code.head_of, (SOME_BRANCH,))
         ))
 
 

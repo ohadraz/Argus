@@ -87,9 +87,9 @@ class GitHubSettings(GitHubRepositorySettings):
     GitHub failed for a moment is made again, and how long before each.
 
     No read token: the write tier reads nothing of the repository beyond what
-    a write itself asks on the way - where the base points, whether the branch
-    or the proposal already landed - and those go under the token that makes
-    the write.
+    a write itself asks on the way - the tree of the commit it writes on,
+    whether the branch or the proposal already landed - and those go under the
+    token that makes the write.
     """
 
     # Scoped to the repository above and to nothing else: "Argus cannot touch

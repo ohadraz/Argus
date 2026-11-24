@@ -51,6 +51,7 @@ from read_mcp_client_test.framework.builders import (
 
 SOME_BRANCH = "main"
 SOME_REVISION = "53f02e9f6cb774f7f5869637bcc879941dcbc82d"
+SOME_HEAD = "544cef36a8eaf45c5b030c3d5c21473d8176cef3"
 
 # Where a read tier is, waiting for its answers a bound that is not the one the
 # settings default to - so a client built waiting it waited for what its
@@ -91,6 +92,7 @@ EVERY_READ = [
                  id="placements"),
     pytest.param(lambda read: read.branch_contains_revision(SOME_BRANCH, SOME_REVISION),
                  id="branch-contains-revision"),
+    pytest.param(lambda read: read.get_branch_head(SOME_BRANCH), id="branch-head"),
     pytest.param(lambda read: read.get_enabled_flags(), id="enabled-flags"),
     pytest.param(lambda read: read.get_service_dependencies(DONT_CARE_SERVICE),
                  id="service-dependencies"),
@@ -358,6 +360,22 @@ def test_whether_the_branch_contains_a_revision_reaches_the_caller_through_the_c
 
 
 @pytest.mark.integration
+def test_where_a_branch_points_reaches_the_caller_through_the_client(
+    running_read_mcp: type[FakeTargetServiceHandler]
+) -> None:
+    Scenario() \
+        .given(
+            calling(_github_s_heads_are(running_read_mcp, {SOME_BRANCH: SOME_HEAD}))
+        ) \
+        .when(
+            _asking_the_server(lambda read: read.get_branch_head(SOME_BRANCH))
+        ) \
+        .then(
+            the_answer_was(SOME_HEAD)
+        )
+
+
+@pytest.mark.integration
 def test_the_code_outside_a_patch_reaches_the_caller_through_the_client(
     running_read_mcp: type[FakeTargetServiceHandler]
 ) -> None:
@@ -546,6 +564,14 @@ def _github_compares(handler: type[FakeTargetServiceHandler],
                      comparisons: dict[str, str]) -> Callable[[], None]:
     def step() -> None:
         handler.comparisons = comparisons
+
+    return step
+
+
+def _github_s_heads_are(handler: type[FakeTargetServiceHandler],
+                        heads: dict[str, str]) -> Callable[[], None]:
+    def step() -> None:
+        handler.heads = heads
 
     return step
 

@@ -112,13 +112,13 @@ class GitHub:
 
     def commit_to_new_branch(self,
                              branch: str,
-                             base: str,
+                             base_commit: str,
                              files: Mapping[str, str],
                              message: str,
                              /) -> str:
-        """The fix as one commit on a branch of its own
+        """The fix as one commit on `base_commit`, on a branch of its own
         (`branching.commit_to_new_branch`)."""
-        return branching.commit_to_new_branch(branch, base, files, message,
+        return branching.commit_to_new_branch(branch, base_commit, files, message,
                                               self._settings,
                                               self._get, self._post, self._sleep)
 

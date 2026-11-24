@@ -67,6 +67,17 @@ class BranchMembership(Protocol):
     def __call__(self, branch: str, revision: str, /) -> bool: ...
 
 
+class BranchHead(Protocol):
+    """The commit a branch points at now.
+
+    Asked once, just before a fix is claimed: the commit is what the claim
+    writes the fix on, so a push of the same claim writes the same tree
+    however far the branch moves after it.
+    """
+
+    def __call__(self, branch: str, /) -> str: ...
+
+
 class CodeOutsideReader(Protocol):
     """How the code a patch does not touch uses what it changes, and every name
     that code defines.

@@ -73,6 +73,8 @@ UNDO_DESCRIPTOR: Final = "undo-descriptor"
 POSTMORTEM: Final = "postmortem"
 # The executive synopsis, every one of its columns together.
 EXECUTIVE_SYNOPSIS: Final = "executive-synopsis"
+# The fix Code-Fix claimed before writing any of it.
+FIX_CLAIM: Final = "fix-claim"
 
 # The shapes this release reads and writes.
 SHIPPED: Final = Shapes()

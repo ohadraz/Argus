@@ -89,11 +89,13 @@ GRAFANA_PREFIX = "/grafana"
 RULE_DEFINITION_PREFIX = f"{GRAFANA_PREFIX}{RULE_DEFINITION_PATH.removesuffix('{rule}')}"
 
 # Where the fake answers as GitHub, under a prefix for the reason Prometheus is,
-# the part of a comparison's path that names its two commits, and the part of an
-# archive's path that names the ref it was cut at.
+# the part of a comparison's path that names its two commits, the part of an
+# archive's path that names the ref it was cut at, and the part of a commit's
+# path that names the branch whose head it is.
 GITHUB_PREFIX = "/github"
 COMPARISON_MARK = "/compare/"
 ARCHIVE_MARK = "/tarball/"
+HEAD_MARK = "/commits/heads/"
 
 # The directory GitHub wraps every entry of an archive in, named for the owner,
 # the repository and the commit.
@@ -131,6 +133,8 @@ class FakeTargetServiceHandler(BaseHTTPRequestHandler):
     # What the repository holds at any ref, by path - served as GitHub serves an
     # archive, gzipped and wrapped in a directory of its own.
     archive: dict[str, str] = {}
+    # The commit each branch points at, by the branch's name.
+    heads: dict[str, str] = {}
 
     def do_GET(self) -> None:
         url = urlsplit(self.path)
@@ -157,6 +161,14 @@ class FakeTargetServiceHandler(BaseHTTPRequestHandler):
                 self.end_headers()
         elif url.path.startswith(GITHUB_PREFIX) and ARCHIVE_MARK in url.path:
             self._respond_with_bytes(self._a_tarball(self.archive), "application/x-gzip")
+        elif url.path.startswith(GITHUB_PREFIX) and HEAD_MARK in url.path:
+            branch = url.path.partition(HEAD_MARK)[2]
+
+            if branch in self.heads:
+                self._respond_with({"sha": self.heads[branch]})
+            else:
+                self.send_response(404)
+                self.end_headers()
         elif url.path.startswith("/argocd/") and url.path.endswith("/resource-tree"):
             self._respond_with(self.tree)
         elif url.path.startswith("/argocd/"):
@@ -251,13 +263,13 @@ def postgres() -> Iterator[None]:
 def running_read_mcp(postgres: None) -> Iterator[type[FakeTargetServiceHandler]]:
     """Starts a fake Target Service (stdlib http.server, background thread,
     serving canned `/logs`, Prometheus's range query, Grafana's rule definitions,
-    GitHub's comparisons and archives and `/argocd/<application>` JSON) plus a
-    real `read_mcp_server` subprocess pointed at it - proves `read_mcp_client`
-    reaches a real server without a real Target Service. The server's own
-    database is real (`postgres`), since the server refuses to start without
-    one. Yields the handler class so a test can set `.logs`, `.metrics`,
-    `.deploys`, `.rules`, `.rule_queries`, `.tree`, `.comparisons` and
-    `.archive` before calling through the client.
+    GitHub's comparisons, archives and branch heads and `/argocd/<application>`
+    JSON) plus a real `read_mcp_server` subprocess pointed at it - proves
+    `read_mcp_client` reaches a real server without a real Target Service. The
+    server's own database is real (`postgres`), since the server refuses to
+    start without one. Yields the handler class so a test can set `.logs`,
+    `.metrics`, `.deploys`, `.rules`, `.rule_queries`, `.tree`, `.comparisons`,
+    `.archive` and `.heads` before calling through the client.
 
     The fake binds whatever port it is given and is asked which; the server
     is handed one the operating system just said was free, and counts as up
@@ -312,6 +324,7 @@ def running_read_mcp(postgres: None) -> Iterator[type[FakeTargetServiceHandler]]
         FakeTargetServiceHandler.tree = {}
         FakeTargetServiceHandler.comparisons = {}
         FakeTargetServiceHandler.archive = {}
+        FakeTargetServiceHandler.heads = {}
         os.environ.clear()
         os.environ.update(the_environment_before)
         get_settings.cache_clear()

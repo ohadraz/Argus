@@ -442,6 +442,8 @@ def against(connections: Connections,
         leads_of=records.leads,
         record_weighing=records.weighing,
         what_argus_did=records.what_argus_did,
+        claimed_fix=records.claimed_fix,
+        claim_fix=records.claim_fix,
         max_rounds=settings.investigation_max_rounds
     )
 

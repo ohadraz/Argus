@@ -39,8 +39,11 @@ from core.models import (
     Alert,
     ChangeEvent,
     ChangeKind,
+    ClaimedFix,
+    ClaimFix,
     CodeUse,
     FileAsItRan,
+    FixClaimed,
     FixOutcome,
     Hypothesis,
     IncidentStatus,
@@ -50,7 +53,9 @@ from core.models import (
     ThreadMessage,
     Verdict,
     WhatArgusDid,
+    claimed_as_asked,
     no_leads,
+    nothing_claimed,
 )
 from incident_record import IsStillWanted
 from orchestrator.walk.deltas import Narration, StateDelta
@@ -776,6 +781,64 @@ def test_the_agent_is_told_what_argus_did_about_this_incident() -> None:
 
 
 @pytest.mark.unit
+def test_the_agent_reads_this_incident_s_fix_claim() -> None:
+    # Bound to the incident by the node, for `still_wanted`'s reason: the agent
+    # asks without knowing which incident it is fixing. A claim read for
+    # another incident would have this one write somebody else's fix.
+    some_claim = _a_claim()
+    asked: list[str] = []
+
+    def a_record_noting_whose_claim_is_read(incident_id: str, /) -> ClaimedFix | None:
+        asked.append(incident_id)
+        return some_claim
+
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.MITIGATED),
+            the_agent := _AnAgentRememberingWhatItWasAsked()
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed,
+                                 the_agent.propose,
+                                 claimed_fix=a_record_noting_whose_claim_is_read)
+        ) \
+        .then(
+            _the_claim_read_was(some_claim, the_agent, asked, DONT_CARE_INCIDENT_ID)
+        )
+
+
+@pytest.mark.unit
+def test_the_agent_claims_its_fix_for_this_incident_when_the_walk_says_it_is() -> None:
+    # Bound to the incident for the reason the read is, and dated by the walk's
+    # clock: the claim is the walk's record of a decision, as an action's is.
+    some_claim = _a_claim()
+    some_moment = datetime(2026, 11, 24, 21, 30, tzinfo=UTC)
+    the_claim_that_stands = _a_claim(title="the claim that stands")
+    claimed: list[tuple[str, ClaimedFix, datetime]] = []
+
+    def a_record_noting_what_is_claimed(incident_id: str, fix: ClaimedFix, /, *,
+                                        at: datetime) -> ClaimedFix:
+        claimed.append((incident_id, fix, at))
+        return the_claim_that_stands
+
+    Scenario() \
+        .given(
+            an_incident_being_fixed := _an_incident_in(IncidentStatus.MITIGATED),
+            the_agent := _AnAgentRememberingWhatItWasAsked()
+        ) \
+        .when(
+            lambda: codefix_node(an_incident_being_fixed,
+                                 the_agent.propose,
+                                 claim_fix=a_record_noting_what_is_claimed,
+                                 now=lambda: some_moment)
+        ) \
+        .then(
+            _the_claim_made_was(some_claim, the_claim_that_stands, the_agent, claimed,
+                                (DONT_CARE_INCIDENT_ID, some_claim, some_moment))
+        )
+
+
+@pytest.mark.unit
 def test_a_node_nobody_is_listening_to_still_does_its_work() -> None:
     # Publishing is an account, never a participant (spec §4 principle 8). A
     # node that behaved differently with no subscriber would make every test
@@ -1005,6 +1068,8 @@ class _AnAgentRememberingWhatItWasAsked:
         self.leads: Leads | None = None
         self.done: Sequence[WhatArgusDid] | None = None
         self.deployed: str | None = None
+        self.claimed: FixClaimed | None = None
+        self.claim: ClaimFix | None = None
 
     def propose(self,
                 hypothesis: Hypothesis | None,
@@ -1013,13 +1078,17 @@ class _AnAgentRememberingWhatItWasAsked:
                 still_wanted: StillWanted = wanted_throughout,
                 leads: Leads = no_leads,
                 done: Sequence[WhatArgusDid] = (),
-                deployed: str | None = None) -> ProposedFix:
+                deployed: str | None = None,
+                claimed: FixClaimed = nothing_claimed,
+                claim: ClaimFix = claimed_as_asked) -> ProposedFix:
         self.hypothesis = hypothesis
         self.incident_id = incident_id
         self.still_wanted = still_wanted
         self.leads = leads
         self.done = done
         self.deployed = deployed
+        self.claimed = claimed
+        self.claim = claim
 
         return ProposedFix(pull_request=None, explanation=None)
 
@@ -1033,7 +1102,9 @@ def _an_agent_offering(proposal: OpenedPullRequest | None,
                 still_wanted: StillWanted = wanted_throughout,
                 leads: Leads = no_leads,
                 done: Sequence[WhatArgusDid] = (),
-                deployed: str | None = None) -> ProposedFix:
+                deployed: str | None = None,
+                claimed: FixClaimed = nothing_claimed,
+                claim: ClaimFix = claimed_as_asked) -> ProposedFix:
         return ProposedFix(pull_request=proposal, explanation=explaining)
 
     return propose
@@ -1047,7 +1118,9 @@ def _an_agent_that_read(branch: str, holds_what_ran: bool | None) -> ProposeFix:
                 still_wanted: StillWanted = wanted_throughout,
                 leads: Leads = no_leads,
                 done: Sequence[WhatArgusDid] = (),
-                deployed: str | None = None) -> ProposedFix:
+                deployed: str | None = None,
+                claimed: FixClaimed = nothing_claimed,
+                claim: ClaimFix = claimed_as_asked) -> ProposedFix:
         return ProposedFix(pull_request=a_pull_request(), explanation="dont care",
                            branch_read=branch, holds_what_ran=holds_what_ran)
 
@@ -1063,7 +1136,9 @@ def _an_agent_finding(as_it_ran: list[FileAsItRan]) -> ProposeFix:
                 still_wanted: StillWanted = wanted_throughout,
                 leads: Leads = no_leads,
                 done: Sequence[WhatArgusDid] = (),
-                deployed: str | None = None) -> ProposedFix:
+                deployed: str | None = None,
+                claimed: FixClaimed = nothing_claimed,
+                claim: ClaimFix = claimed_as_asked) -> ProposedFix:
         return ProposedFix(pull_request=a_pull_request(), explanation="dont care",
                            as_it_ran=as_it_ran)
 
@@ -1079,7 +1154,9 @@ def _an_agent_finding_the_uses(uses_outside: list[CodeUse]) -> ProposeFix:
                 still_wanted: StillWanted = wanted_throughout,
                 leads: Leads = no_leads,
                 done: Sequence[WhatArgusDid] = (),
-                deployed: str | None = None) -> ProposedFix:
+                deployed: str | None = None,
+                claimed: FixClaimed = nothing_claimed,
+                claim: ClaimFix = claimed_as_asked) -> ProposedFix:
         return ProposedFix(pull_request=a_pull_request(), explanation="dont care",
                            uses_outside=uses_outside)
 
@@ -1095,7 +1172,9 @@ def _an_agent_holding_back(explaining: str = "an explanation") -> ProposeFix:
                 still_wanted: StillWanted = wanted_throughout,
                 leads: Leads = no_leads,
                 done: Sequence[WhatArgusDid] = (),
-                deployed: str | None = None) -> ProposedFix:
+                deployed: str | None = None,
+                claimed: FixClaimed = nothing_claimed,
+                claim: ClaimFix = claimed_as_asked) -> ProposedFix:
         return ProposedFix(pull_request=None, explanation=explaining,
                            needs_code_outside=True)
 
@@ -1116,7 +1195,9 @@ def _an_agent_that_fails(failure: Exception) -> ProposeFix:
                 still_wanted: StillWanted = wanted_throughout,
                 leads: Leads = no_leads,
                 done: Sequence[WhatArgusDid] = (),
-                deployed: str | None = None) -> ProposedFix:
+                deployed: str | None = None,
+                claimed: FixClaimed = nothing_claimed,
+                claim: ClaimFix = claimed_as_asked) -> ProposedFix:
         raise failure
 
     return propose
@@ -1125,6 +1206,58 @@ def _an_agent_that_fails(failure: Exception) -> ProposeFix:
 def a_pull_request(url: str = "https://github.invalid/dont-care/dont-care/pull/1"
                    ) -> OpenedPullRequest:
     return OpenedPullRequest(number=1, url=url, branch="argus/fix-buki-123")
+
+
+def _a_claim(title: str = "dont-care-title") -> ClaimedFix:
+    """A fix as Code-Fix claimed it - what it says matters only as itself."""
+    return ClaimedFix(files={"src/dont_care.py": "dont care\n"},
+                      base_branch="main",
+                      base_commit="dont-care-commit",
+                      title=title,
+                      body="dont-care-body",
+                      brings_a_test=False,
+                      reading=ProposedFix(pull_request=None, explanation=None))
+
+
+def _the_claim_read_was(expected: ClaimedFix,
+                        agent: _AnAgentRememberingWhatItWasAsked,
+                        asked: list[str],
+                        incident_id: str) -> Assertion[StateDelta]:
+    """That what the agent reads as its claim is the record's, read for this
+    incident and no other."""
+    def assertion(dont_care_result: StateDelta) -> bool:
+        read = agent.claimed() if agent.claimed is not None else None
+
+        if read != expected or asked != [incident_id]:
+            raise AssertionError(
+                f"Expected the agent to read {expected!r}, the claim of [{incident_id}], it "
+                f"read {read!r}, asked of {asked}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_claim_made_was(fix: ClaimedFix,
+                        standing: ClaimedFix,
+                        agent: _AnAgentRememberingWhatItWasAsked,
+                        recorded: list[tuple[str, ClaimedFix, datetime]],
+                        expected: tuple[str, ClaimedFix, datetime]) -> Assertion[StateDelta]:
+    """That the agent's claim reaches the record for this incident at the walk's
+    moment, and the agent is answered with the claim that stands."""
+    def assertion(dont_care_result: StateDelta) -> bool:
+        answered = agent.claim(fix) if agent.claim is not None else None
+
+        if recorded != [expected] or answered != standing:
+            raise AssertionError(
+                f"Expected {expected!r} recorded and {standing!r} answered, got "
+                f"{recorded!r} recorded and {answered!r} answered."
+            )
+
+        return True
+
+    return assertion
 
 
 def _an_incident_in(status: IncidentStatus,
@@ -1255,7 +1388,9 @@ def _an_agent_raising(error: Exception) -> ProposeFix:
                still_wanted: StillWanted = wanted_throughout,
                leads: Leads = no_leads,
                done: Sequence[WhatArgusDid] = (),
-               deployed: str | None = None) -> Any:
+               deployed: str | None = None,
+               claimed: FixClaimed = nothing_claimed,
+               claim: ClaimFix = claimed_as_asked) -> Any:
         raise error
 
     return refuse

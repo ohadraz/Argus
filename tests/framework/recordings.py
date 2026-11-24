@@ -45,3 +45,10 @@ def the_double_is_answering(dont_care_double: httpx2.Client) -> bool:
         raise AssertionError(f"No recording named {RECORDED_TOOL_USE_TURN!r} to answer from.")
 
     return True
+
+
+def the_model_answers(double: httpx2.Client, *answers: str) -> None:
+    """Queues each recorded answer once, in order - the model's first call gets
+    the first."""
+    for answer in answers:
+        double.post("/double-control/seed", json={"recording": answer}).raise_for_status()

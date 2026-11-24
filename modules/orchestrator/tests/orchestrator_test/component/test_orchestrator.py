@@ -35,10 +35,13 @@ from core.models import (
     Attempt,
     ChangeFound,
     Claimed,
+    ClaimedFix,
+    ClaimFix,
     EstablishedOnset,
     Evidence,
     ExecutiveSynopsisDocument,
     FailureMode,
+    FixClaimed,
     FlagChange,
     FlagHistory,
     FlagUndo,
@@ -56,7 +59,9 @@ from core.models import (
     UndoDescriptor,
     Weighing,
     WhatArgusDid,
+    claimed_as_asked,
     no_leads,
+    nothing_claimed,
 )
 from core.replay import Recorder
 from core.replay import nobody as records_nothing
@@ -163,6 +168,8 @@ def collaborators(transition_incident: MagicMock) -> Collaborators:
         wait_for_people=lambda dont_care_incident_id, /: False,
         leads_of=lambda dont_care_incident_id, /: [],
         what_argus_did=lambda dont_care_incident_id, /: [],
+        claimed_fix=lambda dont_care_incident_id, /: None,
+        claim_fix=lambda dont_care_incident_id, fix, /, **dont_care_keywords: fix,
         record_weighing=lambda dont_care_lead, /: None
     )
 
@@ -527,13 +534,14 @@ def test_code_fix_is_handed_what_argus_did(
 
 
 @pytest.mark.component
-def test_every_step_but_code_fix_takes_back_its_interrupted_attempt_before_it_runs(
+def test_every_step_takes_back_its_interrupted_attempt_before_it_runs(
     collaborators: Collaborators
 ) -> None:
     # The map of which steps discard, read off a whole walk: the graph hands
-    # every node its own discard, under its own name, and Code-Fix none - its
-    # branch and pull request are a change in the world a step run again does
-    # not take back, and a discard would delete the only line naming them.
+    # every node its own discard, under its own name. Code-Fix's too - its
+    # branch and pull request are a change in the world, but the fix it claimed
+    # before writing either is no line of its step, and a step run again writes
+    # that claim again and says so in a line of its own.
     discarded: list[str] = []
 
     Scenario() \
@@ -557,6 +565,7 @@ def test_every_step_but_code_fix_takes_back_its_interrupted_attempt_before_it_ru
                                                        MITIGATION_PROPOSAL_NODE,
                                                        TIER_GATE_NODE,
                                                        MITIGATION_NODE,
+                                                       CODEFIX_NODE,
                                                        REMEMBERING_NODE,
                                                        POSTMORTEM_NODE,
                                                        SYNOPSIS_NODE])
@@ -586,6 +595,33 @@ def test_a_step_run_again_from_its_checkpoint_takes_back_the_step_its_interrupti
                                                          a_walk_whose_write_up_fails_once)) \
         .then(_the_step_was_asked_again_at_its_own_number(asked_at, POSTMORTEM_NODE,
                                                           followed_by=SYNOPSIS_NODE))
+
+
+@pytest.mark.component
+def test_a_code_fix_step_run_again_is_handed_the_fix_its_interrupted_attempt_claimed(
+    collaborators: Collaborators
+) -> None:
+    # The worker stopped inside Code-Fix once the fix was claimed - after its
+    # branch was written, as like as not. The step's discard takes back its
+    # lines and leaves the claim, so the step run again is handed the fix the
+    # first attempt claimed, which it writes rather than asking for another.
+    claims: dict[str, ClaimedFix] = {}
+    handed: list[ClaimedFix | None] = []
+
+    Scenario() \
+        .given(
+            a_walk_whose_code_fix_stops_once_it_has_claimed := replace(
+                collaborators,
+                propose_fix=_code_fix_stopping_once_it_has_claimed(handed),
+                claimed_fix=lambda incident_id, /: claims.get(incident_id),
+                claim_fix=lambda incident_id, fix, /, **dont_care_keywords: (
+                    claims.setdefault(incident_id, fix))
+            )
+        ) \
+        .when(lambda: _the_walk_resumed_after_it_stopped(
+            _an_incident_just_alerted(), a_walk_whose_code_fix_stops_once_it_has_claimed,
+            stopped_by=RunLost)) \
+        .then(_code_fix_was_handed(handed, [None, SOME_CLAIMED_FIX]))
 
 
 @pytest.mark.component
@@ -978,6 +1014,56 @@ def _a_discard_noting_the_step(asked_at: list[tuple[str, int]]
     return discard
 
 
+# The fix Code-Fix's interrupted attempt claimed, told apart from any other by
+# being this one.
+SOME_CLAIMED_FIX = ClaimedFix(files={"src/io_shop/spend_summary.py": "def spend(): ...\n"},
+                              base_branch="main",
+                              base_commit="8c1d4b07a2e95f3360d1c4e8b7a9f20e51d6c3a4",
+                              title="guard the monthly divisor",
+                              body="dont-care-body",
+                              brings_a_test=False,
+                              reading=ProposedFix(pull_request=None, explanation=None))
+
+
+def _code_fix_stopping_once_it_has_claimed(handed: list[ClaimedFix | None]
+                                           ) -> ports.ProposeFix:
+    """Code-Fix noting the claim it is handed each time it is asked, whose
+    first attempt claims `SOME_CLAIMED_FIX` and stops there - as a worker
+    stopping mid-step stops it."""
+    def propose(dont_care_hypothesis: Hypothesis | None,
+                dont_care_incident_id: str,
+                *,
+                still_wanted: StillWanted = wanted_throughout,
+                leads: Leads = no_leads,
+                done: Sequence[WhatArgusDid] = (),
+                deployed: str | None = None,
+                claimed: FixClaimed = nothing_claimed,
+                claim: ClaimFix = claimed_as_asked) -> ProposedFix:
+        handed.append(claimed())
+
+        if len(handed) == 1:
+            claim(SOME_CLAIMED_FIX)
+            raise RunLost("the worker stopped once the fix was claimed")
+
+        return ProposedFix(pull_request=None, explanation=None)
+
+    return propose
+
+
+def _code_fix_was_handed(handed: list[ClaimedFix | None],
+                         expected: list[ClaimedFix | None]) -> Assertion[list[str]]:
+    def assertion(dont_care_resumed: list[str]) -> bool:
+        if handed != expected:
+            raise AssertionError(
+                f"Expected Code-Fix handed {expected!r}, one claim per attempt, and it "
+                f"was handed {handed!r}."
+            )
+
+        return True
+
+    return assertion
+
+
 def _a_postmortem_failing_once(written: list[bool]) -> ports.WritePostmortem:
     """A write-up whose first attempt is interrupted, as a worker stopping
     mid-step interrupts it."""
@@ -994,15 +1080,20 @@ def _a_postmortem_failing_once(written: list[bool]) -> ports.WritePostmortem:
 
 
 def _the_walk_resumed_after_it_stopped(incident: IncidentState,
-                                       collaborators: Collaborators) -> list[str]:
-    """One incident through the compiled graph until a step raises, then walked
-    again on its own thread from the checkpoint it left - as the worker
-    resumes it - and the steps the resumed walk took."""
+                                       collaborators: Collaborators,
+                                       stopped_by: type[Exception] = RuntimeError
+                                       ) -> list[str]:
+    """One incident through the compiled graph until a step raises
+    `stopped_by`, then walked again on its own thread from the checkpoint it
+    left - as the worker resumes it - and the steps the resumed walk took.
+
+    `stopped_by` is what the step raised: Code-Fix answers every failure but a
+    lost run as a fix it could not propose, so a lost run is what stops it."""
     graph = build_graph(MemorySaver(), collaborators)
     config: Any = {"configurable": {"thread_id": incident.incident_id},
                    "recursion_limit": A_GENEROUS_BUDGET}
 
-    with suppress(RuntimeError):
+    with suppress(stopped_by):
         graph.invoke(incident, config=config)
 
     return [name
@@ -1708,7 +1799,9 @@ def _a_fix_channel_whose_question_is_traced(asked: list[str],
                 still_wanted: StillWanted = wanted_throughout,
                 leads: Leads = no_leads,
                 done: Sequence[WhatArgusDid] = (),
-                deployed: str | None = None) -> ProposedFix:
+                deployed: str | None = None,
+                claimed: FixClaimed = nothing_claimed,
+                claim: ClaimFix = claimed_as_asked) -> ProposedFix:
         before = len(asked)
         still_wanted()
         reached.append(len(asked) > before)
@@ -1728,7 +1821,9 @@ def _a_fix_channel_noting_what_it_was_told(told: list[list[ThreadMessage]]
                 still_wanted: StillWanted = wanted_throughout,
                 leads: Leads = no_leads,
                 done: Sequence[WhatArgusDid] = (),
-                deployed: str | None = None) -> ProposedFix:
+                deployed: str | None = None,
+                claimed: FixClaimed = nothing_claimed,
+                claim: ClaimFix = claimed_as_asked) -> ProposedFix:
         told.append(leads())
 
         return ProposedFix(pull_request=None, explanation=None)
@@ -1745,7 +1840,9 @@ def _a_fix_channel_noting_what_argus_did(handed: list[list[WhatArgusDid]]
                 still_wanted: StillWanted = wanted_throughout,
                 leads: Leads = no_leads,
                 done: Sequence[WhatArgusDid] = (),
-                deployed: str | None = None) -> ProposedFix:
+                deployed: str | None = None,
+                claimed: FixClaimed = nothing_claimed,
+                claim: ClaimFix = claimed_as_asked) -> ProposedFix:
         handed.append(list(done))
 
         return ProposedFix(pull_request=None, explanation=None)

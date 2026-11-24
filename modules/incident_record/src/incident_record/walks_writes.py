@@ -1,9 +1,9 @@
 """Every write the walk makes to the incident record.
 
 Moving the incident, the candidates it forms and what came of each, the action
-claimed for one and how far it got, what an interrupted step wrote taken back,
-the write-ups, what the Investigator made of a lead, and what putting a change
-back did.
+claimed for one and how far it got, the fix Code-Fix claimed, what an
+interrupted step wrote taken back, the write-ups, what the Investigator made of
+a lead, and what putting a change back did.
 
 On a connection its caller holds and commits, and nothing else: each of these
 is written in one unit of work with the line that accounts for it, published
@@ -22,6 +22,7 @@ from core.models import (
     ActionProgress,
     ActionType,
     ClaimAnswer,
+    ClaimedFix,
     ExecutiveSynopsisDocument,
     Hypothesis,
     IncidentStatus,
@@ -37,6 +38,7 @@ from core.models import (
 from incident_record.repository import (
     conversation,
     events,
+    fix_claims,
     hypotheses,
     incidents,
     postmortems,
@@ -97,6 +99,12 @@ class TheWalksWrites(Protocol):
 
     def record_undone(self, action_id: str, undone: Undone, /) -> None:
         """Records what putting an action's change back did."""
+        ...
+
+    def claim_fix(self, incident_id: str, fix: ClaimedFix, /, *,
+                  at: datetime) -> ClaimedFix:
+        """Claims the fix Code-Fix is about to write, where the incident has
+        none claimed, and answers the claim that stands."""
         ...
 
     def postmortem(self, incident_id: str, document: PostmortemDocument, /, *,
@@ -166,6 +174,10 @@ class _OnAConnection:
 
     def record_undone(self, action_id: str, undone: Undone, /) -> None:
         taken_actions.record_undone(self._conn, action_id, undone)
+
+    def claim_fix(self, incident_id: str, fix: ClaimedFix, /, *,
+                  at: datetime) -> ClaimedFix:
+        return fix_claims.claim(self._conn, incident_id, fix, at=at)
 
     def postmortem(self, incident_id: str, document: PostmortemDocument, /, *,
                    at: datetime) -> None:

@@ -28,13 +28,14 @@ Two limits on what a pass means, said rather than implied:
 
 The model reads nothing here - its first answer is the submission - so the read
 side is stubbed rather than served: no part of the answer travels over it. The
-write side is the real one, because the answer's size travels over all of it.
+one read taken off the repository is where the branch points, which the fix is
+written on. The write side is the real one, because the answer's size travels
+over all of it.
 """
 
 from __future__ import annotations
 
 import base64
-from collections.abc import Iterator
 from datetime import timedelta
 from typing import Any, Final
 
@@ -42,7 +43,6 @@ import httpx2
 import pytest
 from anthropic.types import Message
 from anthropic_double import recordings
-from anthropic_double.server import DEFAULT_BASE_URL as ANTHROPIC_DOUBLE_BASE_URL
 from argus_testkit import Assertion, Scenario, all_of, calling
 from code_host.github import GitHubReadSettings
 from codefix_agent import SUBMIT_FIX, FixSettings, SubmittedFix, propose_fix
@@ -62,7 +62,9 @@ from llm_anthropic import AnthropicSettings, to_turn
 from postgres import connect_from_env
 from write_mcp_client import write_mcp
 
+from tests.framework.code_host import the_head_of
 from tests.framework.models import the_configured_models
+from tests.framework.recordings import the_model_answers
 
 # The two answers the model gives, each a real one. The first is a submission
 # that rewrote `monthly_statement.py` whole, recorded from a walk that chose to
@@ -75,26 +77,11 @@ RECORDED_ANSWER_NO: Final = "codefix-answer-no"
 
 REQUEST_TIMEOUT_SECONDS: Final = 30.0
 
+# GitHub's name for a file's encoded content, as it is read back here.
+CONTENT_FIELD: Final = "content"
+
 # Outlasts the test, so the run is still the claim's when the fix is written.
 A_GENEROUS_LEASE: Final = timedelta(minutes=5)
-
-
-@pytest.fixture
-def anthropic_double() -> Iterator[httpx2.Client]:
-    with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL,
-                       timeout=REQUEST_TIMEOUT_SECONDS) as control:
-        control.post("/double-control/reset").raise_for_status()
-        yield control
-        control.post("/double-control/reset").raise_for_status()
-
-
-@pytest.fixture
-def github_double() -> Iterator[httpx2.Client]:
-    with httpx2.Client(base_url=GITHUB_DOUBLE_BASE_URL,
-                       timeout=REQUEST_TIMEOUT_SECONDS) as control:
-        control.post("/double-control/reset").raise_for_status()
-        yield control
-        control.post("/double-control/reset").raise_for_status()
 
 
 @pytest.mark.integration
@@ -113,7 +100,7 @@ def test_a_fix_that_rewrites_a_large_file_reaches_the_branch_whole(
     ):
         Scenario() \
             .given(
-                calling(lambda: _the_model_answers(anthropic_double,
+                calling(lambda: the_model_answers(anthropic_double,
                                                    RECORDED_LARGE_FIX,
                                                    RECORDED_ANSWER_NO))
             ) \
@@ -130,6 +117,7 @@ def test_a_fix_that_rewrites_a_large_file_reaches_the_branch_whole(
                     contains=_contained,
                     read_file=_an_empty_file,
                     code_outside=_nothing_outside,
+                    branch_head=the_head_of,
                     write_branch=write.commit_to_new_branch,
                     open_pull_request=write.open_pull_request,
                     conversations=conversations_through(the_configured_models())
@@ -154,12 +142,6 @@ def _a_claimed_run() -> runs.Run:
         assert claimed is not None
 
     return claimed
-
-
-def _the_model_answers(double: httpx2.Client, *answers: str) -> None:
-    """Queues each answer once, in order - the first call gets the first."""
-    for answer in answers:
-        double.post("/double-control/seed", json={"recording": answer}).raise_for_status()
 
 
 def _a_hypothesis_about(incident_id: str) -> Hypothesis:
@@ -278,4 +260,4 @@ def _the_text_of(path: str, branch: str) -> str:
     response.raise_for_status()
     held: dict[str, Any] = response.json()
 
-    return base64.b64decode(held["content"]).decode()
+    return base64.b64decode(held[CONTENT_FIELD]).decode()

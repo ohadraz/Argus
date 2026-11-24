@@ -24,6 +24,9 @@ It can be asked twice: a call whose answer was lost on its way back to the walk
 is asked again over a new session, and by then the branch may be there. So the
 branch is looked for before it is created, and told apart by the tree it holds
 - the fix already written, or somebody else's work under the name, left alone.
+The fix is written over a commit it is handed, not over wherever a branch
+points when it is asked, so every asking of one fix writes one tree: a second
+asking after the base moved on finds its own branch rather than refusing it.
 
 **No path here is off-limits, tests included.** A fix that arrives with the test
 exposing the bug is the fix a person can trust, and that test belongs wherever
@@ -83,14 +86,15 @@ FILE_TYPE: Final = "blob"
 
 
 def commit_to_new_branch(branch: str,
-                         base_branch: str,
+                         base_commit: str,
                          files: Mapping[str, str],
                          message: str,
                          settings: GitHubSettings,
                          get: HttpGet = httpx2.get,
                          post: HttpPost = httpx2.post,
                          sleep: Sleep = time.sleep) -> str:
-    """Commits `files` as one change and creates `branch` pointing at it.
+    """Commits `files` as one change on `base_commit` and creates `branch`
+    pointing at it.
 
     `files` maps a repository path to that file's **whole** new content, not to
     a diff. A patch is applied by the model that wrote it, not here: applying a
@@ -108,8 +112,14 @@ def commit_to_new_branch(branch: str,
     the last thing written, so a failure means there is no branch rather than a
     branch with half a fix on it.
 
+    On `base_commit` rather than on a branch's head, because the head moves and
+    the commit does not. The caller reads the head once, just before it keeps
+    the commit with the fix, and every asking of it - the retries below, or the
+    same fix asked again after its answer was lost or its step was run again -
+    writes the same tree.
+
     Each step is asked again where GitHub failed it for a moment, as
-    configured. The reads and the two objects are asked again as they are - an
+    configured. The read and the two objects are asked again as they are - an
     object written twice is one more nothing points at - and the branch is
     looked for before each try of it, the first included: a 500 can come back
     for one GitHub created, and this call can be the second asking of one
@@ -123,11 +133,10 @@ def commit_to_new_branch(branch: str,
                             wait_ms=settings.github_write_retry_wait_ms,
                             landed=landed, sleep=sleep)
 
-    base_head = again(lambda: _head_of(base_branch, settings, get))
-    base_tree = again(lambda: _tree_of(base_head, settings, get))
+    base_tree = again(lambda: _tree_of(base_commit, settings, get))
 
     tree = again(lambda: _write_tree(files, base_tree, settings, post))
-    commit = again(lambda: _write_commit(tree, base_head, message, settings, post))
+    commit = again(lambda: _write_commit(tree, base_commit, message, settings, post))
 
     try:
         on = again(lambda: _create_branch(branch, commit, settings, post),
@@ -140,31 +149,6 @@ def commit_to_new_branch(branch: str,
     return branch
 
 
-def _head_of(base_branch: str,
-             settings: GitHubSettings,
-             get: HttpGet) -> str:
-    """The commit `base_branch` currently points at.
-
-    The fix is cut from here so that it applies to the code that is actually
-    deployed. A branch taken from anywhere else proposes a change against a
-    repository nobody is running, and would merge cleanly into a fault that had
-    already moved.
-    """
-    url = f"{_repository(settings)}/git/ref/heads/{base_branch}"
-
-    try:
-        response = get(url, headers=write_headers_for(settings), timeout=REQUEST_TIMEOUT_SECONDS)
-        response.raise_for_status()
-        answered: dict[str, Any] = response.json()
-        head = answered[OBJECT_FIELD][SHA_FIELD]
-    except Exception as error:
-        raise BranchNotWritten(
-            f"could not read the head of [{base_branch}] at [{url}]: {said_of(error)}"
-        ) from error
-
-    return str(head)
-
-
 def _tree_of(commit: str,
              settings: GitHubSettings,
              get: HttpGet) -> str:
@@ -172,9 +156,10 @@ def _tree_of(commit: str,
     or that of a branch found already there, which says whose work it holds.
 
     Read rather than assumed, because a new tree must be written over a *tree*
-    and what the ref gives back is a *commit*. Written over nothing instead, the
-    fix would propose a repository containing only the files it touched - every
-    other file in the service deleted, in a patch that reads as a small one.
+    and what the caller hands over - like what a ref points at - is a *commit*.
+    Written over nothing instead, the fix would propose a repository containing
+    only the files it touched - every other file in the service deleted, in a
+    patch that reads as a small one.
     """
     url = f"{_repository(settings)}/git/commits/{commit}"
 
@@ -233,8 +218,8 @@ def _write_commit(tree: str,
                   post: HttpPost) -> str:
     """The one commit the fix arrives as.
 
-    Its parent is the base's head, which is what makes it a change *to* that
-    branch rather than an unrelated history: a commit written without one is a
+    Its parent is the base commit, which is what makes it a change *to* that
+    code rather than an unrelated history: a commit written without one is a
     root commit, and a pull request from it has nothing to diff against.
     """
     url = f"{_repository(settings)}/git/commits"
@@ -317,9 +302,9 @@ def _the_branch_holding(branch: str,
     wrote the same tree over the same base, but GitHub dates a commit as it
     writes it, so that asking's commit is another sha for the same fix.
 
-    Raises `TakenByOtherWork` where the branch holds any other tree - the base
-    moved between the askings, or the name was somebody else's first - naming
-    the branch, which a person has to look at.
+    Raises `TakenByOtherWork` where the branch holds any other tree - a
+    different fix, or the name was somebody else's first - naming the branch,
+    which a person has to look at.
     """
     url = f"{_repository(settings)}/git/ref/heads/{branch}"
     response = get(url, headers=write_headers_for(settings), timeout=REQUEST_TIMEOUT_SECONDS)

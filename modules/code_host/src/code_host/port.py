@@ -166,10 +166,11 @@ class CodeHostWrites(Protocol):
     """What proposing a fix can ask, and nothing else.
 
     Not the reads port as well: the write tier reads nothing of the repository
-    but what a write needs to know - where the base points, whether its branch
-    or proposal already landed - and that is the adapter's own business. A
-    write port that also read would put a read under the token that pushes,
-    which is the credential the tier split keeps out of every read.
+    but what a write needs to know - the tree its base commit holds, whether
+    its branch or proposal already landed - and that is the adapter's own
+    business. A write port that also read would put a read under the token
+    that pushes, which is the credential the tier split keeps out of every
+    read.
 
     Both writes are safe to ask again. A call whose answer was lost on its way
     back is asked a second time over a new session, by which point the first
@@ -181,13 +182,17 @@ class CodeHostWrites(Protocol):
 
     def commit_to_new_branch(self,
                              branch: str,
-                             base: str,
+                             base_commit: str,
                              files: Mapping[str, str],
                              message: str,
                              /) -> str:
-        """Commits `files` - each path's whole new content - as one change cut
-        from `base`'s head, and creates `branch` pointing at it, last. Returns
-        the branch.
+        """Commits `files` - each path's whole new content - as one change on
+        `base_commit`, and creates `branch` pointing at it, last. Returns the
+        branch.
+
+        On a commit rather than a branch's head, so every asking of one fix
+        writes one tree: asked again after the base moved on, it finds its own
+        branch rather than refusing it as somebody else's work.
 
         Raises `BranchNotWritten`; a failure leaves no branch behind.
         """

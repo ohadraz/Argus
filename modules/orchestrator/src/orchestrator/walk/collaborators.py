@@ -27,11 +27,13 @@ from orchestrator.walk.ports import (
     ActionsTaken,
     Admit,
     AdvanceAction,
+    ClaimFixFor,
     CompleteAction,
     DiscardTheInterruptedAttempt,
     FetchDependencies,
     FetchDeployments,
     FetchFlagChanges,
+    FixClaimedIn,
     Investigate,
     LeadsOf,
     OweAPutBack,
@@ -96,6 +98,11 @@ class Collaborators:
     # each with it. The process's own `Holding`, which the write client reads.
     acting_for: ActingFor
     propose_fix: ProposeFix
+    # The incident's fix claim, read and written: what Code-Fix decided to
+    # propose, recorded before any of it is written, so a step run again
+    # pushes it rather than asking the model again.
+    claimed_fix: FixClaimedIn
+    claim_fix: ClaimFixFor
     actions_taken: ActionsTaken
     recall_similar: RecallSimilar
     remember_incident: RememberIncident

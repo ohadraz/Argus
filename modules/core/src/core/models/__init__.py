@@ -81,11 +81,16 @@ from core.models.evidence import Evidence
 from core.models.failure_mode import FailureMode
 from core.models.findings import Findings
 from core.models.fix import (
+    ClaimedFix,
+    ClaimFix,
     CodeOutsideThePatch,
     CodeUse,
     FileAsItRan,
+    FixClaimed,
     FixOutcome,
     ProposedFix,
+    claimed_as_asked,
+    nothing_claimed,
 )
 from core.models.flag_change import FlagChange, FlagHistory
 from core.models.hypothesis import Hypothesis
@@ -417,6 +422,11 @@ __all__ = [
     "Standing",
     "TakenAction",
     "Claimed",
+    "ClaimedFix",
+    "ClaimFix",
+    "FixClaimed",
+    "claimed_as_asked",
+    "nothing_claimed",
     "AlreadyClaimed",
     "SubjectOpen",
     "SynopsisFigure",

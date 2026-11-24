@@ -41,6 +41,7 @@ _PASSAGES: Final = TypeAdapter(list[str])
 _NOTICE: Final = TypeAdapter(str)
 _SOURCE: Final = TypeAdapter(str)
 _CONTAINED: Final = TypeAdapter(bool)
+_HEAD: Final = TypeAdapter(str)
 _CODE_OUTSIDE: Final = TypeAdapter(CodeOutsideThePatch)
 
 # Where the server's tools are served, under the address the endpoint names.
@@ -323,6 +324,20 @@ class ReadTier:
         return self._session.call(
             "branch_contains_revision", _CONTAINED.validate_python, asking=Asking.READ,
             branch=branch, revision=revision
+        )
+
+    def get_branch_head(self, branch: str) -> str:
+        """Reads the commit `branch` points at.
+
+        What Code-Fix reads once, just before it claims a patch, and keeps with
+        it, so the fix is written on that commit: asked again after the branch
+        moved on, the same fix writes the same tree and finds its own branch.
+
+        Raises when the repository could not be reached: there is no commit to
+        stand in for one nobody read.
+        """
+        return self._session.call(
+            "get_branch_head", _HEAD.validate_python, asking=Asking.READ, branch=branch
         )
 
     def get_enabled_flags(self) -> list[str]:

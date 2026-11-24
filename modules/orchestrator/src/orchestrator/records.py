@@ -31,6 +31,7 @@ from core.models import (
     ActionProgress,
     ActionType,
     ClaimAnswer,
+    ClaimedFix,
     ExecutiveSynopsisDocument,
     Hypothesis,
     IncidentStatus,
@@ -316,6 +317,17 @@ class Records:
             performed_at=taken_action.performed_at,
             put_back_because=taken_action.put_back_because
         )
+
+    def claim_fix(self, incident_id: str, fix: ClaimedFix, /, *,
+                  at: datetime) -> ClaimedFix:
+        """Claims the fix Code-Fix is about to write, and answers the claim that
+        stands - this one, or one an earlier attempt wrote first."""
+        with unit_of_work(self._connections) as conn:
+            return the_walks_writes_on(conn).claim_fix(incident_id, fix, at=at)
+
+    def claimed_fix(self, incident_id: str, /) -> ClaimedFix | None:
+        """The fix an earlier attempt at Code-Fix claimed, where one did."""
+        return self._reads.claimed_fix(incident_id)
 
     def action_announced(self, incident_id: str, hypothesis_id: str, /) -> bool:
         """Whether the account already holds the line saying an action was taken

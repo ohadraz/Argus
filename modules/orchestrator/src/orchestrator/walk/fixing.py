@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
+from datetime import datetime
 from functools import partial
 
 from codefix_agent import FixDeclined, FixNotAnswered, FixNotProposed, FixStopped
-from core import parse_iso, was_lost
+from core import parse_iso, utc_now, was_lost
 from core.events import FixAttempted, Narrator, Publisher, nobody
 from core.models import (
     ChangeKind,
+    ClaimedFix,
     FixOutcome,
     OpenedPullRequest,
     ProposedFix,
@@ -19,7 +22,13 @@ from core.models import (
 from incident_record import IsStillWanted
 
 from orchestrator.walk.deltas import Narration, StateDelta
-from orchestrator.walk.ports import LeadsOf, ProposeFix, WhatArgusDidIn
+from orchestrator.walk.ports import (
+    ClaimFixFor,
+    FixClaimedIn,
+    LeadsOf,
+    ProposeFix,
+    WhatArgusDidIn,
+)
 from orchestrator.walk.routes import POSTMORTEM_ROUTE
 from orchestrator.walk.state import IncidentState, NoMitigationForTheMode
 
@@ -44,12 +53,27 @@ def _nothing_on_record(incident_id: str, /) -> list[WhatArgusDid]:
     return []
 
 
+def _nothing_claimed(incident_id: str, /) -> ClaimedFix | None:
+    """The claim read for a caller with no record - a test about something
+    else - whose Code-Fix finds nothing claimed."""
+    return None
+
+
+def _claimed_as_asked(incident_id: str, fix: ClaimedFix, /, *,
+                      at: datetime) -> ClaimedFix:
+    """The claim written for a caller with no record, standing as asked."""
+    return fix
+
+
 def codefix_node(state: IncidentState,
                  propose_fix: ProposeFix,
                  publisher: Publisher = nobody,
                  still_wanted: IsStillWanted = _nobody_stops_it,
                  leads_of: LeadsOf = _nobody_wrote,
-                 what_argus_did: WhatArgusDidIn = _nothing_on_record) -> StateDelta:
+                 what_argus_did: WhatArgusDidIn = _nothing_on_record,
+                 claimed_fix: FixClaimedIn = _nothing_claimed,
+                 claim_fix: ClaimFixFor = _claimed_as_asked,
+                 now: Callable[[], datetime] = utc_now) -> StateDelta:
     """Looks for a permanent fix, once mitigation has done what it can (spec §7.4).
 
     What the agent answered is what this reports, and where the proposal can be
@@ -93,6 +117,12 @@ def codefix_node(state: IncidentState,
     settled by the time a fix is looked for, so nothing it answers changes
     while the fix is worked out. Off the record rather than the state, because the
     record is what says whether each change still stands.
+
+    `claimed_fix` and `claim_fix` are the incident's fix claim, bound to this
+    incident for `still_wanted`'s reason, and the claim dated by `now`. The
+    agent claims a fix before writing any of it, and a step run again - its
+    interrupted attempt's lines taken back like any step's - pushes the claim
+    rather than asking the model for another patch.
     """
     narrator = Narrator(state.incident_id, publisher)
 
@@ -115,7 +145,9 @@ def codefix_node(state: IncidentState,
             still_wanted=partial(still_wanted, state.incident_id),
             leads=partial(leads_of, state.incident_id),
             done=what_argus_did(state.incident_id),
-            deployed=_what_was_running(state)
+            deployed=_what_was_running(state),
+            claimed=partial(claimed_fix, state.incident_id),
+            claim=lambda fix: claim_fix(state.incident_id, fix, at=now())
         )
     except FixStopped:
         # Logged by the agent where it stopped, which is the one place that

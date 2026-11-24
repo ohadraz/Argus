@@ -490,6 +490,19 @@ def _register_rollouts_and_code(mcp: TracedMCPServer,
         code host's reads port; this is registration only."""
         return code.contains(branch, revision)
 
+    @mcp.tool()
+    def get_branch_head(branch: str) -> str:
+        """Returns the commit `branch` points at.
+
+        What Code-Fix keeps with a patch before it writes anything: the fix is
+        written on this commit rather than on wherever the branch has moved by
+        then, so the same fix asked again writes the same tree. Asked by code,
+        never offered to a model.
+
+        A repository that could not be reached raises. The behavior lives
+        behind the code host's reads port; this is registration only."""
+        return code.head_of(branch)
+
 
 def _register_meaning(mcp: TracedMCPServer,
                       index_settings: IndexReadSettings,

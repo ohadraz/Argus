@@ -68,21 +68,6 @@ def discards_nothing(dont_care_state: IncidentState, /) -> None:
     about something else."""
 
 
-def keeps_the_interrupted_fix(dont_care_state: IncidentState, /) -> None:
-    """Code-Fix's discard, which takes nothing back - until Code-Fix has a
-    claim of its own.
-
-    Its attempt is a change in the world: a branch written and a draft pull
-    request opened, which a step run again does not take back. Asked again,
-    the model may write a different patch, which the branch refuses as
-    somebody else's work - and a discard would have deleted the only line
-    naming the pull request the first attempt opened. So a Code-Fix step run
-    again keeps the first attempt's line beside its own, as it always has,
-    until the patch is recorded before the branch is written and a step run
-    again re-pushes it.
-    """
-
-
 def discarding_first[R](discard: Discard,
                         node: Callable[[IncidentState], R]) -> Callable[[IncidentState], R]:
     """`node`, run after `discard` - for a node not wrapped in `with_status`,

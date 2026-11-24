@@ -20,6 +20,7 @@ from typing import Protocol
 import psycopg
 from core.events import IncidentEvent
 from core.models import (
+    ClaimedFix,
     ExecutiveSynopsis,
     Hypothesis,
     Incident,
@@ -32,6 +33,7 @@ from postgres import Connections
 from incident_record.repository import (
     conversation,
     events,
+    fix_claims,
     hypotheses,
     incidents,
     postmortems,
@@ -62,6 +64,10 @@ class IncidentReads(Protocol):
 
     def action_for(self, incident_id: str, hypothesis_id: str, /) -> TakenAction | None:
         """The action claimed for one candidate of the incident, where one was."""
+        ...
+
+    def claimed_fix(self, incident_id: str, /) -> ClaimedFix | None:
+        """The fix Code-Fix claimed for the incident, where it claimed one."""
         ...
 
     def leads(self, incident_id: str, /) -> list[ThreadMessage]:
@@ -102,6 +108,9 @@ class _OnAConnection:
     def action_for(self, incident_id: str, hypothesis_id: str, /) -> TakenAction | None:
         return taken_actions.get_action_for_hypothesis(self._conn, incident_id, hypothesis_id)
 
+    def claimed_fix(self, incident_id: str, /) -> ClaimedFix | None:
+        return fix_claims.get(self._conn, incident_id)
+
     def leads(self, incident_id: str, /) -> list[ThreadMessage]:
         return conversation.get_leads_by_incident(self._conn, incident_id)
 
@@ -140,6 +149,10 @@ class _OverConnections:
     def action_for(self, incident_id: str, hypothesis_id: str, /) -> TakenAction | None:
         with self._connections() as conn:
             return incident_reads_on(conn).action_for(incident_id, hypothesis_id)
+
+    def claimed_fix(self, incident_id: str, /) -> ClaimedFix | None:
+        with self._connections() as conn:
+            return incident_reads_on(conn).claimed_fix(incident_id)
 
     def leads(self, incident_id: str, /) -> list[ThreadMessage]:
         with self._connections() as conn:

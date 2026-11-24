@@ -44,9 +44,12 @@ from core.llm import (
 )
 from core.models import (
     Ask,
+    ClaimedFix,
+    ClaimFix,
     CodeOutsideThePatch,
     CodeUse,
     Exchange,
+    FixClaimed,
     Hypothesis,
     Leads,
     ModelPolicy,
@@ -58,8 +61,10 @@ from core.models import (
     ToolResult,
     Turn,
     WhatArgusDid,
+    claimed_as_asked,
     no_leads,
     not_yet_shown,
+    nothing_claimed,
 )
 
 # Aliased because `replay`'s no-op sink is called `nobody`, as `events`' is, and
@@ -97,6 +102,7 @@ from codefix_agent.prompting import (
 )
 from codefix_agent.receipts import (
     BRANCH_ARGUMENT,
+    BRANCH_HEAD_TOOL,
     CODE_OUTSIDE_TOOL,
     CONTAINS_TOOL,
     FILES_ARGUMENT,
@@ -105,6 +111,7 @@ from codefix_agent.receipts import (
     receipted,
 )
 from codefix_agent.retrieval import (
+    BranchHead,
     BranchMembership,
     CodeOutsideReader,
     FileLister,
@@ -210,7 +217,7 @@ class BranchWriter(Protocol):
     def __call__(self,
                  *,
                  branch: str,
-                 base_branch: str,
+                 base_commit: str,
                  files: Mapping[str, str],
                  message: str) -> str: ...
 
@@ -240,7 +247,9 @@ class Fixer(Protocol):
                  still_wanted: StillWanted = ...,
                  leads: Leads = ...,
                  done: Sequence[WhatArgusDid] = ...,
-                 deployed: str | None = ...) -> ProposedFix: ...
+                 deployed: str | None = ...,
+                 claimed: FixClaimed = ...,
+                 claim: ClaimFix = ...) -> ProposedFix: ...
 
 
 # What the model is told when one call is all that is left, ridden in on the
@@ -316,6 +325,7 @@ def fixes_over(read: ReadTier,
         contains=read.branch_contains_revision,
         read_file=read.read_repository_file,
         code_outside=read.get_code_outside_the_patch,
+        branch_head=read.get_branch_head,
         write_branch=write.commit_to_new_branch,
         open_pull_request=write.open_pull_request,
         recorder=recorder
@@ -334,6 +344,7 @@ def propose_fix(hypothesis: Hypothesis | None,
                 contains: BranchMembership,
                 read_file: FileReader,
                 code_outside: CodeOutsideReader,
+                branch_head: BranchHead,
                 write_branch: BranchWriter,
                 open_pull_request: PullRequestOpener,
                 conversations: Conversations,
@@ -341,7 +352,9 @@ def propose_fix(hypothesis: Hypothesis | None,
                 still_wanted: StillWanted = wanted_throughout,
                 leads: Leads = no_leads,
                 done: Sequence[WhatArgusDid] = (),
-                deployed: str | None = None
+                deployed: str | None = None,
+                claimed: FixClaimed = nothing_claimed,
+                claim: ClaimFix = claimed_as_asked
                 ) -> ProposedFix:
     """Proposes a fix for `hypothesis` as a draft pull request, or nothing -
     with what the model said of the code either way.
@@ -401,7 +414,29 @@ def propose_fix(hypothesis: Hypothesis | None,
 
     Every read of the repository leaves a receipt with `recorder`, whoever
     asked for it (`receipts`): a run is examined later from what it read.
+
+    A fix is claimed before any of it is written (`claim`): its files, the
+    commit `branch_head` says the branch read is at, the pull request's words
+    and the reading. What the claim answers - this one, or one an earlier
+    attempt claimed first - is what is written, on its commit. `claimed` is
+    asked before anything else: a fix an earlier attempt at this step claimed
+    is written again as it was claimed, and nothing is read or asked of the
+    model. Asked again, the model may write another patch, which the branch
+    the earlier attempt wrote would refuse; written again on the same commit,
+    the claim finds that branch, and the pull request it opened.
     """
+    earlier = claimed()
+
+    if earlier is not None:
+        if not still_wanted():
+            logger.info("fix not proposed again, incident no longer wanted")
+            raise FixStopped("the incident is no longer wanted; the fix was not proposed")
+
+        logger.info("fix claimed by an earlier attempt, proposed again")
+        return _the_claim_proposed(earlier, incident_id,
+                                   write_branch=write_branch,
+                                   open_pull_request=open_pull_request)
+
     replay = Replay(incident_id, recorder)
     search = receipted(replay, SEARCH_TOOL, search, QUERY_ARGUMENT, REF_ARGUMENT)
     search_by_meaning = receipted(replay, SEARCH_BY_MEANING_TOOL, search_by_meaning,
@@ -412,6 +447,7 @@ def propose_fix(hypothesis: Hypothesis | None,
     read_file = receipted(replay, READ_FILE_TOOL, read_file, PATH_ARGUMENT, REF_ARGUMENT)
     code_outside = receipted(replay, CODE_OUTSIDE_TOOL, code_outside, FILES_ARGUMENT,
                              REF_ARGUMENT)
+    branch_head = receipted(replay, BRANCH_HEAD_TOOL, branch_head, BRANCH_ARGUMENT)
 
     holds_what_ran = whether_it_holds_what_ran(settings, deployed, contains)
     submitted, uses_outside = _what_the_model_submitted(
@@ -480,30 +516,69 @@ def propose_fix(hypothesis: Hypothesis | None,
         logger.info("fix not proposed, incident no longer wanted")
         raise FixStopped("the incident is no longer wanted; the fix was not proposed")
 
-    branch = _a_branch_for(incident_id)
-    title = submitted.summary or f"fix for incident {incident_id}"
     reading = ProposedFix(pull_request=None,
                           explanation=submitted.explanation,
                           holds_what_ran=holds_what_ran,
                           branch_read=settings.deployed_branch,
                           as_it_ran=as_it_ran,
                           uses_outside=uses_outside)
+
+    try:
+        standing = claim(ClaimedFix(
+            files=patch,
+            base_branch=settings.deployed_branch,
+            base_commit=branch_head(settings.deployed_branch),
+            title=submitted.summary or f"fix for incident {incident_id}",
+            body=_the_case_for(submitted, hypothesis, incident_id, uses_outside),
+            brings_a_test=brings_a_test(submitted.files),
+            reading=reading
+        ))
+    except Exception as error:
+        # A lost run is another claim's walk, and nothing is said of it here.
+        if was_lost(error):
+            raise
+
+        raise FixNotProposed(str(error) or type(error).__name__,
+                             reading=reading, branch=None) from error
+
+    return _the_claim_proposed(standing, incident_id,
+                               write_branch=write_branch,
+                               open_pull_request=open_pull_request)
+
+
+def _the_claim_proposed(fix: ClaimedFix,
+                        incident_id: str,
+                        *,
+                        write_branch: BranchWriter,
+                        open_pull_request: PullRequestOpener) -> ProposedFix:
+    """`fix`, written to the incident's branch on its commit and proposed
+    as a draft pull request - with what Code-Fix said of the code.
+
+    Both writes are safe to ask again: the branch is found where it holds the
+    tree this writes, and the pull request by its head. So a claim written
+    again, by a step run again, ends with the branch and the pull request the
+    first writing made.
+
+    Raises `FixNotProposed` where the code host refused either, carrying the
+    reading and the branch where that write landed.
+    """
+    branch = _a_branch_for(incident_id)
     written: str | None = None
 
     try:
         write_branch(
             branch=branch,
-            base_branch=settings.deployed_branch,
-            files=patch,
-            message=title
+            base_commit=fix.base_commit,
+            files=fix.files,
+            message=fix.title
         )
         written = branch
 
         opened = open_pull_request(
             head_branch=branch,
-            base_branch=settings.deployed_branch,
-            title=title,
-            body=_the_case_for(submitted, hypothesis, incident_id, uses_outside)
+            base_branch=fix.base_branch,
+            title=fix.title,
+            body=fix.body
         )
     except Exception as error:
         # A lost run is another claim's walk, and nothing is said of it here.
@@ -511,10 +586,10 @@ def propose_fix(hypothesis: Hypothesis | None,
             raise
 
         raise FixNotProposed(str(error) or type(error).__name__,
-                             reading=reading, branch=written) from error
+                             reading=fix.reading, branch=written) from error
 
-    return reading.model_copy(update={"pull_request": opened.model_copy(
-        update={"brings_a_test": brings_a_test(submitted.files)}
+    return fix.reading.model_copy(update={"pull_request": opened.model_copy(
+        update={"brings_a_test": fix.brings_a_test}
     )})
 
 

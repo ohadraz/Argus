@@ -748,10 +748,11 @@ class WriteTier:
 
     def commit_to_new_branch(self,
                              branch: str,
-                             base_branch: str,
+                             base_commit: str,
                              files: Mapping[str, str],
                              message: str) -> str:
-        """Puts a proposed fix on a branch of its own and returns that branch.
+        """Puts a proposed fix on a branch of its own, on `base_commit`, and
+        returns that branch.
 
         The first half of Code-Fix's outward act (spec §7.4), and the half that
         touches code. `files` maps a repository path to that file's whole new
@@ -762,6 +763,10 @@ class WriteTier:
         do is sit somewhere unrun until a person looks at it, and the pull request
         that follows is a proposal rather than a change.
 
+        On a commit rather than on the base branch's head, so that asked again -
+        after its answer was lost, or by a step run again - the same fix writes
+        the same tree and finds its own branch, however far the base has moved.
+
         Raises rather than returning quietly when any part of the patch did not
         land. A branch reported as written but only half there would be proposed as
         a whole fix, and read by a human as one.
@@ -771,7 +776,7 @@ class WriteTier:
             _A_BRANCH.validate_python,
             asking=Asking.CHANGE,
             branch=branch,
-            base_branch=base_branch,
+            base_commit=base_commit,
             files=dict(files),
             message=message
         )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from enum import StrEnum
 
 from pydantic import BaseModel
@@ -148,3 +149,52 @@ class ProposedFix(BaseModel):
     # How the code the patch does not touch uses what it changes, said by the
     # syntax tree - empty where nothing does, or the source could not be read.
     uses_outside: list[CodeUse] = []
+
+
+class ClaimedFix(BaseModel):
+    """The fix Code-Fix decided to propose, recorded before any of it is
+    written to the code host (spec §7.4).
+
+    Everything pushing it takes, and everything the answer says, so a Code-Fix
+    step run again pushes this and asks the model nothing. Asked again, the
+    model may write another patch, which the branch the first attempt wrote
+    would refuse as somebody else's work - and the pull request that attempt
+    opened would be named nowhere.
+
+    `base_commit` is the commit the branch is written on, read once before the
+    claim. Written on a commit rather than on whatever `base_branch` points at
+    when it is pushed, a second push writes the same tree, and finds the
+    branch the first one wrote however far `base_branch` has moved since.
+    `base_branch` is what the pull request asks to be merged into.
+
+    `reading` is what Code-Fix said of the code, its `pull_request` `None`: the
+    pull request is the push's to answer.
+    """
+
+    files: dict[str, str]
+    base_branch: str
+    base_commit: str
+    title: str
+    body: str
+    brings_a_test: bool
+    reading: ProposedFix
+
+
+# What an earlier attempt at Code-Fix claimed for the incident it is working on,
+# where one did - and claiming a fix for it, answered with the claim that
+# stands. Bound to the incident by the walk, as `Leads` is: the agent asks
+# without knowing which incident it is fixing.
+type FixClaimed = Callable[[], ClaimedFix | None]
+type ClaimFix = Callable[[ClaimedFix], ClaimedFix]
+
+
+def nothing_claimed() -> ClaimedFix | None:
+    """No earlier attempt claimed anything - the default wherever Code-Fix is
+    run with no record behind it."""
+    return None
+
+
+def claimed_as_asked(fix: ClaimedFix) -> ClaimedFix:
+    """A claim nothing records, standing as it was asked - the default
+    wherever Code-Fix is run with no record behind it."""
+    return fix

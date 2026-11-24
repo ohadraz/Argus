@@ -180,7 +180,7 @@ def download_the_archive(owner: str, repo: str, ref: str) -> Response:
 
 @app.get("/repos/{owner}/{repo}/commits/{ref:path}")
 def read_the_commit_a_ref_points_at(owner: str, repo: str, ref: str) -> JSONResponse:
-    """Where a ref points, as the catch-up pass asks it.
+    """Where a ref points, as the catch-up pass and Code-Fix's branch head ask it.
 
     The commits API rather than the git-data one two endpoints below, and they
     are not interchangeable: that one takes a commit id and answers its tree,
@@ -269,7 +269,7 @@ def compare_two_commits(owner: str, repo: str, basehead: str) -> JSONResponse:
 
 @app.get("/repos/{owner}/{repo}/git/ref/heads/{branch:path}")
 def read_the_ref(owner: str, repo: str, branch: str) -> JSONResponse:
-    """The commit a branch points at - the write tier's first question."""
+    """The commit a branch points at - how the write tier finds a fix's own branch."""
     try:
         head = repository.head_of(branch)
     except NoSuchObject as absent:
@@ -283,7 +283,7 @@ def read_the_ref(owner: str, repo: str, branch: str) -> JSONResponse:
 
 @app.get("/repos/{owner}/{repo}/git/commits/{commit}")
 def read_the_commit(owner: str, repo: str, commit: str) -> JSONResponse:
-    """The tree a commit points at - the write tier's second question."""
+    """The tree a commit points at - the write tier's first question."""
     try:
         tree = repository.tree_of(commit)
     except NoSuchObject as absent:

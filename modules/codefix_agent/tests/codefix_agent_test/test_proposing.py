@@ -15,6 +15,7 @@ nothing.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import Mock, create_autospec
@@ -38,6 +39,7 @@ from codefix_agent.proposing import (
 )
 from codefix_agent.receipts import (
     BRANCH_ARGUMENT,
+    BRANCH_HEAD_TOOL,
     CODE_OUTSIDE_TOOL,
     CONTAINS_TOOL,
     FILES_ARGUMENT,
@@ -45,6 +47,7 @@ from codefix_agent.receipts import (
     REVISION_ARGUMENT,
 )
 from codefix_agent.retrieval import (
+    BranchHead,
     BranchMembership,
     CodeOutsideReader,
     FileLister,
@@ -77,6 +80,7 @@ from core.models import (
     REVERT_FEATURE_FLAG,
     ActionIdentity,
     Ask,
+    ClaimedFix,
     CodeOutsideThePatch,
     CodeSearch,
     CodeUse,
@@ -103,6 +107,7 @@ from core.models import (
     a_chat_message,
 )
 from core.replay import CallType, Recorder, ReplayEntry
+from core.stored import NewerShape
 from narration import what_was_done
 from read_mcp_client import ReadTier
 from write_mcp_client import WriteTier
@@ -145,6 +150,10 @@ SOME_TEST_SOURCE = (
     "    assert average_spend_per_item_this_month(None) == 0\n"
 )
 SOME_REVISION_THAT_RAN = "53f02e9f6cb774f7f5869637bcc879941dcbc82d"
+# The branch a fix is cut from and proposed onto, as a deployment names it.
+SOME_DEPLOYED_BRANCH = "main"
+# Where the branch a fix is cut from points, as the read tier answers it.
+SOME_HEAD_OF_THE_BRANCH = "8c1d4b07a2e95f3360d1c4e8b7a9f20e51d6c3a4"
 
 # What the live run actually submitted where a file's content belongs, and it is
 # valid JSON, a valid string and a schema-valid argument - which is the whole
@@ -1279,7 +1288,7 @@ def test_a_revision_the_branch_read_does_not_contain_is_said_before_the_model_re
             lambda: propose_fix(
                 DONT_CARE_HYPOTHESIS,
                 DONT_CARE_INCIDENT,
-                settings=some_settings(base_branch="main"),
+                settings=some_settings(base_branch=SOME_DEPLOYED_BRANCH),
                 conversations=model.conversations,
                 deployed=SOME_REVISION_THAT_RAN,
                 **repository.ports()
@@ -1287,7 +1296,7 @@ def test_a_revision_the_branch_read_does_not_contain_is_said_before_the_model_re
         ) \
         .then(
             all_of(
-                _the_branch_was_asked(repository, "main", SOME_REVISION_THAT_RAN),
+                _the_branch_was_asked(repository, SOME_DEPLOYED_BRANCH, SOME_REVISION_THAT_RAN),
                 _the_model_was_told(model, SOME_REVISION_THAT_RAN)
             )
         )
@@ -1592,7 +1601,7 @@ def test_a_submitted_fix_is_written_to_a_branch_of_this_incidents_own() -> None:
             lambda: propose_fix(
                 DONT_CARE_HYPOTHESIS,
                 some_incident,
-                settings=some_settings(base_branch="main"),
+                settings=some_settings(base_branch=SOME_DEPLOYED_BRANCH),
                 conversations=model.conversations,
                 **repository.ports()
             )
@@ -1600,7 +1609,9 @@ def test_a_submitted_fix_is_written_to_a_branch_of_this_incidents_own() -> None:
         .then(
             all_of(
                 _the_branch_written_mentions(repository, some_incident),
-                _the_branch_was_cut_from(repository, "main"),
+                _the_head_was_read_of(repository, SOME_DEPLOYED_BRANCH),
+                _the_branch_was_written_on(repository, SOME_HEAD_OF_THE_BRANCH),
+                _the_proposal_was_onto(repository, SOME_DEPLOYED_BRANCH),
                 _the_patch_written_was(repository, {SOME_PATH: SOME_FIXED_SOURCE,
                                                     SOME_TEST_PATH: SOME_TEST_SOURCE})
             )
@@ -2941,7 +2952,7 @@ def test_a_submission_speaking_of_code_outside_its_patch_as_a_group_is_sent_back
                 _the_conversation_said(model, THE_QUESTION_A_SUBMISSION_IS_ASKED, times=1),
                 _the_code_outside_was_read_for(repository, {SOME_PATH: SOME_FIXED_SOURCE,
                                                             SOME_TEST_PATH: SOME_TEST_SOURCE},
-                                               "main"),
+                                               SOME_DEPLOYED_BRANCH),
                 _the_patch_written_was(repository, {SOME_PATH: SOME_FIXED_SOURCE,
                                                     SOME_TEST_PATH: SOME_TEST_SOURCE})
             )
@@ -3439,6 +3450,352 @@ def _the_reading_carried_was(explanation: str) -> Assertion[Exception | None]:
     return assertion
 
 
+# ---- the claim ----
+
+
+@pytest.mark.unit
+def test_a_fix_is_claimed_before_any_of_it_is_written() -> None:
+    # The claim is what a step run again writes in place of asking the model
+    # for another patch, so it has to be on record before the first write can
+    # land. Claimed with everything the writes take - the files, the commit the
+    # branch is read at, the pull request's words - and the reading.
+    some_summary = "guard the monthly divisor"
+    some_explanation = "Most shoppers bought nothing this month, so the list is empty."
+    repository = a_repository()
+    claims: list[tuple[ClaimedFix, int]] = []
+
+    def a_claim_noting_the_writes_before_it(fix: ClaimedFix) -> ClaimedFix:
+        claims.append((fix, repository.write_branch.call_count))
+        return fix
+
+    model = a_model_that(
+        submits_a_fix_touching(SOME_PATH, summary=some_summary, explanation=some_explanation),
+        answers_it_works_on_its_own()
+    )
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(base_branch=SOME_DEPLOYED_BRANCH),
+                conversations=model.conversations,
+                claim=a_claim_noting_the_writes_before_it,
+                **repository.ports()
+            )
+        ) \
+        .then(
+            _it_was_claimed_before_anything_was_written(
+                claims,
+                files={SOME_PATH: SOME_FIXED_SOURCE, SOME_TEST_PATH: SOME_TEST_SOURCE},
+                base_branch=SOME_DEPLOYED_BRANCH,
+                base_commit=SOME_HEAD_OF_THE_BRANCH,
+                title=some_summary,
+                explanation=some_explanation
+            )
+        )
+
+
+@pytest.mark.unit
+def test_what_is_written_is_the_claim_that_stands() -> None:
+    # A claim is answered with the one that stands, which is an earlier
+    # attempt's where that attempt claimed first - and the earlier one may
+    # already be on the branch, which would refuse this one's patch. So what is
+    # written, proposed and answered is the claim that stands, not the patch
+    # this conversation produced.
+    the_claim_that_stands = _a_claim(files={SOME_PATH: "def the_earlier_patch(): ...\n"},
+                                     base_commit="0b7e2f19c4d8a6e3f5a1b9c2d7e4f8a0c3b6d1e9",
+                                     title="the earlier attempt's title",
+                                     explanation="the earlier attempt's reading")
+    repository = a_repository()
+    model = a_model_that(submits_a_fix_touching(SOME_PATH), answers_it_works_on_its_own())
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                conversations=model.conversations,
+                claim=lambda dont_care_claimed: the_claim_that_stands,
+                **repository.ports()
+            )
+        ) \
+        .then(
+            _the_claim_was_written_and_proposed(repository, the_claim_that_stands)
+        )
+
+
+@pytest.mark.unit
+def test_a_fix_an_earlier_attempt_claimed_is_written_again_without_asking_anything() -> None:
+    # A step run again from its checkpoint. Asked again, the model may write
+    # another patch, which the branch the first attempt wrote refuses - so the
+    # claim is written again instead, on its own commit, which finds that
+    # branch and the pull request it opened. Nothing is read and nothing is
+    # asked: the claim is everything the writes and the answer take.
+    some_earlier_claim = _a_claim()
+    repository = a_repository()
+    conversations = create_autospec(Conversations, instance=True)
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                conversations=conversations,
+                claimed=lambda: some_earlier_claim,
+                **repository.ports()
+            )
+        ) \
+        .then(
+            all_of(
+                _no_conversation_was_held(conversations),
+                _the_repository_was_not_read(repository),
+                _the_claim_was_written_and_proposed(repository, some_earlier_claim)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_claim_that_cannot_be_read_is_not_taken_for_no_claim() -> None:
+    # A claim this release cannot read is the incident's own account of a fix
+    # that may be on its branch already. Taken for none, the model would be
+    # asked for another patch, which that branch refuses - so it is raised, and
+    # the walk says the fix could not be proposed.
+    repository = a_repository()
+    conversations = create_autospec(Conversations, instance=True)
+    claim = Mock(side_effect=lambda fix: fix)
+
+    def a_claim_a_newer_release_wrote() -> ClaimedFix | None:
+        raise NewerShape("shape 2 of [fix-claim], and this reader knows up to 1")
+
+    Scenario() \
+        .when(
+            attempting(
+                lambda: propose_fix(
+                    DONT_CARE_HYPOTHESIS,
+                    DONT_CARE_INCIDENT,
+                    settings=some_settings(),
+                    conversations=conversations,
+                    claimed=a_claim_a_newer_release_wrote,
+                    claim=claim,
+                    **repository.ports()
+                )
+            )
+        ) \
+        .then(
+            all_of(
+                an_error_was_raised(NewerShape),
+                _no_conversation_was_held(conversations),
+                _the_repository_was_not_read(repository),
+                _nothing_was_claimed(claim),
+                _no_branch_was_written(repository)
+            )
+        )
+
+
+@pytest.mark.unit
+def test_a_claimed_fix_nobody_wants_any_more_is_not_written_again() -> None:
+    # Asked before the writes, as it is before a fresh patch's: the claim is
+    # the earlier attempt's, and the incident may have been ended since.
+    repository = a_repository()
+
+    Scenario() \
+        .when(
+            attempting(
+                lambda: propose_fix(
+                    DONT_CARE_HYPOTHESIS,
+                    DONT_CARE_INCIDENT,
+                    settings=some_settings(),
+                    conversations=create_autospec(Conversations, instance=True),
+                    claimed=_a_claim,
+                    still_wanted=lambda: False,
+                    **repository.ports()
+                )
+            )
+        ) \
+        .then(
+            all_of(
+                an_error_was_raised(FixStopped),
+                _no_branch_was_written(repository)
+            )
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("answering", [
+    pytest.param(lambda: a_model_that(reports_nothing_to_change()), id="nothing-to-change"),
+    pytest.param(lambda: a_model_that(submits_a_fix_touching(SOME_PATH),
+                                      answers_it_needs_code_outside()),
+                 id="needs-code-outside")
+])
+def test_an_answer_that_writes_nothing_claims_nothing(answering: Callable[[], _Model]) -> None:
+    # Nothing is written for either, so there is nothing a step run again would
+    # find refused - and a claim would have it propose a fix nobody kept.
+    claim = Mock(side_effect=lambda claimed: claimed)
+
+    Scenario() \
+        .when(
+            lambda: propose_fix(
+                DONT_CARE_HYPOTHESIS,
+                DONT_CARE_INCIDENT,
+                settings=some_settings(),
+                conversations=answering().conversations,
+                claim=claim,
+                **a_repository().ports()
+            )
+        ) \
+        .then(
+            _nothing_was_claimed(claim)
+        )
+
+
+@pytest.mark.unit
+def test_a_head_that_could_not_be_read_claims_and_writes_nothing() -> None:
+    # The commit is what the claim writes on, so a claim without it is no
+    # claim. Raised as any refusal of the repository is, with the reading
+    # kept and no branch.
+    some_reading = "spend_summary divides by the month's purchase count, 0 for a new shopper"
+    repository = a_repository()
+    repository.branch_head.side_effect = RuntimeError("the head could not be read")
+    claim = Mock(side_effect=lambda claimed: claimed)
+    model = a_model_that(submits_a_fix_touching(SOME_PATH, explanation=some_reading),
+                         answers_it_works_on_its_own())
+
+    Scenario() \
+        .when(
+            attempting(
+                lambda: propose_fix(
+                    DONT_CARE_HYPOTHESIS,
+                    DONT_CARE_INCIDENT,
+                    settings=some_settings(),
+                    conversations=model.conversations,
+                    claim=claim,
+                    **repository.ports()
+                )
+            )
+        ) \
+        .then(
+            all_of(
+                an_error_was_raised(FixNotProposed),
+                the_error_mentioned("the head could not be read"),
+                _the_reading_carried_was(some_reading),
+                _nothing_was_claimed(claim),
+                _no_branch_was_written(repository)
+            )
+        )
+
+
+def _a_claim(files: dict[str, str] | None = None,
+             base_commit: str = SOME_HEAD_OF_THE_BRANCH,
+             title: str = "some title",
+             explanation: str = "some reading") -> ClaimedFix:
+    """A fix as an attempt claimed it, the pull request's body its own."""
+    return ClaimedFix(
+        files=files or {SOME_PATH: SOME_FIXED_SOURCE, SOME_TEST_PATH: SOME_TEST_SOURCE},
+        base_branch=SOME_DEPLOYED_BRANCH,
+        base_commit=base_commit,
+        title=title,
+        body=f"the body of the pull request titled {title}",
+        brings_a_test=True,
+        reading=ProposedFix(pull_request=None, explanation=explanation,
+                            branch_read=SOME_DEPLOYED_BRANCH)
+    )
+
+
+def _it_was_claimed_before_anything_was_written(claims: list[tuple[ClaimedFix, int]],
+                                                *,
+                                                files: dict[str, str],
+                                                base_branch: str,
+                                                base_commit: str,
+                                                title: str,
+                                                explanation: str) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        if len(claims) != 1:
+            raise AssertionError(f"Expected one claim, got {len(claims)}.")
+
+        claimed, writes_before = claims[0]
+        said = (claimed.files, claimed.base_branch, claimed.base_commit, claimed.title,
+                explanation in claimed.body, claimed.reading.explanation)
+        wanted = (files, base_branch, base_commit, title, True, explanation)
+
+        if writes_before:
+            raise AssertionError(
+                f"Expected the claim before any write, {writes_before} came before it."
+            )
+
+        if said != wanted:
+            raise AssertionError(f"Expected the claim to carry {wanted}, it carried {said}.")
+
+        return True
+
+    return assertion
+
+
+def _the_claim_was_written_and_proposed(repository: _Repository,
+                                        claimed: ClaimedFix) -> Assertion[ProposedFix]:
+    """The branch written with the claim's files on its commit, the pull
+    request proposed in its words onto its branch, and the claim's reading
+    answered with that pull request."""
+    def assertion(came_back: ProposedFix) -> bool:
+        written = repository.write_branch.call_args.kwargs
+        proposed = repository.open_pull_request.call_args.kwargs
+        said = (written["files"], written["base_commit"], written["message"],
+                proposed["title"], proposed["body"], proposed["base_branch"])
+        wanted = (claimed.files, claimed.base_commit, claimed.title,
+                  claimed.title, claimed.body, claimed.base_branch)
+        opened = repository.open_pull_request.return_value
+
+        if said != wanted:
+            raise AssertionError(f"Expected the claim's {wanted} written, got {said}.")
+
+        if came_back != claimed.reading.model_copy(update={"pull_request": opened}):
+            raise AssertionError(
+                f"Expected the claim's reading with [{opened}], got [{came_back}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _no_conversation_was_held(conversations: Mock) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        if conversations.call_args_list:
+            raise AssertionError(
+                f"Expected the model never asked, a conversation was held: "
+                f"{conversations.call_args_list}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_repository_was_not_read(repository: _Repository) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        read = {name: seam.call_args_list for name, seam in repository.ports().items()
+                if name not in ("write_branch", "open_pull_request") and seam.call_args_list}
+
+        if read:
+            raise AssertionError(f"Expected nothing read, got {read}.")
+
+        return True
+
+    return assertion
+
+
+def _nothing_was_claimed(claim: Mock) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        if claim.call_args_list:
+            raise AssertionError(f"Expected nothing claimed, got {claim.call_args_list}.")
+
+        return True
+
+    return assertion
+
+
 @pytest.mark.unit
 def test_the_conversation_a_real_fix_has_is_recorded_against_its_incident() -> None:
     # Code-Fix was the one agent whose calls went nowhere, and it cost three
@@ -3478,8 +3835,9 @@ def test_every_read_the_fix_makes_leaves_a_receipt_whoever_asked_for_it() -> Non
     # The model's reads and the loop's own alike - the listing and the
     # branch's history for the opening, the index's freshness, the code
     # outside a submission and the listing beside it, the listing at the
-    # revision that ran - each is a call to the read tier, filed with what it
-    # was asked, and a run is examined later from what it read.
+    # revision that ran, the head the fix is written on - each is a call to the
+    # read tier, filed with what it was asked, and a run is examined later from
+    # what it read.
     some_query = "monthly_spend"
     some_description = "divides by the purchases this month"
     branch = some_settings().deployed_branch
@@ -3516,7 +3874,8 @@ def test_every_read_the_fix_makes_leaves_a_receipt_whoever_asked_for_it() -> Non
                                                       SOME_TEST_PATH: SOME_TEST_SOURCE},
                                      REF_ARGUMENT: branch}),
                 (LIST_FILES_TOOL, {REF_ARGUMENT: branch}),
-                (LIST_FILES_TOOL, {REF_ARGUMENT: SOME_REVISION_THAT_RAN})
+                (LIST_FILES_TOOL, {REF_ARGUMENT: SOME_REVISION_THAT_RAN}),
+                (BRANCH_HEAD_TOOL, {BRANCH_ARGUMENT: branch})
             ])
         )
 
@@ -3797,12 +4156,38 @@ def _the_branch_written_mentions(repository: _Repository, incident: str) -> Asse
     return assertion
 
 
-def _the_branch_was_cut_from(repository: _Repository, base: str) -> Assertion[Any]:
+def _the_head_was_read_of(repository: _Repository, branch: str) -> Assertion[Any]:
     def assertion(_: Any) -> bool:
-        cut_from = repository.write_branch.call_args.kwargs["base_branch"]
+        asked = [call.args for call in repository.branch_head.call_args_list]
 
-        if cut_from != base:
-            raise AssertionError(f"Expected a branch off [{base}], got [{cut_from}].")
+        if asked != [(branch,)]:
+            raise AssertionError(
+                f"Expected the head of [{branch}] read once, it was read for {asked}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_branch_was_written_on(repository: _Repository, commit: str) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        written_on = repository.write_branch.call_args.kwargs["base_commit"]
+
+        if written_on != commit:
+            raise AssertionError(f"Expected a branch written on [{commit}], got [{written_on}].")
+
+        return True
+
+    return assertion
+
+
+def _the_proposal_was_onto(repository: _Repository, base: str) -> Assertion[Any]:
+    def assertion(_: Any) -> bool:
+        onto = repository.open_pull_request.call_args.kwargs["base_branch"]
+
+        if onto != base:
+            raise AssertionError(f"Expected a proposal onto [{base}], got [{onto}].")
 
         return True
 
@@ -4399,6 +4784,9 @@ class _Repository:
         self.contains: Any = create_autospec(
             BranchMembership, instance=True, return_value=containing_what_ran
         )
+        self.branch_head: Any = create_autospec(
+            BranchHead, instance=True, return_value=SOME_HEAD_OF_THE_BRANCH
+        )
         self.write_branch: Any = create_autospec(
             BranchWriter, instance=True, return_value="a-branch"
         )
@@ -4428,6 +4816,7 @@ class _Repository:
             "code_outside": self.code_outside,
             "contains": self.contains,
             "read_file": self.read_file,
+            "branch_head": self.branch_head,
             "write_branch": self.write_branch,
             "open_pull_request": self.open_pull_request
         }
@@ -4466,7 +4855,7 @@ def a_repository(holding: list[str] | None = None,
     )
 
 
-def some_settings(base_branch: str = "main",
+def some_settings(base_branch: str = SOME_DEPLOYED_BRANCH,
                   max_tool_calls: int = 12,
                   retrieval: CodeSearch = CodeSearch.BOTH,
                   model: str = SOME_MODEL,

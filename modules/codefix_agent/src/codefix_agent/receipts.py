@@ -22,13 +22,14 @@ from typing import Final
 from core.replay import CallType, Replay
 from pydantic import BaseModel
 
-# The read tier's names for the three reads Code-Fix makes that are never
+# The read tier's names for the four reads Code-Fix makes that are never
 # offered to its model. The other four are offered, and named in `tools`.
 CONTAINS_TOOL: Final = "branch_contains_revision"
 INDEX_FRESHNESS_TOOL: Final = "get_repository_index_freshness"
 CODE_OUTSIDE_TOOL: Final = "get_code_outside_the_patch"
+BRANCH_HEAD_TOOL: Final = "get_branch_head"
 
-# And the arguments those three are asked by that the four offered are not.
+# And the arguments those four are asked by that the four offered are not.
 BRANCH_ARGUMENT: Final = "branch"
 REVISION_ARGUMENT: Final = "revision"
 FILES_ARGUMENT: Final = "files"

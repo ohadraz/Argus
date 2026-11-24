@@ -579,6 +579,24 @@ CREATE TABLE IF NOT EXISTS executive_synopsis (
     created_at TIMESTAMPTZ NOT NULL
 );
 
+-- The fix Code-Fix decided to propose, written before anything of it reaches
+-- the code host: the files, the commit they are written on, the pull request's
+-- words, and what Code-Fix said of the code. A Code-Fix step run again pushes
+-- this rather than asking the model again, whose new patch the branch the first
+-- attempt wrote would refuse.
+--
+-- Keyed by the incident and by no step of the walk, because the discard a step
+-- run again begins with must leave it: it is the one thing that attempt wrote
+-- which the next has to read.
+CREATE TABLE IF NOT EXISTS fix_claim (
+    -- One per incident, as a walk asks Code-Fix once.
+    incident_id UUID PRIMARY KEY REFERENCES incident(id),
+    -- The shape the claim was written in, as every stored dump says its own.
+    shape SMALLINT NOT NULL,
+    claim JSONB NOT NULL,
+    claimed_at TIMESTAMPTZ NOT NULL
+);
+
 -- One row per currency per day, against one base. The rates a document was
 -- converted at have to survive the document: a reader checking the arithmetic
 -- next month cannot re-fetch them, because the provider publishes today's and

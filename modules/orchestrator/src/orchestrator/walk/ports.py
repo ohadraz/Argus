@@ -25,9 +25,12 @@ from core.models import (
     ChangeEvent,
     ChangeFound,
     ClaimAnswer,
+    ClaimedFix,
+    ClaimFix,
     EstablishedOnset,
     ExecutiveSynopsisDocument,
     Findings,
+    FixClaimed,
     FlagHistory,
     Hypothesis,
     IncidentStatus,
@@ -625,6 +628,10 @@ class ProposeFix(Protocol):
     `done` is what Argus did about the incident, each action with its verdict
     and whether its change still stands - the later word on what the leads
     were weighed as.
+
+    `claimed` and `claim` are the incident's fix claim, read and written: a
+    fix is claimed before any of it is written, and a step run again pushes
+    the claim rather than asking the model again.
     """
 
     def __call__(self,
@@ -634,7 +641,9 @@ class ProposeFix(Protocol):
                  still_wanted: StillWanted = ...,
                  leads: Leads = ...,
                  done: Sequence[WhatArgusDid] = ...,
-                 deployed: str | None = ...) -> ProposedFix: ...
+                 deployed: str | None = ...,
+                 claimed: FixClaimed = ...,
+                 claim: ClaimFix = ...) -> ProposedFix: ...
 
 
 class WritePostmortem(Protocol):
@@ -667,6 +676,23 @@ class ActionsTaken(Protocol):
     """
 
     def __call__(self, incident_id: str, /) -> list[TakenAction]: ...
+
+
+class FixClaimedIn(Protocol):
+    """The fix an earlier attempt at Code-Fix claimed for an incident, where
+    one did. Takes the incident where the agent's own `FixClaimed` takes
+    nothing, for `LeadsOf`'s reason."""
+
+    # Positional-only: the incident is the whole question.
+    def __call__(self, incident_id: str, /) -> ClaimedFix | None: ...
+
+
+class ClaimFixFor(Protocol):
+    """Claims the fix Code-Fix is about to write for an incident, and answers
+    the claim that stands - this one, or one an earlier attempt wrote first."""
+
+    def __call__(self, incident_id: str, fix: ClaimedFix, /, *,
+                 at: datetime) -> ClaimedFix: ...
 
 
 class WhatArgusDidIn(Protocol):

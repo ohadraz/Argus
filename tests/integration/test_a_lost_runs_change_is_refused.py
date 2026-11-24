@@ -14,7 +14,6 @@ that they are wired together: that the server actually started reads the run.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from datetime import timedelta
 from typing import Any, Final
 
@@ -23,12 +22,9 @@ import pytest
 from argus_testkit import Assertion, Scenario, all_of, an_error_was_raised, attempting
 from core import Fence, Holding, RunLost, WriteMcpEndpoint, get_settings, utc_now
 from core.models import Alert
-from github_double.server import DEFAULT_BASE_URL as GITHUB_DOUBLE_BASE_URL
 from incident_record.repository import incidents, runs
 from postgres import connect_from_env
 from write_mcp_client import WriteTier, write_mcp
-
-REQUEST_TIMEOUT_SECONDS: Final = 30.0
 
 # The first claim's lease is over before it begins, which is what lets the
 # second claim take the run back; the second's outlasts the test.
@@ -36,15 +32,9 @@ A_LEASE_ALREADY_OVER: Final = timedelta(seconds=-1)
 A_GENEROUS_LEASE: Final = timedelta(minutes=5)
 
 SOME_BRANCH: Final = "argus/fix-for-a-lost-run"
-
-
-@pytest.fixture
-def github_double() -> Iterator[httpx2.Client]:
-    with httpx2.Client(base_url=GITHUB_DOUBLE_BASE_URL,
-                       timeout=REQUEST_TIMEOUT_SECONDS) as control:
-        control.post("/double-control/reset").raise_for_status()
-        yield control
-        control.post("/double-control/reset").raise_for_status()
+# The commit the branch would be cut from. Never read: the change is refused
+# before anything reaches the code host.
+DONT_CARE_BASE_COMMIT: Final = "544cef36a8eaf45c5b030c3d5c21473d8176cef3"
 
 
 @pytest.mark.integration
@@ -83,12 +73,10 @@ def _a_claim_the_run_was_taken_back_from() -> Fence:
 
 
 def _writing_a_branch_holding(holding: Holding, held: Fence, write: WriteTier) -> str:
-    settings = get_settings()
-
     with holding.of(held):
         return write.commit_to_new_branch(
             branch=SOME_BRANCH,
-            base_branch=settings.deployed_branch,
+            base_commit=DONT_CARE_BASE_COMMIT,
             files={"io_shop/dont_care.py": "dont care\n"},
             message="dont care"
         )

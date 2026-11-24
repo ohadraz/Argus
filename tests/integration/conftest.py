@@ -16,8 +16,11 @@ import subprocess
 from collections.abc import Iterator
 from typing import Final
 
+import httpx2
 import pytest
+from anthropic_double.server import DEFAULT_BASE_URL as ANTHROPIC_DOUBLE_BASE_URL
 from argus_testkit import refuse_the_e2e_stacks_project
+from github_double.server import DEFAULT_BASE_URL as GITHUB_DOUBLE_BASE_URL
 from postgres import connect_from_env, reset_schema
 from psycopg import sql
 
@@ -26,6 +29,9 @@ _POSTGRES: Final = "postgres"
 # What postgres depends on in docker-compose.yml, so `up` starts it with
 # postgres and the stop names it too - or it outlives the suite.
 _ITS_CLOCK: Final = "sim-clock"
+
+# How long a call to a double's control seam may take.
+_REQUEST_TIMEOUT_SECONDS: Final = 30.0
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -78,3 +84,27 @@ def a_clean_database(postgres: None) -> Iterator[None]:
             )
 
         conn.commit()
+
+
+@pytest.fixture
+def anthropic_double() -> Iterator[httpx2.Client]:
+    """The Anthropic double's control seam, with nothing queued before the test
+    and nothing left queued after it - so an answer a case left unasked is not
+    the next case's first."""
+    with httpx2.Client(base_url=ANTHROPIC_DOUBLE_BASE_URL,
+                       timeout=_REQUEST_TIMEOUT_SECONDS) as control:
+        control.post("/double-control/reset").raise_for_status()
+        yield control
+        control.post("/double-control/reset").raise_for_status()
+
+
+@pytest.fixture
+def github_double() -> Iterator[httpx2.Client]:
+    """The GitHub double's control seam, its repository put back before the
+    test and after it - so a branch or proposal a case wrote is not the next
+    case's."""
+    with httpx2.Client(base_url=GITHUB_DOUBLE_BASE_URL,
+                       timeout=_REQUEST_TIMEOUT_SECONDS) as control:
+        control.post("/double-control/reset").raise_for_status()
+        yield control
+        control.post("/double-control/reset").raise_for_status()

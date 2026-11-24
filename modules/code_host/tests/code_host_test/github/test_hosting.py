@@ -19,7 +19,7 @@ from argus_testkit.assertions import Assertion, all_of, the_answer_was
 from argus_testkit.scenario import Scenario
 from code_host import SourceDifference
 from code_host.github import GitHub, GitHubReads
-from code_host.github.branching import OBJECT_FIELD, REF_FIELD, SHA_FIELD, TREE_FIELD
+from code_host.github.branching import REF_FIELD, SHA_FIELD, TREE_FIELD
 from code_host.github.comparing import AHEAD, BETWEEN, FILES_FIELD, RELATION_FIELD
 from code_host.github.headers import AUTHORIZATION_HEADER, BEARER_SCHEME
 from code_host.github.listing import CONTENT_FIELD
@@ -62,16 +62,17 @@ SOME_CLONE_ADDRESS = "https://github.com/kuki/k8s-configs.git"
 THE_REPOSITORY_IT_NAMES = "kuki/k8s-configs"
 SOME_DIRECTORY = "deploy"
 
-# A fix as it is proposed: the branch it is put on, the one it is cut from, and
-# its words.
+# A fix as it is proposed: the branch it is put on, the branch it is proposed
+# onto, and its words.
 SOME_FIX_BRANCH = "argus/fix-monthly-spend"
 SOME_BASE_BRANCH = "main"
 DONT_CARE_FILES = {"src/io_shop/spend_summary.py": "def average(account): ...\n"}
 DONT_CARE_MESSAGE = "dont care message"
 SOME_TITLE = "Average spend over the items bought this month"
 SOME_BODY = "The month's items, not the account's."
-# The objects a commit is built from, as GitHub names them.
-THE_BASE_HEAD = "544cef36a8eaf45c5b030c3d5c21473d8176cef3"
+# The objects a commit is built from, as GitHub names them - the base commit
+# the fix is cut from first.
+THE_BASE_COMMIT = "544cef36a8eaf45c5b030c3d5c21473d8176cef3"
 THE_BASE_TREE = "0d8e826225f0de73958a8a8dd3d867b2ae249e72"
 THE_FIX_TREE = "a97029318f2d4c6b8e0a1c3e5f7092b4d6f8a0c2"
 THE_FIX_COMMIT = "3f1b9d2c8a7e6f5d4c3b2a1908f7e6d5c4b3a291"
@@ -168,11 +169,11 @@ def test_a_deployed_revision_is_read_at_its_commit_and_its_directory() -> None:
 def test_the_write_tier_s_adapter_writes_under_the_token_that_pushes() -> None:
     # The one credential its settings hold, for the writes and for what a write
     # reads on the way.
-    get, post = a_github_holding_a_base(SOME_BASE_BRANCH)
+    get, post = a_github_holding(THE_BASE_COMMIT)
 
     Scenario() \
         .when(lambda: GitHub(some_repository_settings(token=SOME_TOKEN), get, post)
-              .commit_to_new_branch(SOME_FIX_BRANCH, SOME_BASE_BRANCH, DONT_CARE_FILES,
+              .commit_to_new_branch(SOME_FIX_BRANCH, THE_BASE_COMMIT, DONT_CARE_FILES,
                                     DONT_CARE_MESSAGE)) \
         .then(all_of(
             _every_request_was_authorized_with(get, f"{BEARER_SCHEME} {SOME_TOKEN}"),
@@ -181,15 +182,14 @@ def test_the_write_tier_s_adapter_writes_under_the_token_that_pushes() -> None:
 
 
 @pytest.mark.unit
-def test_a_fix_is_committed_to_its_own_branch_cut_from_the_base() -> None:
-    # Two branches, both strings. Swapped, the fix is cut from a branch that does
-    # not exist and the ref written is the base's - the one thing this write
-    # must never touch.
-    get, post = a_github_holding_a_base(SOME_BASE_BRANCH)
+def test_a_fix_is_committed_to_its_own_branch_cut_from_the_base_commit() -> None:
+    # A branch and a commit, both strings. Swapped, the fix is cut from a
+    # commit that does not exist and the ref written is named for a sha.
+    get, post = a_github_holding(THE_BASE_COMMIT)
 
     Scenario() \
         .when(lambda: GitHub(some_repository_settings(), get, post).commit_to_new_branch(
-            SOME_FIX_BRANCH, SOME_BASE_BRANCH, DONT_CARE_FILES, DONT_CARE_MESSAGE
+            SOME_FIX_BRANCH, THE_BASE_COMMIT, DONT_CARE_FILES, DONT_CARE_MESSAGE
         )) \
         .then(all_of(
             the_answer_was(SOME_FIX_BRANCH),
@@ -238,14 +238,11 @@ def a_github_opening_a_pull_request() -> Any:
     return post
 
 
-def a_github_holding_a_base(base: str) -> tuple[Any, Any]:
-    """GitHub as the Git Data API answers a fix cut from `base`: its head and
+def a_github_holding(base_commit: str) -> tuple[Any, Any]:
+    """GitHub as the Git Data API answers a fix cut from `base_commit`: its
     tree read, no branch of the fix's name yet, and each object written."""
     def reading(url: str, **dont_care: Any) -> httpx2.Response:
-        if url.endswith(f"/git/ref/heads/{base}"):
-            return _answered(200, {OBJECT_FIELD: {SHA_FIELD: THE_BASE_HEAD}})
-
-        if url.endswith(f"/git/commits/{THE_BASE_HEAD}"):
+        if url.endswith(f"/git/commits/{base_commit}"):
             return _answered(200, {TREE_FIELD: {SHA_FIELD: THE_BASE_TREE}})
 
         return _answered(404, {})

@@ -23,7 +23,6 @@ from orchestrator.walk.discarding import (
     Discard,
     discarding_first,
     discarding_the_interrupted_attempt,
-    keeps_the_interrupted_fix,
 )
 from orchestrator.walk.ending import stopping_when_a_person_ended_it
 from orchestrator.walk.fixing import codefix_node, route_after_codefix
@@ -129,11 +128,11 @@ def _the_steps(graph: StateGraph[IncidentState], collaborators: Collaborators) -
     numbered step of the walk as well (`stepped`), inside the span, so every
     row the node writes says which step wrote it.
 
-    And every node but Code-Fix takes back what an interrupted attempt at its
-    step wrote before it runs (`discarding`): inside `with_status`, after the
-    ending is asked, for the nodes it wraps, and around the node for the two it
-    does not. Code-Fix keeps its interrupted attempt's account
-    (`keeps_the_interrupted_fix`)."""
+    And every node takes back what an interrupted attempt at its step wrote
+    before it runs (`discarding`): inside `with_status`, after the ending is
+    asked, for the nodes it wraps, and around the node for the two it does
+    not. Code-Fix included: the fix it claimed before writing anything is no
+    line of its step, and survives to be pushed again."""
     def step(name: str, actor: Actor, node: Callable[[IncidentState], Any]) -> None:
         """Registers a node, traced as a step of the walk that `actor` took."""
         graph.add_node(name, traced(name, actor, stepped(node)))
@@ -236,8 +235,10 @@ def _the_steps(graph: StateGraph[IncidentState], collaborators: Collaborators) -
                     publisher=collaborators.publisher,
                     still_wanted=still_wanted,
                     leads_of=collaborators.leads_of,
-                    what_argus_did=collaborators.what_argus_did),
-            discard=keeps_the_interrupted_fix
+                    what_argus_did=collaborators.what_argus_did,
+                    claimed_fix=collaborators.claimed_fix,
+                    claim_fix=collaborators.claim_fix),
+            discard=discarding(CODEFIX_NODE)
         )
     )
     # Not wrapped in `deciding_status`, unlike every node above it. Filing what

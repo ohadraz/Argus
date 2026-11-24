@@ -241,9 +241,11 @@ SOME_COUNT = 3
 SOME_AUTOSCALER = Autoscaler(name="io-shop-cpu", namespace="shopping")
 SOME_BOUNDS = AutoscalerBounds(floor=2, ceiling=8)
 
-# A fix as Code-Fix proposes it: the branch it is put on, the branch it is cut
-# from and proposed onto, each file's whole new content, and its words.
+# A fix as Code-Fix proposes it: the branch it is put on, the commit it is cut
+# from, the branch it is proposed onto, each file's whole new content, and its
+# words.
 SOME_FIX_BRANCH = "argus/fix-monthly-spend"
+SOME_BASE_COMMIT = "544cef36a8eaf45c5b030c3d5c21473d8176cef3"
 SOME_BASE_BRANCH = "main"
 SOME_PATCH = {"src/io_shop/spend_summary.py": "def average(account): ...\n"}
 SOME_MESSAGE = "Average spend over the items bought this month"
@@ -489,22 +491,22 @@ def test_a_rollback_is_put_back_only_where_the_account_it_was_handed_made_the_ne
 
 @pytest.mark.unit
 def test_a_fix_is_put_on_its_branch_by_the_code_host_as_the_call_named_it() -> None:
-    # Positional on the port, so the order is the whole of which branch is
-    # written and which is the base: swapped, a fix would be cut from a branch
-    # that does not exist yet and written over the one that is deployed.
+    # Positional on the port, so the order is the whole of which is the branch
+    # written and which the commit it is cut from: swapped, a fix would be cut
+    # from a branch name read as a commit, onto a ref named for a sha.
     code = create_autospec(CodeHostWrites, instance=True)
     code.commit_to_new_branch.return_value = SOME_FIX_BRANCH
 
     Scenario() \
         .given(server := _a_server(code=code, hold=_a_hold_answering_held)) \
         .when(lambda: _asked(server, "commit_to_new_branch", _acting_for(SOME_ACTION_ID),
-                             branch=SOME_FIX_BRANCH, base_branch=SOME_BASE_BRANCH,
+                             branch=SOME_FIX_BRANCH, base_commit=SOME_BASE_COMMIT,
                              files=SOME_PATCH, message=SOME_MESSAGE).structured_content) \
         .then(all_of(
             the_answer_was({"result": SOME_FIX_BRANCH}),
             lambda _: _the_code_host_was_asked(
                 code.commit_to_new_branch,
-                (SOME_FIX_BRANCH, SOME_BASE_BRANCH, SOME_PATCH, SOME_MESSAGE)
+                (SOME_FIX_BRANCH, SOME_BASE_COMMIT, SOME_PATCH, SOME_MESSAGE)
             )
         ))
 

@@ -646,11 +646,12 @@ def build_server(endpoint: WriteMcpEndpoint,
 
     @mcp.change()
     def commit_to_new_branch(branch: str,
-                             base_branch: str,
+                             base_commit: str,
                              files: dict[str, str],
                              message: str) -> str:
-        """Puts a proposed fix on a branch of its own, cut from the branch it
-        fixes, and returns the branch it wrote.
+        """Puts a proposed fix on a branch of its own, cut from `base_commit` -
+        where the branch it fixes pointed when the fix was claimed - and
+        returns the branch it wrote.
 
         `files` maps a repository path to that file's whole new content. A
         branch is the only thing this writes to - never the base - so a wrong
@@ -660,7 +661,7 @@ def build_server(endpoint: WriteMcpEndpoint,
         brings the test exposing the bug is the one a person can trust. The
         behavior lives behind the code host's writes port; this is
         registration only."""
-        return code.commit_to_new_branch(branch, base_branch, files, message)
+        return code.commit_to_new_branch(branch, base_commit, files, message)
 
     @mcp.change()
     def open_pull_request(head_branch: str,
