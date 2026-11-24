@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Final, assert_never
+from typing import Final, NamedTuple, assert_never
 
 from core import to_iso
 from core.events import (
@@ -491,497 +491,138 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
     A `match` over the event types rather than a lookup keyed on `kind`, so a
     new event type that nobody wrote a line for is a type error rather than a
     line that silently reads "unknown".
-
-    Who did it is decided here because it is a fact about which component
-    publishes which event, and that is a fact about this system rather than
-    about the incident - putting an actor field on the events themselves would
-    make every publisher restate its own name on every line it wrote.
     """
-    emphasis = ""
-    moved_from = moved_to = ""
-
     match event:
         case AlertAcknowledged():
-            who = _ARGUS
-            text = f"Received {event.alert.alert_name} on {event.alert.service}"
+            said = _said_of_alert_acknowledged(event)
         case AgentInvoked():
-            who = _ARGUS
-            text = f"Called in the {_an_agent(event.agent)}"
+            said = _said_of_agent_invoked(event)
         case StatusChanged() if event.reported is not None:
-            # The one move Argus did not make, so said in the name of the person
-            # who made it. Their note stands where Argus's reason would: it is
-            # the only account of why there is.
-            who = event.reported.by
-            emphasis = str(event.to_status).upper()
-            text = (f"Moved the incident to {emphasis} from "
-                    f"{where_a_report_came_from(event.reported)}"
-                    f"{f' - {event.reported.note}' if event.reported.note else ''}")
+            said = _said_of_status_changed_on_a_report(event, event.reported)
         case StatusChanged():
-            who = _ARGUS
-            emphasis = str(event.to_status).upper()
-            text = f"Moved the incident to {emphasis}{_why_it_moved(event)}"
+            said = _said_of_status_changed(event)
         case RetrievalRequested():
-            who = _INVESTIGATOR
-            text = (
-                f"Asked for {_CHANNELS[event.channel]}, "
-                f"{a_window(event.window_start, event.window_end, beside=to_iso(event.at))}"
-            )
+            said = _said_of_retrieval_requested(event)
         case MetricsRetrieved():
-            who = _INVESTIGATOR
-            # A count where the rows run on, and an absence where they stop. The
-            # count is true either way and it describes the wrong thing in the
-            # second case: every minute it counts is from before the incident, and
-            # the incident is that there are none after. The end is the start
-            # of the last minute read, so said as a minute that was read:
-            # "stop at" it reads as though that minute were missing too. A read
-            # that stopped with no end read no minute, and its count says so.
-            text = (
-                f"Read the service's metrics - they stop after the minute at "
-                f"{a_minute(event.window_end, beside=to_iso(event.at))}, and nothing "
-                f"covers the minutes since"
-                if event.stopped_before_the_alert and event.window_end is not None else
-                f"Read back {len(event.buckets)} minutes of metrics"
-            )
+            said = _said_of_metrics_retrieved(event)
         case LogsRetrieved():
-            who = _INVESTIGATOR
-            read = len(event.lines)
-            text = f"Read back {read} log line{'s' if read != 1 else ''}"
+            said = _said_of_logs_retrieved(event)
         case ChangesRetrieved():
-            who = _INVESTIGATOR
-            read = len(event.changes)
-            text = f"Read back {read} production change{'s' if read != 1 else ''}"
+            said = _said_of_changes_retrieved(event)
         case DeploymentChangesRead():
-            who = _INVESTIGATOR
-            text = _what_a_deployment_read_found(event)
+            said = _said_of_deployment_changes_read(event)
         case RolloutRead():
-            who = _INVESTIGATOR
-            text = (f"Read how far the deployment had rolled out - "
-                    f"{_how_far_it_rolled_out(event.account, beside=to_iso(event.at))}")
+            said = _said_of_rollout_read(event)
         case ServiceRegisterRead():
-            who = _INVESTIGATOR
-            # Whose each dependency is, beside its name: a cause resting on one
-            # rests on whose it is, which decided whether anything could be done.
-            text = ("Read the service register - " + (
-                "the service calls " + ", ".join(
-                    f"{dependency.name} ({dependency.ownership}, owned by {dependency.owner})"
-                    for dependency in event.dependencies)
-                if event.dependencies else
-                "it records nothing the service calls"))
+            said = _said_of_service_register_read(event)
         case FlagChangesRetrieved():
-            # The walk's own read, made every round before any agent is called
-            # in to act on it.
-            # Over the window it was read, and by whom: "none changed lately"
-            # has no span, and the read leaves Argus's own toggles out. An
-            # event written before the window was carried says "recent", as it
-            # always did, rather than a span made up for it.
-            who = _ARGUS
-            read = len(event.changes)
-            changes = f"flag change{'s' if read != 1 else ''}"
-            text = (
-                f"Read the flag provider's history - {read} {changes} by anyone but Argus, "
-                f"{a_window(event.window_start, event.window_end, beside=to_iso(event.at))}"
-                if event.window_start is not None and event.window_end is not None
-                else f"Read the flag provider's history - {read} recent {changes}"
-            )
+            said = _said_of_flag_changes_retrieved(event)
         case ChannelsUnread():
-            who = _INVESTIGATOR
-            # Said out loud because the page cannot show it any other way: a
-            # channel nobody asked for leaves exactly the same gap as one that
-            # was read and had nothing in it, and a reader who cannot tell
-            # them apart cannot tell an incomplete investigation from an
-            # inconclusive one.
-            unread = ", ".join(channel.value for channel in event.channels)
-            text = (
-                f"Did not read {unread}" if event.channels
-                else "Read every channel available"
-            )
+            said = _said_of_channels_unread(event)
         case OnsetDetected():
-            who = _INVESTIGATOR
-            # Beside the line's own moment: a fault found a week after it began
-            # has an onset that, as a clock time alone, reads as this morning.
-            text = (
-                f"Placed the start of the incident at "
-                f"{a_minute(event.onset, beside=to_iso(event.at))}"
-            )
+            said = _said_of_onset_detected(event)
         case AnchoredOnTheAlarm():
-            who = _INVESTIGATOR
-            # Where it looked from and, in the same breath, that this is not
-            # when it began: said as a start, it dated the incident from the
-            # moment the alarm went off.
-            text = (
-                f"Looked from {a_minute(event.minute, beside=to_iso(event.at))}, the "
-                f"minute the alarm fired in - nothing dates when the incident began"
-            )
+            said = _said_of_anchored_on_the_alarm(event)
         case PlacementRecorded():
-            who = _INVESTIGATOR
-            emphasis, text = _where_the_replicas_ran(event.placement)
+            said = _said_of_placement_recorded(event)
         case HypothesisFormed():
-            who = _INVESTIGATOR
-            text = _how_many_candidates(1)
+            said = _said_of_hypothesis_formed(event)
         case ActionTaken():
-            who = _MITIGATION
-            emphasis = event.subject or ""
-            text = _an_action_taken(event)
-            if event.enabled is not None:
-                moved_from, moved_to = on_or_off(not event.enabled), on_or_off(event.enabled)
+            said = _said_of_action_taken(event)
         case AwaitingRecovery():
-            who = _MITIGATION
-            # A blind spot's wait as what it waits for: no level was read while
-            # its minutes were missing, so none is left to be still at.
-            waiting_for = (_READABLE_AGAIN if event.until_read_again
-                           else _STILL_AT_THE_LEVEL)
-            text = (
-                f"{_WAITING_TO_SEE}{waiting_for}, "
-                f"from {a_minute(event.from_minute)} - "
-                f"up to {int(event.seconds_allowed)}s"
-            )
+            said = _said_of_awaiting_recovery(event)
         case RecoveryChecked():
-            who = _MITIGATION
-            # Without the minute the look is judged *from* - `event.minute`.
-            # That one is in the future when the look happens, since it is the
-            # minute being waited for, and a line stamped 19:21 that talks about
-            # 19:22 reads as a page that cannot tell the time. The line above it
-            # already says what is being waited for and for how long.
-            #
-            # The minute the service came back at is the opposite case on every
-            # count, which is why it is said. It is in the past, it is the one
-            # thing here a reader cannot work out from the lines around it, and
-            # where it precedes the action it is the only place a reader can see
-            # that the service recovered before Argus touched it.
-            text = f"Looked at the service - {_what_the_look_settled(event)}"
+            said = _said_of_recovery_checked(event)
         case VerdictReached():
-            who = _MITIGATION
-            # Red or green, and in capitals: this is the sentence the whole
-            # mitigation was for, and a reader scanning a screen from across a
-            # room should be able to find it without reading the line.
-            emphasis = event.outcome.upper()
-            text = f"Judged the action {emphasis}"
-            # Nothing was judged: a person ended the incident while the service
-            # was watched, and a verdict in capitals would read as one reached.
-            if event.outcome is Verdict.STOPPED:
-                emphasis = ("Stopped before judging the action" if event.performed
-                            else "Stopped before taking the action")
-                text = f"{emphasis} - a person ended the incident"
-            # Nothing was done either: the attempt ended before its write, so
-            # no line above announced it, and "judged" would claim a test.
-            # Why, in the tier's words, where a tier said: the only reason
-            # this line has for an explanation passed over untested.
-            elif not event.performed:
-                why = (f": {event.not_performed_because}"
-                       if event.not_performed_because else "")
-                text = (f"{_what_was_reached_for_and_not_done(event)}"
-                        f"{_for_its_candidate(event.candidate_number)} - {emphasis}{why}")
-            # Done, and never read: every look at the service went unanswered,
-            # or somebody overtook the change before it was watched.
-            elif not event.judged:
-                text = f"Could not judge the action - {emphasis}"
-            # Refuted, and the change put back or left as found: in the undo's
-            # own words, the cleanup line's, since nothing else live says it.
-            # Not an escalated undo's, whose words the move line beside it
-            # already says.
-            elif put_back := _what_its_undo_did(event):
-                text = f"Judged the action {emphasis} - {put_back}"
+            said = _said_of_verdict_reached(event)
         case FixAttempted():
-            who = _CODEFIX
-            emphasis, text = _what_came_of_looking_at_the_code(event)
+            said = _said_of_fix_attempted(event)
         case PostmortemWritten():
-            who = _POSTMORTEM
-            # The cause is marked because it is what a reader scanning a list
-            # of endings is looking for - inside the summary, which says it.
-            # Where there is none the line still exists, and an empty mark
-            # simply marks nothing.
-            emphasis = event.cause_in_plain_words or ""
-            text = _the_postmortem_in_short(event)
+            said = _said_of_postmortem_written(event)
         case ExecutiveSynopsisWritten():
-            who = _POSTMORTEM
-            # No word of it: it shows pay, and is for the people it is sent to.
-            text = "Wrote the executive synopsis"
+            said = _said_of_executive_synopsis_written(event)
         case ExecutiveSynopsisWithheld():
-            who = _POSTMORTEM
-            text = f"Withheld the executive synopsis - {event.reason}"
+            said = _said_of_executive_synopsis_withheld(event)
         case CandidateSelected():
-            who = _ARGUS
-            # The number rather than the summary, as every line acting for the
-            # candidate names it. The summary is the Investigator's claims, and
-            # said on Argus's own line they read as what happened; they stay in
-            # the candidate's row, which the number leads to. The number is the
-            # candidate's from when it was formed, so a list added to since
-            # does not move it.
-            text = (f"{_MOVING_ON_TO}{a_candidate_cause(event.candidate_number)}"
-                    if event.candidate_number is not None else
-                    f"{_MOVING_ON_TO}the next candidate cause")
+            said = _said_of_candidate_selected(event)
         case ActionRefused():
-            who = _ARGUS
-            # The reason, for the same reason a refused message marks its
-            # refusal: the two are different findings, and which of them
-            # happened is the only part a person can act on.
-            emphasis = why_it_was_refused(event.refusal)
-            text = (f"Refused to act on {a_candidate_cause(event.candidate_number)} - {emphasis}"
-                    if event.candidate_number is not None else
-                    f"Refused to act - {emphasis}")
-            # Where the failure is another company's, the one line that says
-            # it is theirs says why no change to this code follows - and whom
-            # to ask, where the register says whose. Nothing else on the page
-            # or in the thread says either.
-            if event.refusal is Refusal.SOMEBODY_ELSES_SERVICE:
-                text += (f" - ask {event.dependency.owner} to restore "
-                         f"{event.dependency.name}, and no code fix is looked for"
-                         if event.dependency is not None else
-                         " - no code fix is looked for")
-            # Whose change is open on the subject, where the claim refused it:
-            # the sentence before this has no event to name an incident from.
-            if event.refusal is Refusal.SUBJECT_ALREADY_OPEN:
-                text += whose_open_change(event.open_in, event.incident_id)
+            said = _said_of_action_refused(event)
         case ActionRecommended():
-            who = _ARGUS
-            # The subject rather than the kind, because the kind is not
-            # something anybody can go and do: "revert a feature flag" is a
-            # category, and the flag's name is the instruction.
-            emphasis = event.subject or ""
-            # The gerund the demotion line, the tried-and-filed line and the
-            # recall share, rather than another spelling of the same action.
-            # This is one more place the same fact is said - Argus would have
-            # done this - and a reader matching them should not have to read
-            # two tenses.
-            text = (
-                f"Left for a person to do - "
-                f"{what_the_action_does(event.action_type, emphasis)}"
-                f"{_for_its_candidate(event.candidate_number)}"
-            )
+            said = _said_of_action_recommended(event)
         case AlarmDisproven():
-            who = _ARGUS
-            # The condition the rule reported, because that is the thing found
-            # not to be there. Marking the service or the status instead would
-            # leave a reader knowing Argus stopped and not what it ruled out -
-            # and what they do next depends on which series the rule was about.
-            emphasis = event.condition
-            # The span and the count both, in the one line, for the reason the
-            # event carries both: nothing later checks a disproof, so a reader
-            # scanning the timeline is the last check there is. A window that
-            # holds fewer minutes than its ends suggest is the one a disproof
-            # should be doubted over, and that is invisible unless both are said.
-            # Its ends as every other row says a minute, and its signals as the
-            # metrics table beside it heads them.
-            text = (
-                f"{_NOTHING_MATCHED} - "
-                f"{emphasis} - in {_any_of(event.signals_judged)}, over "
-                f"{event.minutes_judged} minute"
-                f"{'' if event.minutes_judged == 1 else 's'} read between "
-                f"{a_minute(event.earliest_minute, beside=event.latest_minute)} and "
-                f"{a_minute(event.latest_minute, beside=event.earliest_minute)}. "
-                f"The rule fired rather than the service failing"
-            )
+            said = _said_of_alarm_disproven(event)
         case MitigationResumed():
-            who = _ARGUS
-            emphasis = str(event.outcome).upper()
-            text = (
-                f"Picked the incident back up and read the verdict already "
-                f"recorded for this candidate: {emphasis}"
-            )
+            said = _said_of_mitigation_resumed(event)
         case ChangeUndone():
-            who = _ARGUS
-            # The subject, as an action marks it: the restore and the change
-            # it reverses are the same subject a page apart, and a reader
-            # matching them up should not have to read two spellings.
-            emphasis = event.subject
-            # What became of it is the answer's own detail, verb and all: only
-            # the kind of change knows which verb fits - a flag was put back ON,
-            # a write that failed could not be put back, one half done was only
-            # partly put back. A heading of this line's own in front of it said
-            # the outcome twice, and over a failed write said "could not be read".
-            text = f"{emphasis} {event.detail}"
+            said = _said_of_change_undone(event)
         case SimilarIncidentsRecalled():
-            who = _ARGUS
-            # How many, marked, rather than the ids. The count is what a reader
-            # scanning a timeline can act on - whether memory had anything to say
-            # about this incident at all - and a row of identifiers is a lookup
-            # nobody performs mid-incident. The closest one is named in the
-            # sentence, because it is the record the line after this may move a
-            # candidate on the strength of.
-            #
-            # Named as the closest match rather than as the head of an order. One
-            # match is the ordinary case, and "nearest first" is a claim about a
-            # sequence that a single incident does not have.
-            #
-            # With what the closest one tried and what came of each, because
-            # that is what a reader can use: an id alone sends them to look it
-            # up, and an action this incident is about to take again, refuted
-            # there, is a recurrence - the evidence that bears most on whether
-            # the cause it answers is the cause at all. Said in the words the
-            # line that filed it used, so the two read as one fact.
-            found = len(event.recalled)
-            closest = event.recalled[0]
-            emphasis = f"{found} earlier incident{'s' if found != 1 else ''}"
-            text = (
-                f"Found {emphasis} like this one in memory, the closest match "
-                f"being incident {closest.incident_id}{_what_it_tried(closest)}"
-            )
+            said = _said_of_similar_incidents_recalled(event)
         case CandidatesReordered():
-            who = _ARGUS
-            # The action, because what moved the candidate is that this action
-            # was taken before and did not help - and the subject alone leaves
-            # a reader unable to tell which experiment is being skipped. The
-            # past incident is in the sentence rather than marked: it is where
-            # the reason lives, not what the line is about.
-            emphasis = what_the_action_does(event.action_type, event.subject)
-            text = (
-                f"Moved {emphasis} down the list - it was tried on incident "
-                f"{event.on_the_strength_of} and refuted there"
-            )
+            said = _said_of_candidates_reordered(event)
         case IncidentRemembered():
-            who = _ARGUS
-            # The actions, because they are the whole content of what was
-            # filed: a later incident reads this record to find out what was
-            # done here, and the description it was found by is a fact about
-            # searching rather than about the incident.
-            #
-            # Said the way the reordering above says one, because the two
-            # lines are about the same thing a record away from each other -
-            # what this incident filed, and what a later one was spared.
-            emphasis = ", ".join(
-                what_the_action_does(identity.action_type, identity.subject)
-                for identity in event.tried
-            )
-            text = f"Filed what was tried on this incident: {emphasis}"
+            said = _said_of_incident_remembered(event)
         case RememberingFailed():
-            who = _ARGUS
-            # The reason is set apart for the reason a refused message sets one
-            # apart: a store that is down and a store nobody configured are
-            # fixed by different people, and neither is fixed by knowing that
-            # something failed.
-            emphasis = event.refusal
-            text = f"Could not file what was tried - {emphasis}"
+            said = _said_of_remembering_failed(event)
         case StepRunAgain():
-            who = _ARGUS
-            # Said for whoever already heard the interrupted attempt: a channel
-            # carried its lines, and the lines after this one tell the same
-            # step again. The step as the walk names it, in words rather than
-            # as an identifier.
-            emphasis = event.step.replace("_", " ")
-            text = (
-                f"Running the {emphasis} step again from its start - it was "
-                f"interrupted, and what follows replaces what it had said"
-            )
+            said = _said_of_step_run_again(event)
         case RetrievalUnanswered():
-            who = _ARGUS
-            # Argus's voice for all three publishers, though one of them is a
-            # mitigation waiting on the service and another is a tool the model
-            # asked for. `PlatformUnavailable` below is credited the same way and
-            # for the same reason: the tier reported a call that failed, and what
-            # is said here is the walk's conclusion about what it therefore does
-            # not know.
-            #
-            # What was asked is set apart rather than the minute. The minute
-            # places the gap and what was asked is the thing somebody has to go
-            # and look at - the same division the two lines above draw.
-            emphasis = event.what_was_asked
-            # The minute only where there is one, and said as the thing being
-            # judged rather than as the moment of the read. A verification's
-            # failed pass is about a minute in the near future - the one being
-            # waited for - so "for" reads correctly and "at" would not.
-            about = (
-                "" if event.minute is None else f" for {a_minute(event.minute)}"
-            )
-            # The reason last, and only where there is one. It is the half a
-            # reader acts on, and it goes after the minute so that neither reads
-            # as qualifying the other.
-            why = "" if event.because is None else f" - {event.because}"
-            text = f"Could not read {emphasis}{about}{why}"
+            said = _said_of_retrieval_unanswered(event)
         case PlatformUnavailable():
-            who = _ARGUS
-            # The platform is set apart rather than the actions, because it is
-            # the half somebody has to go and look at: the actions are what it
-            # cost this incident, and the platform is what is broken.
-            emphasis = event.platform
-            # Said from what the event carries rather than from the mapping that
-            # holds it today. An incident read months later has to say what went
-            # away then - and a line generated from the current mapping would
-            # quietly re-describe an old incident every time a mitigation is
-            # added.
-            #
-            # Named one by one rather than counted. "Four actions" tells a reader
-            # how much was lost and not what, and what is the half that says
-            # whether the thing they are holding could have been acted on at all.
-            text = (
-                f"Could not reach {emphasis} - "
-                f"{_and_then_some(event.actions_unavailable)} unavailable"
-            )
+            said = _said_of_platform_unavailable(event)
         case CommunicationFailed():
-            who = _COMMUNICATOR
-            # The one line on the page about the page's own rival: everything
-            # else here was read in Slack too, and this says which line was
-            # not. The refusal is set apart because it is the actionable half
-            # - a renamed channel and a revoked token are fixed by different
-            # people, and neither is fixed by knowing that something failed.
-            emphasis = event.refusal
-            text = f"Could not tell {event.channel} - {emphasis}"
+            said = _said_of_communication_failed(event)
         case PersonWrote():
-            who = A_PERSON
-            # Their words, untouched and set apart. What Argus made of them is
-            # the next line, in the intent reader's voice, so that the person and
-            # Argus's classification of them are never one sentence.
-            emphasis = event.text
-            text = f"Wrote in the incident's thread: {emphasis}"
+            said = _said_of_person_wrote(event)
         case MessageUnderstood():
-            who = _INTENT
-            emphasis = _A_MEANING[event.meaning]
-            text = f"Classified the message as {emphasis}"
+            said = _said_of_message_understood(event)
         case ResolutionOffered():
-            who = _INTENT
-            # Named, because only that person's press counts. Somebody the chat
-            # platform could not name was still asked, and is said as such
-            # rather than left out of the sentence.
-            emphasis = event.person_name or "whoever wrote it"
-            text = f"Asked {emphasis} to confirm the incident is resolved"
+            said = _said_of_resolution_offered(event)
         case WithdrawalOffered():
-            who = _INTENT
-            # Named for the reason a resolution offer is, and saying what the
-            # press does, because it does something a person might not expect:
-            # Argus puts back what it changed on the way out.
-            emphasis = event.person_name or "whoever wrote it"
-            text = (f"Asked {emphasis} to confirm Argus should stand down "
-                    f"and put back what it changed")
+            said = _said_of_withdrawal_offered(event)
         case OfferExpired():
-            who = _ARGUS
-            # Argus's line, not the intent reader's: carrying on is the walk's
-            # decision. It says why the next step came, so it does not read as
-            # one taken over the head of a person who asked for an ending.
-            # Whichever ending: the expiry names only the message.
-            emphasis = _NOT_CONFIRMED_IN_TIME
-            text = _THE_OFFER_RAN_OUT
+            said = _said_of_offer_expired(event)
         case LeadWeighed():
-            who = _INVESTIGATOR
-            # The answer owed to whoever wrote it, in their own thread: what the
-            # Investigator made of it, set apart, and why - a standing with no
-            # reason is a verdict nobody can check.
-            emphasis = event.standing.value
-            text = f"Weighed the lead from the thread as {emphasis} - {event.reason}"
+            said = _said_of_lead_weighed(event)
         case QuestionAnswered():
-            who = _INTENT
-            # The reply owed to whoever asked, in their own thread: the answer
-            # whole and set apart, because a shortened answer sends the reader
-            # looking for the rest of it somewhere else.
-            emphasis = event.answer
-            text = f"Answered the question from the thread: {emphasis}"
+            said = _said_of_question_answered(event)
         case _:
             assert_never(event)
 
-    before, marked, after = _set_apart(text, emphasis)
+    return _the_line(event, said)
+
+
+class _Said(NamedTuple):
+    """What one event's line says and who says it - the part of a line
+    that differs by the kind of event. Only an action taken moves anything,
+    and not every line marks something, so those three default to nothing."""
+
+    who: str
+    text: str
+    emphasis: str = ""
+    moved_from: str = ""
+    moved_to: str = ""
+
+
+def _the_line(event: IncidentEvent, said: _Said) -> NarrationLine:
+    """The line an event is told as: what was said of it, set apart around
+    its mark, beside every other fact the line carries, each read off the
+    event itself."""
+    before, marked, after = _set_apart(said.text, said.emphasis)
 
     return NarrationLine(
         at=event.at,
         kind=event.kind,
-        who=who,
-        text=text,
+        who=said.who,
+        text=said.text,
         before_emphasis=before,
         emphasis=marked,
         after_emphasis=after,
-        moved_from=moved_from,
-        moved_to=moved_to,
+        moved_from=said.moved_from,
+        moved_to=said.moved_to,
         names_minute=_the_minute_it_names(event),
         names_url=_the_address_it_names(event),
         names_incident=_the_incident_it_names(event),
-        names_candidate=_the_candidate_it_names(event, text),
+        names_candidate=_the_candidate_it_names(event, said.text),
         aside=_what_it_says_beside_itself(event),
         asks_to_confirm=(event.message
                          if isinstance(event, ResolutionOffered | WithdrawalOffered)
@@ -1014,6 +655,653 @@ def a_narration_line(event: IncidentEvent) -> NarrationLine:
         may_rule_out=event.may_rule_out,
         put_back=_what_its_undo_did(event)
     )
+
+
+def _said_of_alert_acknowledged(event: AlertAcknowledged) -> _Said:
+    who = _ARGUS
+    text = f"Received {event.alert.alert_name} on {event.alert.service}"
+
+    return _Said(who=who, text=text)
+
+
+def _said_of_agent_invoked(event: AgentInvoked) -> _Said:
+    who = _ARGUS
+    text = f"Called in the {_an_agent(event.agent)}"
+
+    return _Said(who=who, text=text)
+
+
+def _said_of_status_changed_on_a_report(event: StatusChanged, reported: Report) -> _Said:
+    # The one move Argus did not make, so said in the name of the person
+    # who made it. Their note stands where Argus's reason would: it is
+    # the only account of why there is.
+    who = reported.by
+    emphasis = str(event.to_status).upper()
+    text = (f"Moved the incident to {emphasis} from "
+            f"{where_a_report_came_from(reported)}"
+            f"{f' - {reported.note}' if reported.note else ''}")
+
+    return _Said(who=who, text=text, emphasis=emphasis)
+
+
+def _said_of_status_changed(event: StatusChanged) -> _Said:
+    who = _ARGUS
+    emphasis = str(event.to_status).upper()
+    text = f"Moved the incident to {emphasis}{_why_it_moved(event)}"
+
+    return _Said(who=who, text=text, emphasis=emphasis)
+
+
+def _said_of_retrieval_requested(event: RetrievalRequested) -> _Said:
+    who = _INVESTIGATOR
+    text = (
+        f"Asked for {_CHANNELS[event.channel]}, "
+        f"{a_window(event.window_start, event.window_end, beside=to_iso(event.at))}"
+    )
+
+    return _Said(who=who, text=text)
+
+
+def _said_of_metrics_retrieved(event: MetricsRetrieved) -> _Said:
+    who = _INVESTIGATOR
+    # A count where the rows run on, and an absence where they stop. The
+    # count is true either way and it describes the wrong thing in the
+    # second case: every minute it counts is from before the incident, and
+    # the incident is that there are none after. The end is the start
+    # of the last minute read, so said as a minute that was read:
+    # "stop at" it reads as though that minute were missing too. A read
+    # that stopped with no end read no minute, and its count says so.
+    text = (
+        f"Read the service's metrics - they stop after the minute at "
+        f"{a_minute(event.window_end, beside=to_iso(event.at))}, and nothing "
+        f"covers the minutes since"
+        if event.stopped_before_the_alert and event.window_end is not None else
+        f"Read back {len(event.buckets)} minutes of metrics"
+    )
+
+    return _Said(who=who, text=text)
+
+
+def _said_of_logs_retrieved(event: LogsRetrieved) -> _Said:
+    who = _INVESTIGATOR
+    read = len(event.lines)
+    text = f"Read back {read} log line{'s' if read != 1 else ''}"
+
+    return _Said(who=who, text=text)
+
+
+def _said_of_changes_retrieved(event: ChangesRetrieved) -> _Said:
+    who = _INVESTIGATOR
+    read = len(event.changes)
+    text = f"Read back {read} production change{'s' if read != 1 else ''}"
+
+    return _Said(who=who, text=text)
+
+
+def _said_of_deployment_changes_read(event: DeploymentChangesRead) -> _Said:
+    who = _INVESTIGATOR
+    text = _what_a_deployment_read_found(event)
+
+    return _Said(who=who, text=text)
+
+
+def _said_of_rollout_read(event: RolloutRead) -> _Said:
+    who = _INVESTIGATOR
+    text = (f"Read how far the deployment had rolled out - "
+            f"{_how_far_it_rolled_out(event.account, beside=to_iso(event.at))}")
+
+    return _Said(who=who, text=text)
+
+
+def _said_of_service_register_read(event: ServiceRegisterRead) -> _Said:
+    who = _INVESTIGATOR
+    # Whose each dependency is, beside its name: a cause resting on one
+    # rests on whose it is, which decided whether anything could be done.
+    text = ("Read the service register - " + (
+        "the service calls " + ", ".join(
+            f"{dependency.name} ({dependency.ownership}, owned by {dependency.owner})"
+            for dependency in event.dependencies)
+        if event.dependencies else
+        "it records nothing the service calls"))
+
+    return _Said(who=who, text=text)
+
+
+def _said_of_flag_changes_retrieved(event: FlagChangesRetrieved) -> _Said:
+    # The walk's own read, made every round before any agent is called
+    # in to act on it.
+    # Over the window it was read, and by whom: "none changed lately"
+    # has no span, and the read leaves Argus's own toggles out. An
+    # event written before the window was carried says "recent", as it
+    # always did, rather than a span made up for it.
+    who = _ARGUS
+    read = len(event.changes)
+    changes = f"flag change{'s' if read != 1 else ''}"
+    text = (
+        f"Read the flag provider's history - {read} {changes} by anyone but Argus, "
+        f"{a_window(event.window_start, event.window_end, beside=to_iso(event.at))}"
+        if event.window_start is not None and event.window_end is not None
+        else f"Read the flag provider's history - {read} recent {changes}"
+    )
+
+    return _Said(who=who, text=text)
+
+
+def _said_of_channels_unread(event: ChannelsUnread) -> _Said:
+    who = _INVESTIGATOR
+    # Said out loud because the page cannot show it any other way: a
+    # channel nobody asked for leaves exactly the same gap as one that
+    # was read and had nothing in it, and a reader who cannot tell
+    # them apart cannot tell an incomplete investigation from an
+    # inconclusive one.
+    unread = ", ".join(channel.value for channel in event.channels)
+    text = (
+        f"Did not read {unread}" if event.channels
+        else "Read every channel available"
+    )
+
+    return _Said(who=who, text=text)
+
+
+def _said_of_onset_detected(event: OnsetDetected) -> _Said:
+    who = _INVESTIGATOR
+    # Beside the line's own moment: a fault found a week after it began
+    # has an onset that, as a clock time alone, reads as this morning.
+    text = (
+        f"Placed the start of the incident at "
+        f"{a_minute(event.onset, beside=to_iso(event.at))}"
+    )
+
+    return _Said(who=who, text=text)
+
+
+def _said_of_anchored_on_the_alarm(event: AnchoredOnTheAlarm) -> _Said:
+    who = _INVESTIGATOR
+    # Where it looked from and, in the same breath, that this is not
+    # when it began: said as a start, it dated the incident from the
+    # moment the alarm went off.
+    text = (
+        f"Looked from {a_minute(event.minute, beside=to_iso(event.at))}, the "
+        f"minute the alarm fired in - nothing dates when the incident began"
+    )
+
+    return _Said(who=who, text=text)
+
+
+def _said_of_placement_recorded(event: PlacementRecorded) -> _Said:
+    who = _INVESTIGATOR
+    emphasis, text = _where_the_replicas_ran(event.placement)
+
+    return _Said(who=who, text=text, emphasis=emphasis)
+
+
+def _said_of_hypothesis_formed(event: HypothesisFormed) -> _Said:
+    who = _INVESTIGATOR
+    text = _how_many_candidates(1)
+
+    return _Said(who=who, text=text)
+
+
+def _said_of_action_taken(event: ActionTaken) -> _Said:
+    moved_from = moved_to = ""
+    who = _MITIGATION
+    emphasis = event.subject or ""
+    text = _an_action_taken(event)
+    if event.enabled is not None:
+        moved_from, moved_to = on_or_off(not event.enabled), on_or_off(event.enabled)
+
+    return _Said(who=who, text=text, emphasis=emphasis, moved_from=moved_from, moved_to=moved_to)
+
+
+def _said_of_awaiting_recovery(event: AwaitingRecovery) -> _Said:
+    who = _MITIGATION
+    # A blind spot's wait as what it waits for: no level was read while
+    # its minutes were missing, so none is left to be still at.
+    waiting_for = (_READABLE_AGAIN if event.until_read_again
+                   else _STILL_AT_THE_LEVEL)
+    text = (
+        f"{_WAITING_TO_SEE}{waiting_for}, "
+        f"from {a_minute(event.from_minute)} - "
+        f"up to {int(event.seconds_allowed)}s"
+    )
+
+    return _Said(who=who, text=text)
+
+
+def _said_of_recovery_checked(event: RecoveryChecked) -> _Said:
+    who = _MITIGATION
+    # Without the minute the look is judged *from* - `event.minute`.
+    # That one is in the future when the look happens, since it is the
+    # minute being waited for, and a line stamped 19:21 that talks about
+    # 19:22 reads as a page that cannot tell the time. The line above it
+    # already says what is being waited for and for how long.
+    #
+    # The minute the service came back at is the opposite case on every
+    # count, which is why it is said. It is in the past, it is the one
+    # thing here a reader cannot work out from the lines around it, and
+    # where it precedes the action it is the only place a reader can see
+    # that the service recovered before Argus touched it.
+    text = f"Looked at the service - {_what_the_look_settled(event)}"
+
+    return _Said(who=who, text=text)
+
+
+def _said_of_verdict_reached(event: VerdictReached) -> _Said:
+    who = _MITIGATION
+    # Red or green, and in capitals: this is the sentence the whole
+    # mitigation was for, and a reader scanning a screen from across a
+    # room should be able to find it without reading the line.
+    emphasis = event.outcome.upper()
+    text = f"Judged the action {emphasis}"
+    # Nothing was judged: a person ended the incident while the service
+    # was watched, and a verdict in capitals would read as one reached.
+    if event.outcome is Verdict.STOPPED:
+        emphasis = ("Stopped before judging the action" if event.performed
+                    else "Stopped before taking the action")
+        text = f"{emphasis} - a person ended the incident"
+    # Nothing was done either: the attempt ended before its write, so
+    # no line above announced it, and "judged" would claim a test.
+    # Why, in the tier's words, where a tier said: the only reason
+    # this line has for an explanation passed over untested.
+    elif not event.performed:
+        why = (f": {event.not_performed_because}"
+               if event.not_performed_because else "")
+        text = (f"{_what_was_reached_for_and_not_done(event)}"
+                f"{_for_its_candidate(event.candidate_number)} - {emphasis}{why}")
+    # Done, and never read: every look at the service went unanswered,
+    # or somebody overtook the change before it was watched.
+    elif not event.judged:
+        text = f"Could not judge the action - {emphasis}"
+    # Refuted, and the change put back or left as found: in the undo's
+    # own words, the cleanup line's, since nothing else live says it.
+    # Not an escalated undo's, whose words the move line beside it
+    # already says.
+    elif put_back := _what_its_undo_did(event):
+        text = f"Judged the action {emphasis} - {put_back}"
+
+    return _Said(who=who, text=text, emphasis=emphasis)
+
+
+def _said_of_fix_attempted(event: FixAttempted) -> _Said:
+    who = _CODEFIX
+    emphasis, text = _what_came_of_looking_at_the_code(event)
+
+    return _Said(who=who, text=text, emphasis=emphasis)
+
+
+def _said_of_postmortem_written(event: PostmortemWritten) -> _Said:
+    who = _POSTMORTEM
+    # The cause is marked because it is what a reader scanning a list
+    # of endings is looking for - inside the summary, which says it.
+    # Where there is none the line still exists, and an empty mark
+    # simply marks nothing.
+    emphasis = event.cause_in_plain_words or ""
+    text = _the_postmortem_in_short(event)
+
+    return _Said(who=who, text=text, emphasis=emphasis)
+
+
+def _said_of_executive_synopsis_written(event: ExecutiveSynopsisWritten) -> _Said:
+    who = _POSTMORTEM
+    # No word of it: it shows pay, and is for the people it is sent to.
+    text = "Wrote the executive synopsis"
+
+    return _Said(who=who, text=text)
+
+
+def _said_of_executive_synopsis_withheld(event: ExecutiveSynopsisWithheld) -> _Said:
+    who = _POSTMORTEM
+    text = f"Withheld the executive synopsis - {event.reason}"
+
+    return _Said(who=who, text=text)
+
+
+def _said_of_candidate_selected(event: CandidateSelected) -> _Said:
+    who = _ARGUS
+    # The number rather than the summary, as every line acting for the
+    # candidate names it. The summary is the Investigator's claims, and
+    # said on Argus's own line they read as what happened; they stay in
+    # the candidate's row, which the number leads to. The number is the
+    # candidate's from when it was formed, so a list added to since
+    # does not move it.
+    text = (f"{_MOVING_ON_TO}{a_candidate_cause(event.candidate_number)}"
+            if event.candidate_number is not None else
+            f"{_MOVING_ON_TO}the next candidate cause")
+
+    return _Said(who=who, text=text)
+
+
+def _said_of_action_refused(event: ActionRefused) -> _Said:
+    who = _ARGUS
+    # The reason, for the same reason a refused message marks its
+    # refusal: the two are different findings, and which of them
+    # happened is the only part a person can act on.
+    emphasis = why_it_was_refused(event.refusal)
+    text = (f"Refused to act on {a_candidate_cause(event.candidate_number)} - {emphasis}"
+            if event.candidate_number is not None else
+            f"Refused to act - {emphasis}")
+    # Where the failure is another company's, the one line that says
+    # it is theirs says why no change to this code follows - and whom
+    # to ask, where the register says whose. Nothing else on the page
+    # or in the thread says either.
+    if event.refusal is Refusal.SOMEBODY_ELSES_SERVICE:
+        text += (f" - ask {event.dependency.owner} to restore "
+                 f"{event.dependency.name}, and no code fix is looked for"
+                 if event.dependency is not None else
+                 " - no code fix is looked for")
+    # Whose change is open on the subject, where the claim refused it:
+    # the sentence before this has no event to name an incident from.
+    if event.refusal is Refusal.SUBJECT_ALREADY_OPEN:
+        text += whose_open_change(event.open_in, event.incident_id)
+
+    return _Said(who=who, text=text, emphasis=emphasis)
+
+
+def _said_of_action_recommended(event: ActionRecommended) -> _Said:
+    who = _ARGUS
+    # The subject rather than the kind, because the kind is not
+    # something anybody can go and do: "revert a feature flag" is a
+    # category, and the flag's name is the instruction.
+    emphasis = event.subject or ""
+    # The gerund the demotion line, the tried-and-filed line and the
+    # recall share, rather than another spelling of the same action.
+    # This is one more place the same fact is said - Argus would have
+    # done this - and a reader matching them should not have to read
+    # two tenses.
+    text = (
+        f"Left for a person to do - "
+        f"{what_the_action_does(event.action_type, emphasis)}"
+        f"{_for_its_candidate(event.candidate_number)}"
+    )
+
+    return _Said(who=who, text=text, emphasis=emphasis)
+
+
+def _said_of_alarm_disproven(event: AlarmDisproven) -> _Said:
+    who = _ARGUS
+    # The condition the rule reported, because that is the thing found
+    # not to be there. Marking the service or the status instead would
+    # leave a reader knowing Argus stopped and not what it ruled out -
+    # and what they do next depends on which series the rule was about.
+    emphasis = event.condition
+    # The span and the count both, in the one line, for the reason the
+    # event carries both: nothing later checks a disproof, so a reader
+    # scanning the timeline is the last check there is. A window that
+    # holds fewer minutes than its ends suggest is the one a disproof
+    # should be doubted over, and that is invisible unless both are said.
+    # Its ends as every other row says a minute, and its signals as the
+    # metrics table beside it heads them.
+    text = (
+        f"{_NOTHING_MATCHED} - "
+        f"{emphasis} - in {_any_of(event.signals_judged)}, over "
+        f"{event.minutes_judged} minute"
+        f"{'' if event.minutes_judged == 1 else 's'} read between "
+        f"{a_minute(event.earliest_minute, beside=event.latest_minute)} and "
+        f"{a_minute(event.latest_minute, beside=event.earliest_minute)}. "
+        f"The rule fired rather than the service failing"
+    )
+
+    return _Said(who=who, text=text, emphasis=emphasis)
+
+
+def _said_of_mitigation_resumed(event: MitigationResumed) -> _Said:
+    who = _ARGUS
+    emphasis = str(event.outcome).upper()
+    text = (
+        f"Picked the incident back up and read the verdict already "
+        f"recorded for this candidate: {emphasis}"
+    )
+
+    return _Said(who=who, text=text, emphasis=emphasis)
+
+
+def _said_of_change_undone(event: ChangeUndone) -> _Said:
+    who = _ARGUS
+    # The subject, as an action marks it: the restore and the change
+    # it reverses are the same subject a page apart, and a reader
+    # matching them up should not have to read two spellings.
+    emphasis = event.subject
+    # What became of it is the answer's own detail, verb and all: only
+    # the kind of change knows which verb fits - a flag was put back ON,
+    # a write that failed could not be put back, one half done was only
+    # partly put back. A heading of this line's own in front of it said
+    # the outcome twice, and over a failed write said "could not be read".
+    text = f"{emphasis} {event.detail}"
+
+    return _Said(who=who, text=text, emphasis=emphasis)
+
+
+def _said_of_similar_incidents_recalled(event: SimilarIncidentsRecalled) -> _Said:
+    who = _ARGUS
+    # How many, marked, rather than the ids. The count is what a reader
+    # scanning a timeline can act on - whether memory had anything to say
+    # about this incident at all - and a row of identifiers is a lookup
+    # nobody performs mid-incident. The closest one is named in the
+    # sentence, because it is the record the line after this may move a
+    # candidate on the strength of.
+    #
+    # Named as the closest match rather than as the head of an order. One
+    # match is the ordinary case, and "nearest first" is a claim about a
+    # sequence that a single incident does not have.
+    #
+    # With what the closest one tried and what came of each, because
+    # that is what a reader can use: an id alone sends them to look it
+    # up, and an action this incident is about to take again, refuted
+    # there, is a recurrence - the evidence that bears most on whether
+    # the cause it answers is the cause at all. Said in the words the
+    # line that filed it used, so the two read as one fact.
+    found = len(event.recalled)
+    closest = event.recalled[0]
+    emphasis = f"{found} earlier incident{'s' if found != 1 else ''}"
+    text = (
+        f"Found {emphasis} like this one in memory, the closest match "
+        f"being incident {closest.incident_id}{_what_it_tried(closest)}"
+    )
+
+    return _Said(who=who, text=text, emphasis=emphasis)
+
+
+def _said_of_candidates_reordered(event: CandidatesReordered) -> _Said:
+    who = _ARGUS
+    # The action, because what moved the candidate is that this action
+    # was taken before and did not help - and the subject alone leaves
+    # a reader unable to tell which experiment is being skipped. The
+    # past incident is in the sentence rather than marked: it is where
+    # the reason lives, not what the line is about.
+    emphasis = what_the_action_does(event.action_type, event.subject)
+    text = (
+        f"Moved {emphasis} down the list - it was tried on incident "
+        f"{event.on_the_strength_of} and refuted there"
+    )
+
+    return _Said(who=who, text=text, emphasis=emphasis)
+
+
+def _said_of_incident_remembered(event: IncidentRemembered) -> _Said:
+    who = _ARGUS
+    # The actions, because they are the whole content of what was
+    # filed: a later incident reads this record to find out what was
+    # done here, and the description it was found by is a fact about
+    # searching rather than about the incident.
+    #
+    # Said the way the reordering above says one, because the two
+    # lines are about the same thing a record away from each other -
+    # what this incident filed, and what a later one was spared.
+    emphasis = ", ".join(
+        what_the_action_does(identity.action_type, identity.subject)
+        for identity in event.tried
+    )
+    text = f"Filed what was tried on this incident: {emphasis}"
+
+    return _Said(who=who, text=text, emphasis=emphasis)
+
+
+def _said_of_remembering_failed(event: RememberingFailed) -> _Said:
+    who = _ARGUS
+    # The reason is set apart for the reason a refused message sets one
+    # apart: a store that is down and a store nobody configured are
+    # fixed by different people, and neither is fixed by knowing that
+    # something failed.
+    emphasis = event.refusal
+    text = f"Could not file what was tried - {emphasis}"
+
+    return _Said(who=who, text=text, emphasis=emphasis)
+
+
+def _said_of_step_run_again(event: StepRunAgain) -> _Said:
+    who = _ARGUS
+    # Said for whoever already heard the interrupted attempt: a channel
+    # carried its lines, and the lines after this one tell the same
+    # step again. The step as the walk names it, in words rather than
+    # as an identifier.
+    emphasis = event.step.replace("_", " ")
+    text = (
+        f"Running the {emphasis} step again from its start - it was "
+        f"interrupted, and what follows replaces what it had said"
+    )
+
+    return _Said(who=who, text=text, emphasis=emphasis)
+
+
+def _said_of_retrieval_unanswered(event: RetrievalUnanswered) -> _Said:
+    who = _ARGUS
+    # Argus's voice for all three publishers, though one of them is a
+    # mitigation waiting on the service and another is a tool the model
+    # asked for. `PlatformUnavailable` below is credited the same way and
+    # for the same reason: the tier reported a call that failed, and what
+    # is said here is the walk's conclusion about what it therefore does
+    # not know.
+    #
+    # What was asked is set apart rather than the minute. The minute
+    # places the gap and what was asked is the thing somebody has to go
+    # and look at - the same division the two lines above draw.
+    emphasis = event.what_was_asked
+    # The minute only where there is one, and said as the thing being
+    # judged rather than as the moment of the read. A verification's
+    # failed pass is about a minute in the near future - the one being
+    # waited for - so "for" reads correctly and "at" would not.
+    about = (
+        "" if event.minute is None else f" for {a_minute(event.minute)}"
+    )
+    # The reason last, and only where there is one. It is the half a
+    # reader acts on, and it goes after the minute so that neither reads
+    # as qualifying the other.
+    why = "" if event.because is None else f" - {event.because}"
+    text = f"Could not read {emphasis}{about}{why}"
+
+    return _Said(who=who, text=text, emphasis=emphasis)
+
+
+def _said_of_platform_unavailable(event: PlatformUnavailable) -> _Said:
+    who = _ARGUS
+    # The platform is set apart rather than the actions, because it is
+    # the half somebody has to go and look at: the actions are what it
+    # cost this incident, and the platform is what is broken.
+    emphasis = event.platform
+    # Said from what the event carries rather than from the mapping that
+    # holds it today. An incident read months later has to say what went
+    # away then - and a line generated from the current mapping would
+    # quietly re-describe an old incident every time a mitigation is
+    # added.
+    #
+    # Named one by one rather than counted. "Four actions" tells a reader
+    # how much was lost and not what, and what is the half that says
+    # whether the thing they are holding could have been acted on at all.
+    text = (
+        f"Could not reach {emphasis} - "
+        f"{_and_then_some(event.actions_unavailable)} unavailable"
+    )
+
+    return _Said(who=who, text=text, emphasis=emphasis)
+
+
+def _said_of_communication_failed(event: CommunicationFailed) -> _Said:
+    who = _COMMUNICATOR
+    # The one line on the page about the page's own rival: everything
+    # else here was read in Slack too, and this says which line was
+    # not. The refusal is set apart because it is the actionable half
+    # - a renamed channel and a revoked token are fixed by different
+    # people, and neither is fixed by knowing that something failed.
+    emphasis = event.refusal
+    text = f"Could not tell {event.channel} - {emphasis}"
+
+    return _Said(who=who, text=text, emphasis=emphasis)
+
+
+def _said_of_person_wrote(event: PersonWrote) -> _Said:
+    who = A_PERSON
+    # Their words, untouched and set apart. What Argus made of them is
+    # the next line, in the intent reader's voice, so that the person and
+    # Argus's classification of them are never one sentence.
+    emphasis = event.text
+    text = f"Wrote in the incident's thread: {emphasis}"
+
+    return _Said(who=who, text=text, emphasis=emphasis)
+
+
+def _said_of_message_understood(event: MessageUnderstood) -> _Said:
+    who = _INTENT
+    emphasis = _A_MEANING[event.meaning]
+    text = f"Classified the message as {emphasis}"
+
+    return _Said(who=who, text=text, emphasis=emphasis)
+
+
+def _said_of_resolution_offered(event: ResolutionOffered) -> _Said:
+    who = _INTENT
+    # Named, because only that person's press counts. Somebody the chat
+    # platform could not name was still asked, and is said as such
+    # rather than left out of the sentence.
+    emphasis = event.person_name or "whoever wrote it"
+    text = f"Asked {emphasis} to confirm the incident is resolved"
+
+    return _Said(who=who, text=text, emphasis=emphasis)
+
+
+def _said_of_withdrawal_offered(event: WithdrawalOffered) -> _Said:
+    who = _INTENT
+    # Named for the reason a resolution offer is, and saying what the
+    # press does, because it does something a person might not expect:
+    # Argus puts back what it changed on the way out.
+    emphasis = event.person_name or "whoever wrote it"
+    text = (f"Asked {emphasis} to confirm Argus should stand down "
+            f"and put back what it changed")
+
+    return _Said(who=who, text=text, emphasis=emphasis)
+
+
+def _said_of_offer_expired(event: OfferExpired) -> _Said:
+    who = _ARGUS
+    # Argus's line, not the intent reader's: carrying on is the walk's
+    # decision. It says why the next step came, so it does not read as
+    # one taken over the head of a person who asked for an ending.
+    # Whichever ending: the expiry names only the message.
+    emphasis = _NOT_CONFIRMED_IN_TIME
+    text = _THE_OFFER_RAN_OUT
+
+    return _Said(who=who, text=text, emphasis=emphasis)
+
+
+def _said_of_lead_weighed(event: LeadWeighed) -> _Said:
+    who = _INVESTIGATOR
+    # The answer owed to whoever wrote it, in their own thread: what the
+    # Investigator made of it, set apart, and why - a standing with no
+    # reason is a verdict nobody can check.
+    emphasis = event.standing.value
+    text = f"Weighed the lead from the thread as {emphasis} - {event.reason}"
+
+    return _Said(who=who, text=text, emphasis=emphasis)
+
+
+def _said_of_question_answered(event: QuestionAnswered) -> _Said:
+    who = _INTENT
+    # The reply owed to whoever asked, in their own thread: the answer
+    # whole and set apart, because a shortened answer sends the reader
+    # looking for the rest of it somewhere else.
+    emphasis = event.answer
+    text = f"Answered the question from the thread: {emphasis}"
+
+    return _Said(who=who, text=text, emphasis=emphasis)
 
 
 def _what_its_undo_did(event: IncidentEvent) -> str:
