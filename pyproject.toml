@@ -432,7 +432,6 @@ ignore_imports = [
     "web_app.** -> core.**",
     "web_app.** -> postgres",
     "web_app.** -> incident_record",
-    "web_app.** -> incident_record.**",
     "web_app.** -> narration",
     "web_app.** -> postmortem_rendering",
     # The watermark, and nothing else of the index. `repository_index.records` is

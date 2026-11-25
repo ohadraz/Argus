@@ -84,7 +84,7 @@ import re
 import sys
 import tomllib
 from collections.abc import Collection, Iterable, Iterator, Mapping
-from importlib import metadata
+from importlib import metadata, util
 from io import TextIOWrapper
 from pathlib import Path
 from typing import Any
@@ -390,7 +390,7 @@ def _the_front_doors() -> dict[str, set[str]]:
     print(
         f"no contract named [{FRONT_DOOR_CONTRACT}] in pyproject.toml, so the "
         "front doors cannot be read and the suites cannot be checked against them.",
-        file=sys.stderr,
+        file=sys.stderr
     )
     sys.exit(1)
 
@@ -416,7 +416,7 @@ def _the_independent_modules() -> set[str]:
     print(
         f"no contract named [{INDEPENDENCE_CONTRACT}] in pyproject.toml, so the "
         "agents cannot be read and their suites cannot be held apart.",
-        file=sys.stderr,
+        file=sys.stderr
     )
     sys.exit(1)
 
@@ -716,7 +716,7 @@ def _the_suites_keep_the_agents_apart(independent: set[str]) -> None:
                 for path, lineno, named, whose in borrowed
             )
             + "\nWhat two agents both need belongs in `core`.",
-            file=sys.stderr,
+            file=sys.stderr
         )
         sys.exit(1)
 
@@ -754,7 +754,37 @@ def _every_module_is_analyzed() -> None:
             "see them:\n"
             + "\n".join(f"  {module}" for module in sorted(unseen))
             + "\nAdd them to `[tool.importlinter] root_packages` in pyproject.toml.",
-            file=sys.stderr,
+            file=sys.stderr
+        )
+        sys.exit(1)
+
+
+def _every_package_is_this_checkouts() -> None:
+    """Refuses to report on code from another checkout than the contracts'.
+
+    Both graphs import the packages from whichever interpreter runs this, and
+    each checkout's environment finds them in its own `modules/` - so this
+    script run with another checkout's interpreter would hold that checkout's
+    code to these contracts, while the rules that read files read these. A
+    verdict about a mix can pass when neither checkout would.
+    """
+    elsewhere: dict[str, Path | None] = {}
+
+    for package in sorted(_the_modules_the_contracts_see()):
+        spec = util.find_spec(package)
+        origin = None if spec is None or spec.origin is None else Path(spec.origin).resolve()
+
+        if origin is None or not origin.is_relative_to(MODULES.resolve()):
+            elsewhere[package] = origin
+
+    if elsewhere:
+        print(
+            f"these packages are not imported from this checkout's `{MODULES}`, so "
+            "the graphs would be of other code than the contracts and files read here:\n"
+            + "\n".join(f"  {package}: {origin or 'not importable'}"
+                        for package, origin in elsewhere.items())
+            + "\nRun this with this checkout's own interpreter (`uv run` from its root).",
+            file=sys.stderr
         )
         sys.exit(1)
 
@@ -825,7 +855,7 @@ def _the_suites_use_the_front_doors(doors: dict[str, set[str]]) -> None:
                 f"\n      open to it: {', '.join(sorted(open_to))}"
                 for path, lineno, module, open_to in reached
             ),
-            file=sys.stderr,
+            file=sys.stderr
         )
         sys.exit(1)
 
@@ -1583,6 +1613,7 @@ def main() -> None:
     summarised that would be a wrapper hiding the answer.
     """
     _say_it_in_utf8()
+    _every_package_is_this_checkouts()
     _every_module_is_analyzed()
     _the_suites_use_the_front_doors(_the_front_doors())
     _the_suites_keep_the_agents_apart(_the_independent_modules())
@@ -1598,7 +1629,11 @@ def main() -> None:
     _every_root_imports_what_its_process_installs(whole)
     _only_a_root_reads_the_environment()
     _every_root_reads_the_clock_first()
-    sys.exit(lint_imports_command())
+    # This repository's contracts by path: left to find its own, import-linter
+    # reads the working directory's. With the packages already shown to be this
+    # checkout's, the code and the contracts are then one checkout's.
+    sys.exit(lint_imports_command.main(args=["--config", str(CONFIGURATION),
+                                             *sys.argv[1:]]))
 
 
 if __name__ == "__main__":
