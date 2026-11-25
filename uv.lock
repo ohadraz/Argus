@@ -19,6 +19,7 @@ members = [
     "argus-communication",
     "argus-core",
     "argus-deployment-platform",
+    "argus-deployment-platform-double",
     "argus-embedding-fastembed",
     "argus-exchange-rate-source",
     "argus-executive-synopsis",
@@ -514,6 +515,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "argus-argus-testkit" },
+    { name = "argus-deployment-platform-double" },
 ]
 
 [package.metadata]
@@ -524,7 +526,25 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
+dev = [
+    { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
+    { name = "argus-deployment-platform-double", editable = "test_support/deployment_platform_double" },
+]
+
+[[package]]
+name = "argus-deployment-platform-double"
+version = "0.1.0"
+source = { editable = "test_support/deployment_platform_double" }
+dependencies = [
+    { name = "argus-core" },
+    { name = "argus-deployment-platform" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "argus-core", editable = "modules/core" },
+    { name = "argus-deployment-platform", editable = "modules/deployment_platform" },
+]
 
 [[package]]
 name = "argus-embedding-fastembed"
@@ -1457,6 +1477,7 @@ source = { virtual = "." }
 dev = [
     { name = "argus-anthropic-double" },
     { name = "argus-argus-testkit" },
+    { name = "argus-deployment-platform-double" },
     { name = "grimp" },
     { name = "httpx2" },
     { name = "import-linter" },
@@ -1479,6 +1500,7 @@ dev = [
 dev = [
     { name = "argus-anthropic-double", editable = "test_support/anthropic_double" },
     { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
+    { name = "argus-deployment-platform-double", editable = "test_support/deployment_platform_double" },
     { name = "grimp" },
     { name = "httpx2" },
     { name = "import-linter", specifier = ">=2.15" },

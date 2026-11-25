@@ -573,9 +573,9 @@ def test_a_rollout_is_read_from_the_running_deployment() -> None:
 
 
 @pytest.mark.unit
-def test_the_running_deployment_is_asked_for_with_no_selectors() -> None:
-    # There is one Deployment behind the application, and a selector configured
-    # here would be a second place to correct when it moves.
+def test_the_running_deployment_is_asked_for_by_the_deployment_s_own_selectors() -> None:
+    # Argo CD finds a live resource by group, kind, namespace and name, and
+    # refuses a request that names none of them.
     platform = _Platform().answering(
         GET, THE_RESOURCE, _ok(_a_managed_resource({"spec": {"replicas": 3}}))
     )
@@ -583,7 +583,8 @@ def test_the_running_deployment_is_asked_for_with_no_selectors() -> None:
     Scenario() \
         .given(argo_cd := _argo_cd_over(platform)) \
         .when(lambda: argo_cd.rollout_of(SOME_APPLICATION)) \
-        .then(lambda _: _the_last_request_was(platform, GET, THE_RESOURCE, query={}))
+        .then(lambda _: _the_last_request_was(platform, GET, THE_RESOURCE,
+                                              query=THE_DEPLOYMENT_SELECTORS))
 
 
 @pytest.mark.unit

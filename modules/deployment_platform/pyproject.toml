@@ -13,6 +13,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "argus-argus_testkit",
+    "argus-deployment_platform_double",
 ]
 
 
@@ -20,6 +21,7 @@ dev = [
 argus-core = { workspace = true }
 argus-http_applying = { workspace = true }
 argus-argus_testkit = { workspace = true }
+argus-deployment_platform_double = { workspace = true }
 
 
 [build-system]

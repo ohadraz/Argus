@@ -348,8 +348,9 @@ class ArgoCd:
     def rollout_of(self, application: str, /) -> RolloutProgress:
         """How far the running Deployment has got, read from the live resource.
 
-        No selectors: there is one Deployment behind the application, and a
-        selector configured here would be a second place to correct when it moves.
+        Asked for by the Deployment's own selectors, as every read of it is: the
+        platform finds a live resource by group, kind, namespace and name, and
+        refuses a request that leaves them out.
 
         A manifest carrying no rollout status reads as converged, and that is a
         decision rather than a fallback: nothing in it says any replica is lagging.
@@ -357,7 +358,7 @@ class ArgoCd:
         because a guessed count is how a rollout nobody can read becomes one
         reported as converged.
         """
-        manifest = self._manifest(application, None)
+        manifest = self._manifest(application, self._the_deployment_of(application))
 
         def progress() -> RolloutProgress:
             wanted = int(manifest[SPEC][_REPLICAS])
@@ -818,7 +819,7 @@ class ArgoCd:
 
     def _manifest(self,
                   application: str,
-                  params: dict[str, str] | None) -> dict[str, Any]:
+                  params: dict[str, str]) -> dict[str, Any]:
         """A managed resource's live manifest, parsed out of its text wrapper."""
         resource = self._get(self._settings.argocd_resource_path, application, params)
 
