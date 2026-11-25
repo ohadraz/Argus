@@ -21,16 +21,17 @@ incident a chat thread is, and `accept_offer` whether a press of an offer's
 button is accepted.
 
 What the record holds is reached by role, never by table. A reader of one
-incident at one moment holds `IncidentReads`, the pages choosing which incidents
-to show hold `IncidentsOnShow`, whatever hears from another tool holds
-`IncidentNames`, the reader of people's messages holds `IncidentConversation`,
-the walk holds `TheWalksWrites`, the processes that walk runs and change the
-world for them hold `RunQueue`, and the source of exchange rates holds
-`RatesCache`. Each answers in domain values, and each is built on a connection
-its caller holds (`<role>_on`), so a reader's several questions describe one
-moment and a writer's rows commit with the line it publishes beside them - and,
-where a caller holds only where connections come from, over those
-(`<role>_over`), each call on a connection of its own.
+incident holds `IncidentReads`, the pages choosing which incidents to show hold
+`IncidentsOnShow`, whatever hears from another tool holds `IncidentNames`, the
+reader of people's messages holds `IncidentConversation`, the walk holds
+`TheWalksWrites`, the processes that walk runs and change the world for them
+hold `RunQueue`, and the source of exchange rates holds `RatesCache`. Each
+answers in domain values, and each is built on a connection its caller holds
+(`<role>_on`), so a writer's rows commit with the line it publishes beside them
+and a reader's several questions can be one moment - they are, inside
+`postgres.at_one_moment` - or, where a caller holds only where connections come
+from, over those (`<role>_over`), each call on a connection of its own. A reader
+of the whole incident at once takes `the_snapshot_of` it, every part read once.
 
 `repository` is this package's own: the tables, one module each, which the
 roles read and write. Nothing that ships outside the package imports it - a
@@ -99,6 +100,7 @@ from incident_record.repository.runs import ChangeInFlight, Run
 from incident_record.repository.taken_actions import NoLongerOpen
 from incident_record.resolution import resolve_incident
 from incident_record.run_queue import RunQueue, run_queue_on
+from incident_record.snapshot import IncidentSnapshot, the_snapshot_of
 from incident_record.tracing import inside_the_incidents_trace
 from incident_record.waiting import WaitForPeople, waiting_for_people_via
 from incident_record.walk_step import the_current_step, within_step
@@ -115,6 +117,7 @@ __all__ = [
     "IncidentConversation",
     "IncidentNames",
     "IncidentReads",
+    "IncidentSnapshot",
     "IncidentsOnShow",
     "IsStillWanted",
     "NoLongerOpen",
@@ -159,6 +162,7 @@ __all__ = [
     "still_held_via",
     "the_current_step",
     "the_incident_of_thread",
+    "the_snapshot_of",
     "the_walks_writes_on",
     "waiting_for_people_via",
     "wanted_until_a_person_ends_it",

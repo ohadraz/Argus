@@ -4,7 +4,9 @@ The Postmortem Writer holds no connection and reads no rows; what it needs is
 scattered across the tables `incident_record` owns, and assembling it is the
 Orchestrator's work. Keeping the gathering here is also what stops two readers
 of the same incident disagreeing: the page and the postmortem read the same
-account, through the same repositories.
+account, through the same repositories. And what stops one write-up disagreeing
+with itself: the incident is read whole, each part once, at one moment - so no
+part of it is a later incident than another.
 
 Nothing here decides anything. Every line comes from something recorded while
 it was happening, rendered for a reader - which is the point, because what
@@ -16,6 +18,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Callable, Mapping
+from contextlib import AbstractContextManager
 from datetime import datetime
 from typing import Final, NamedTuple, get_args
 
@@ -51,7 +54,6 @@ from core.events import (
 )
 from core.llm import LLMClient
 from core.models import (
-    CHAT_THREAD,
     AcceleratorPinUndo,
     ActionIdentity,
     ActionType,
@@ -70,6 +72,7 @@ from core.models import (
     Meaning,
     OpenedPullRequest,
     PostmortemDocument,
+    RecordedReference,
     Reference,
     ReplicaUndo,
     RetrievalChannel,
@@ -85,7 +88,7 @@ from core.replay import Recorder, Replay
 from core.replay import nobody as records_nothing
 from executive_synopsis import the_response_priced, write_executive_synopsis
 from incident_cost import MoneySources
-from incident_record import incident_names_on, incident_reads_on, when_it_was_taken
+from incident_record import incident_reads_on, the_snapshot_of, when_it_was_taken
 from narration import (
     NarrationLine,
     build_narration,
@@ -98,7 +101,7 @@ from narration import (
     what_was_not_done,
     whether_it_can_be_put_back,
 )
-from postgres import Connections
+from postgres import Connections, at_one_moment
 from postmortem_rendering import (
     as_text,
     render,
@@ -119,6 +122,11 @@ from postmortem_writing import (
 )
 
 from orchestrator.walk.investigating import ASKING_THE_FLAG_PROVIDER
+
+# How a write-up reads the incident it is written from: one connection, every
+# read on it at one moment (`postgres.at_one_moment`). A parameter so a suite can
+# see that it was.
+type ReadingAt = Callable[[Connections], AbstractContextManager[psycopg.Connection]]
 
 # The kind a line telling an announcement carries: the event's own, read off
 # its type rather than spelled a second time.
@@ -146,7 +154,9 @@ def write_postmortem_for(incident_id: str,
                          client_for: Callable[[Replay], LLMClient],
                          judge_for: Callable[[Replay], LLMClient],
                          recorder: Recorder = records_nothing,
-                         last_try: Callable[[], bool] = lambda: False
+                         last_try: Callable[[], bool] = lambda: False,
+                         *,
+                         reading_at: ReadingAt = at_one_moment
                          ) -> PostmortemDocument:
     """The real postmortem for one incident: gather, then write.
 
@@ -180,8 +190,12 @@ def write_postmortem_for(incident_id: str,
     last try, on which a model that cannot be reached ends the write-up rather
     than the run - no later try is coming to write it up. Never, unless
     whoever started the process says.
+
+    The evidence is gathered at one moment (`reading_at`), so that every part
+    of it describes the same incident: a line published while it was read is
+    in all of it or none.
     """
-    with connections() as conn:
+    with reading_at(connections) as conn:
         evidence = gather_evidence(conn, incident_id)
 
     document = write_postmortem(
@@ -203,7 +217,9 @@ def write_synopsis_for(incident_id: str,
                        judge_for: Callable[[Replay], LLMClient],
                        address_of: Callable[[str], str],
                        recorder: Recorder = records_nothing,
-                       last_try: Callable[[], bool] = lambda: False
+                       last_try: Callable[[], bool] = lambda: False,
+                       *,
+                       reading_at: ReadingAt = at_one_moment
                        ) -> ExecutiveSynopsisDocument:
     """The executive synopsis for one incident, from its stored postmortem.
 
@@ -224,11 +240,15 @@ def write_synopsis_for(incident_id: str,
     `last_try` is asked once, as the postmortem's is: on the run's last try a
     model that cannot be reached gives the overview up rather than failing the
     run.
+
+    The incident, its postmortem and its account are read at one moment
+    (`reading_at`), as the postmortem's evidence is.
     """
-    with connections() as conn:
-        incident = incident_reads_on(conn).incident(incident_id)
-        postmortem = incident_reads_on(conn).postmortem(incident_id)
-        account = incident_reads_on(conn).account(incident_id)
+    with reading_at(connections) as conn:
+        reads = incident_reads_on(conn)
+        incident = reads.incident(incident_id)
+        postmortem = reads.postmortem(incident_id)
+        account = reads.account(incident_id)
 
     if incident is None or postmortem is None:
         raise ValueError(f"no postmortem for incident [{incident_id}] to write a synopsis of")
@@ -260,25 +280,25 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
     the incident is over, and a duration measured to "now" instead would be a
     different number every time anyone asked for one.
     """
-    incident = incident_reads_on(conn).incident(incident_id)
-    if incident is None:
+    snapshot = the_snapshot_of(conn, incident_id)
+    if snapshot is None:
         raise ValueError(f"no incident [{incident_id}] to write a postmortem for")
 
+    incident = snapshot.incident
     if incident.ended_at is None:
         raise ValueError(
             f"incident [{incident_id}] has not ended, and an incident still being "
             f"worked has no duration to report"
         )
 
-    # Read once, because two things are made of it - the candidates, and the
-    # lines saying which of them each formed - and two reads could disagree.
-    considered = incident_reads_on(conn).candidates(incident_id)
-    # The account read once and told once, for the same reason: the timeline,
-    # and where in it each action's line sits.
-    account = incident_reads_on(conn).account(incident_id)
+    # Every part read once, because each is made into several things - the
+    # candidates and the lines saying which of them each formed, the timeline
+    # and where in it each action's line sits - and two reads could disagree.
+    considered = snapshot.candidates
+    account = snapshot.account
     told = _the_account_told(account)
     reading = _the_reading_that_stands(account)
-    changed = _what_changed(conn, incident_id)
+    changed = _what_changed(account)
 
     return IncidentEvidence(
         incident_id=incident_id,
@@ -287,15 +307,15 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         ended_at=incident.ended_at,
         # As its sender dated it, where it did.
         alerted_at=incident.alert.started_at or incident.created_at,
-        onset_at=_when_it_actually_began(conn, incident_id),
+        onset_at=_when_it_actually_began(account),
         # `None` where it said nothing, as almost every alert does.
         onset_stated_by_the_alert=incident.alert.stated_onset,
-        anchored_at=_where_it_looked_from(conn, incident_id),
-        recorded_recovery_at=_when_it_came_back(conn, incident_id),
+        anchored_at=_where_it_looked_from(account),
+        recorded_recovery_at=_when_it_came_back(account),
         resolution=_the_resolution(account, told),
         people_wrote=any(line.kind == _PERSON_WROTE for line in told),
-        first_told=_when_people_were_first_told(conn, incident_id),
-        watched_and_never_recovered=_it_was_watched_and_never_came_back(conn, incident_id),
+        first_told=_when_people_were_first_told(snapshot.chat_thread),
+        watched_and_never_recovered=_it_was_watched_and_never_came_back(account),
         escalated=_it_was_handed_to_a_person(account),
         # Off the row rather than the account: the status is how the incident
         # ended, and disproven is an ending nothing moves an incident on from.
@@ -307,17 +327,17 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         candidates=_what_was_considered(
             considered,
             {taken.hypothesis_id: taken
-             for taken in incident_reads_on(conn).actions(incident_id)
+             for taken in snapshot.actions
              if taken.hypothesis_id is not None}),
-        actions=_what_was_done(conn, incident_id, account, told,
+        actions=_what_was_done(snapshot.actions, account, told,
                                [hypothesis.id for hypothesis in considered]),
-        log_lines=_what_was_read(conn, incident_id),
+        log_lines=_what_was_read(account),
         log_reading_ended=_how_far_the_logs_were_read(account),
         changes=changed.every,
         changes_the_walk_alone_read=changed.by_the_walk_alone,
         change_reading_ended=_how_far_the_changes_were_read(account),
-        deployment_changes=_what_each_deployment_changed(conn, incident_id),
-        pull_request=_what_was_proposed(conn, incident_id),
+        deployment_changes=_what_each_deployment_changed(account),
+        pull_request=_what_was_proposed(account),
         fix_explanation=reading.explanation if reading is not None else None,
         fix_branch_read=reading.branch_read if reading is not None else None,
         fix_holds_what_ran=reading.holds_what_ran if reading is not None else None,
@@ -327,13 +347,13 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
         fix_branch_written=reading.branch_written if reading is not None else None,
         files_as_they_ran=reading.as_it_ran if reading is not None else [],
         uses_outside=reading.uses_outside if reading is not None else [],
-        recommended_action=_what_is_still_owed(conn, incident_id),
+        recommended_action=_what_is_still_owed(account),
         whose_service_failed=_whose_service_failed(account),
         refusals=_what_was_refused(account, told),
         # Off the record rather than the account: the account says a lead was
         # weighed, and the record is where its words and standing are kept
         # together - the latest standing, which is the one the walk acted on.
-        leads=incident_reads_on(conn).leads(incident_id),
+        leads=snapshot.leads,
         deploys_reading=_how_the_investigation_read(account, RetrievalChannel.CHANGES,
                                                     ChangesRetrieved),
         flags_reading=_how_the_flags_were_read(account),
@@ -342,17 +362,15 @@ def gather_evidence(conn: psycopg.Connection, incident_id: str) -> IncidentEvide
     )
 
 
-def _when_people_were_first_told(conn: psycopg.Connection,
-                                 incident_id: str) -> FirstTold | None:
+def _when_people_were_first_told(thread: RecordedReference | None) -> FirstTold | None:
     """When the chat platform accepted Argus's first post about the incident,
     and which platform it was - `None` where none was accepted.
 
-    Off the incident's thread rather than the account: the thread is written
-    down once the platform accepted the line that opened it, and is the only
-    record a line was said - the account records only a line that never will
-    be (`CommunicationFailed`).
+    Off the incident's first thread rather than the account: the thread is
+    written down once the platform accepted the line that opened it, and is the
+    only record a line was said - the account records only a line that never
+    will be (`CommunicationFailed`).
     """
-    thread = incident_names_on(conn).first_of_kind(incident_id, CHAT_THREAD)
     if thread is None:
         return None
 
@@ -386,7 +404,7 @@ def _whose_service_failed(account: list[IncidentEvent]) -> ServiceDependency | N
     return named[-1] if named else None
 
 
-def _what_is_still_owed(conn: psycopg.Connection, incident_id: str) -> str | None:
+def _what_is_still_owed(account: list[IncidentEvent]) -> str | None:
     """The action Argus named and declined to take, said as an instruction.
 
     Off the account rather than off the walk's state, as everything else here
@@ -406,15 +424,14 @@ def _what_is_still_owed(conn: psycopg.Connection, incident_id: str) -> str | Non
     """
     recommended = [
         what_to_do(event.action_type, event.subject or "")
-        for event in incident_reads_on(conn).account(incident_id)
+        for event in account
         if isinstance(event, ActionRecommended)
     ]
 
     return recommended[-1] if recommended else None
 
 
-def _what_was_proposed(conn: psycopg.Connection,
-                       incident_id: str) -> OpenedPullRequest | None:
+def _what_was_proposed(account: list[IncidentEvent]) -> OpenedPullRequest | None:
     """The fix Code-Fix opened, as it published it.
 
     Off the event's own field rather than off the event's presence: the step
@@ -428,7 +445,7 @@ def _what_was_proposed(conn: psycopg.Connection,
     is the proposal that stands rather than the one that was superseded.
     """
     proposed = [event.pull_request
-                for event in incident_reads_on(conn).account(incident_id)
+                for event in account
                 if isinstance(event, FixAttempted) and event.pull_request]
 
     return proposed[-1] if proposed else None
@@ -450,8 +467,7 @@ def _the_reading_that_stands(account: list[IncidentEvent]) -> FixAttempted | Non
     return said[-1] if said else None
 
 
-def _when_it_actually_began(conn: psycopg.Connection,
-                            incident_id: str) -> datetime | None:
+def _when_it_actually_began(account: list[IncidentEvent]) -> datetime | None:
     """The onset the Investigator measured, as it published it.
 
     Read from the account rather than re-derived: the onset was found by
@@ -464,14 +480,13 @@ def _when_it_actually_began(conn: psycopg.Connection,
     then falls back to the alert's own time, which is late but real.
     """
     onsets = [event.onset
-              for event in incident_reads_on(conn).account(incident_id)
+              for event in account
               if isinstance(event, OnsetDetected)]
 
     return parse_iso(onsets[0]) if onsets else None
 
 
-def _where_it_looked_from(conn: psycopg.Connection,
-                          incident_id: str) -> datetime | None:
+def _where_it_looked_from(account: list[IncidentEvent]) -> datetime | None:
     """The alarm's minute the Investigator anchored on where nothing dated the
     incident, as it published it - the first, for the reason the onset above
     is the first: a walk is anchored once.
@@ -480,14 +495,13 @@ def _where_it_looked_from(conn: psycopg.Connection,
     never said when it fired, or one that never reached an investigation.
     """
     anchors = [event.minute
-               for event in incident_reads_on(conn).account(incident_id)
+               for event in account
                if isinstance(event, AnchoredOnTheAlarm)]
 
     return parse_iso(anchors[0]) if anchors else None
 
 
-def _when_it_came_back(conn: psycopg.Connection,
-                       incident_id: str) -> datetime | None:
+def _when_it_came_back(account: list[IncidentEvent]) -> datetime | None:
     """The minute Mitigation recorded the recovery at, as it published it.
 
     The onset's counterpart, and read the same way for the same reason: the
@@ -515,7 +529,7 @@ def _when_it_came_back(conn: psycopg.Connection,
     confirmation reached on a window with nothing in it to date.
     """
     recoveries = [event.recovered_minute
-                  for event in incident_reads_on(conn).account(incident_id)
+                  for event in account
                   if isinstance(event, RecoveryChecked)
                   and event.recovered_minute is not None]
 
@@ -559,8 +573,7 @@ def _it_was_handed_to_a_person(account: list[IncidentEvent]) -> bool:
     return bool(the_escalations(account))
 
 
-def _it_was_watched_and_never_came_back(conn: psycopg.Connection,
-                                        incident_id: str) -> bool:
+def _it_was_watched_and_never_came_back(account: list[IncidentEvent]) -> bool:
     """Whether Mitigation looked for the recovery and never once saw it.
 
     The negative of the minute above, and read off the account for the same
@@ -576,7 +589,7 @@ def _it_was_watched_and_never_came_back(conn: psycopg.Connection,
     only answer there is.
     """
     looks = [event.recovered
-             for event in incident_reads_on(conn).account(incident_id)
+             for event in account
              if isinstance(event, RecoveryChecked)]
 
     return bool(looks) and not any(looks)
@@ -782,8 +795,7 @@ def _a_candidate(hypothesis: Hypothesis, action: TakenAction | None) -> Candidat
                            faulting_service=hypothesis.faulting_service)
 
 
-def _what_was_done(conn: psycopg.Connection,
-                   incident_id: str,
+def _what_was_done(actions: list[TakenAction],
                    account: list[IncidentEvent],
                    told: list[NarrationLine],
                    considered: list[str]) -> list[ActionRecord]:
@@ -840,7 +852,7 @@ def _what_was_done(conn: psycopg.Connection,
                                 if taken_action.hypothesis_id in considered else None),
                      tried_before=_what_it_was_before(taken_action, before),
                      put_back=_whether_it_was_put_back(taken_action))
-        for taken_action in incident_reads_on(conn).actions(incident_id)
+        for taken_action in actions
     ]
 
 
@@ -988,7 +1000,7 @@ class _ChangesRead(NamedTuple):
     by_the_walk_alone: list[ChangeEvent]
 
 
-def _what_changed(conn: psycopg.Connection, incident_id: str) -> _ChangesRead:
+def _what_changed(recorded: list[IncidentEvent]) -> _ChangesRead:
     """Every change the walk read, in the order they were made: the
     investigation's, and each flag change the walk read for itself that the
     investigation did not - which are told apart, since the Investigator never
@@ -1015,7 +1027,6 @@ def _what_changed(conn: psycopg.Connection, incident_id: str) -> _ChangesRead:
     finds is the walk's own doing - already told as an action, and no cause of
     the incident it was acting on.
     """
-    recorded = incident_reads_on(conn).account(incident_id)
     read: list[ChangeEvent] = []
     for event in recorded:
         if isinstance(event, ChangesRetrieved):
@@ -1100,8 +1111,8 @@ def _how_the_flags_were_read(account: list[IncidentEvent]) -> ChannelReading:
     return ChannelReading.READ
 
 
-def _what_each_deployment_changed(conn: psycopg.Connection,
-                                  incident_id: str) -> list[DeploymentChangesRecord]:
+def _what_each_deployment_changed(account: list[IncidentEvent]
+                                  ) -> list[DeploymentChangesRecord]:
     """What each deployment the investigation looked into changed, in the order
     it first asked.
 
@@ -1109,7 +1120,7 @@ def _what_each_deployment_changed(conn: psycopg.Connection,
     row per read would number the deployments by how often it happened to.
     """
     read: dict[str, DeploymentChangesRecord] = {}
-    for event in incident_reads_on(conn).account(incident_id):
+    for event in account:
         if isinstance(event, DeploymentChangesRead) and event.revision not in read:
             read[event.revision] = DeploymentChangesRecord(
                 revision=event.revision,
@@ -1261,7 +1272,7 @@ def _how_far_the_changes_were_read(account: list[IncidentEvent]) -> datetime | N
     return max(ends, default=None)
 
 
-def _what_was_read(conn: psycopg.Connection, incident_id: str) -> list[str]:
+def _what_was_read(account: list[IncidentEvent]) -> list[str]:
     """The log lines the incident actually saw.
 
     From the published account rather than from the log store, which has moved
@@ -1274,7 +1285,7 @@ def _what_was_read(conn: psycopg.Connection, incident_id: str) -> list[str]:
     the same line in one minute are two failures, and one read returns both.
     """
     kept: dict[str, int] = {}
-    for event in incident_reads_on(conn).account(incident_id):
+    for event in account:
         if isinstance(event, LogsRetrieved):
             for line, copies in Counter(event.lines).items():
                 kept[line] = max(kept.get(line, 0), copies)

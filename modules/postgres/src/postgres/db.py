@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import AbstractContextManager, contextmanager
-from typing import Any
+from typing import Any, Final
 
 import psycopg
 from core import DatabaseSettings, Holding, get_settings
@@ -38,6 +38,10 @@ type Connections = Callable[[], AbstractContextManager[psycopg.Connection]]
 # event that call publishes, with room left over for a second walker.
 _MIN_CONNECTIONS = 1
 _MAX_CONNECTIONS = 10
+
+# What a transaction read at one moment is: one snapshot, taken at its first
+# read, and nothing written under it.
+_ONE_MOMENT: Final = "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"
 
 
 def open_pool(settings: DatabaseSettings,
@@ -103,6 +107,32 @@ def unit_of_work(connections: Connections) -> Iterator[psycopg.Connection]:
     and the refusal says so at the first call rather than in production.
     """
     with connections() as conn, conn.transaction():
+        yield conn
+
+
+@contextmanager
+def at_one_moment(connections: Connections) -> Iterator[psycopg.Connection]:
+    """One connection holding one read-only transaction, in which every read
+    sees the database as it was at the first of them.
+
+    For a reader that composes one answer of several reads - the postmortem's
+    evidence, a page - and would otherwise compose it of several moments: at
+    READ COMMITTED each read sees whatever was committed when it ran, so an
+    account read after the actions can tell of an action the actions did not
+    hold.
+
+    The isolation is said inside the transaction this opens, as its first
+    statement, rather than set on the connection: a setting on the connection
+    outlives the block and goes back to the pool with it, and the next borrower
+    would read at a moment it never asked for. Said outside a transaction, on a
+    connection that commits as it goes, it would be warned about and ignored.
+
+    Read-only, so that a write made in here is refused rather than made under a
+    snapshot that cannot see what it races. The transaction ends with the
+    block, and the connection leaves it with none open.
+    """
+    with connections() as conn, conn.transaction():
+        conn.execute(_ONE_MOMENT)
         yield conn
 
 

@@ -1,10 +1,10 @@
-"""One incident, read at one moment, through the role every reader holds.
+"""One incident, read through the role every reader holds.
 
 What the role owes a reader is the incident as the tables hold it, in domain
 values - and the connection it was asked on. Built on a connection, it reads
-what that connection sees, a write its caller has not committed included, so a
-reader's several questions are one moment. Built over connections, it opens
-nothing until asked and then one connection a question.
+what that connection sees, a write its caller has not committed included.
+Built over connections, it opens nothing until asked and then one connection a
+question.
 """
 
 from __future__ import annotations
@@ -71,7 +71,8 @@ def test_an_incident_nobody_opened_reads_as_none() -> None:
 @pytest.mark.component
 def test_reads_on_a_connection_see_what_its_caller_has_not_yet_committed() -> None:
     # The whole of why the role is built on the caller's connection: a reader
-    # composing an answer reads one moment, the one its connection sees.
+    # composing an answer reads what its connection sees, one moment where the
+    # caller holds it at one.
     with connect_from_env() as conn:
         incident_id = an_incident_created_for(conn, DONT_CARE_ALERT)
         some_line = AgentInvoked(incident_id=incident_id, agent=Actor.INVESTIGATOR)

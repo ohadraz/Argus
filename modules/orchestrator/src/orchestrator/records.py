@@ -75,10 +75,10 @@ class Records:
 
     A connection per method, which is what lets a node ask one question without
     holding anything open between them - and also why `gather_evidence` is not
-    here. Its six reads of one incident are one answer, taken on one connection
-    so that they describe the same moment; through this object they would be
-    six connections and six moments, which is a worse account of an incident
-    for the sake of one idiom.
+    here. Its reads of one incident are one answer, taken on one connection
+    held at one moment (`postgres.at_one_moment`) so that they describe the
+    same incident; through this object they would be a connection and a moment
+    each, which is a worse account of an incident for the sake of one idiom.
     """
 
     def __init__(self,

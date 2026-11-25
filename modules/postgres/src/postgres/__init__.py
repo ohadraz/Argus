@@ -9,6 +9,7 @@ what a run's claim is (`core.Fence`) and how a lost one is known
 
 from postgres.db import (
     Connections,
+    at_one_moment,
     connect,
     connect_from_env,
     open_pool,
@@ -29,6 +30,7 @@ __all__ = [
     "SchemaNotApplied",
     "SchemaPresent",
     "apply_schema",
+    "at_one_moment",
     "connect",
     "connect_from_env",
     "fence",

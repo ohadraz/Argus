@@ -39,7 +39,7 @@ from oncall_source import OnCallUnavailable
 from oncall_source.platform import OnCallDeliveryUnverified, OnCallPlatform
 from opentelemetry import propagate, trace
 from opentelemetry.trace import SpanKind, Tracer
-from postgres import Connections, open_pool
+from postgres import Connections, at_one_moment, open_pool
 from postmortem_rendering import (
     a_title,
     as_pdf,
@@ -157,6 +157,25 @@ def connections_of(request: Request) -> Connections:
     return connections
 
 
+def a_moment_of(connections: Annotated[Connections, Depends(connections_of)]) -> Connections:
+    """Where a page gets its connections: each one holding a moment
+    (`postgres.at_one_moment`), so every read a page makes on it sees the
+    incident as it was at the first.
+
+    A page reads an incident several ways - its row, its candidates, its
+    actions, its account, its write-ups - and at the database's own isolation
+    each would see whatever had been committed when it ran: a page torn
+    between two moments, an action told of in the story and missing from the
+    walk. A polled page shows the next moment two seconds later; the
+    postmortem's page, its PDF and an ended incident's page are not polled, and
+    a PDF is kept as it was read.
+
+    A dependency of its own, beside the connections the routes that write take,
+    since a moment refuses a write.
+    """
+    return lambda: at_one_moment(connections)
+
+
 def push_settings_of(request: Request) -> PushSettings:
     """What the push webhook watches, read once at startup.
 
@@ -260,6 +279,7 @@ def at_a_persons_word_of(connections: Annotated[Connections, Depends(connections
 
 
 type UsingConnections = Annotated[Connections, Depends(connections_of)]
+type ReadingAtOneMoment = Annotated[Connections, Depends(a_moment_of)]
 type UsingPushSettings = Annotated[PushSettings, Depends(push_settings_of)]
 type UsingAlertSources = Annotated[Mapping[str, AlertSource], Depends(alert_sources_of)]
 type UsingTheUnnamedSender = Annotated[AlertSource, Depends(the_unnamed_sender_of)]
@@ -665,7 +685,7 @@ def _answer(ended: PersonsEnding, *, refused: str) -> None:
 
 
 @router.get("/", response_class=HTMLResponse)
-def live_page(request: Request, connections: UsingConnections) -> HTMLResponse:
+def live_page(request: Request, connections: ReadingAtOneMoment) -> HTMLResponse:
     """What is happening now: the front door.
 
     An incident rather than a list of them. Somebody who opens Argus during an
@@ -679,7 +699,7 @@ def live_page(request: Request, connections: UsingConnections) -> HTMLResponse:
 
 
 @router.get("/now", response_class=HTMLResponse)
-def live_body(request: Request, connections: UsingConnections) -> HTMLResponse:
+def live_body(request: Request, connections: ReadingAtOneMoment) -> HTMLResponse:
     """The front page's own poll, and the whole of what it swaps in.
 
     It never stops asking, unlike an incident's walk. An incident can finish;
@@ -694,7 +714,7 @@ def live_body(request: Request, connections: UsingConnections) -> HTMLResponse:
 
 
 @router.get("/history", response_class=HTMLResponse)
-def history_page(request: Request, connections: UsingConnections) -> HTMLResponse:
+def history_page(request: Request, connections: ReadingAtOneMoment) -> HTMLResponse:
     """Every incident Argus has been woken for, newest first.
 
     The ordering is the repository's. Deciding what "recent" means would be
@@ -707,7 +727,7 @@ def history_page(request: Request, connections: UsingConnections) -> HTMLRespons
 
 
 @router.get("/history/list", response_class=HTMLResponse)
-def history_list(request: Request, connections: UsingConnections) -> HTMLResponse:
+def history_list(request: Request, connections: ReadingAtOneMoment) -> HTMLResponse:
     """The list on its own, for the history's poll to swap in.
 
     It never stops asking, unlike an incident's walk: an incident reaches a
@@ -723,7 +743,7 @@ def history_list(request: Request, connections: UsingConnections) -> HTMLRespons
 @router.get("/incidents/{incident_id}", response_class=HTMLResponse)
 def incident_page(request: Request,
                   incident_id: str,
-                  connections: UsingConnections) -> HTMLResponse:
+                  connections: ReadingAtOneMoment) -> HTMLResponse:
     """One incident's whole walk: the alert it opened on, every ranked
     candidate with what was tried for it, and the transitions it went through."""
     with connections() as conn:
@@ -738,7 +758,7 @@ def incident_page(request: Request,
 @router.get("/incidents/{incident_id}/walk", response_class=HTMLResponse)
 def incident_walk(request: Request,
                   incident_id: str,
-                  connections: UsingConnections) -> HTMLResponse:
+                  connections: ReadingAtOneMoment) -> HTMLResponse:
     """The part of the page that changes while the incident runs.
 
     Served on its own so a poll swaps exactly what can move. The fragment
@@ -765,7 +785,7 @@ def incident_walk(request: Request,
 @router.get("/incidents/{incident_id}/postmortem", response_class=HTMLResponse)
 def postmortem_page(request: Request,
                     incident_id: str,
-                    connections: UsingConnections) -> HTMLResponse:
+                    connections: ReadingAtOneMoment) -> HTMLResponse:
     """The postmortem, where one has been written.
 
     Its own page rather than a section of the incident's: it is the largest
@@ -799,7 +819,7 @@ def postmortem_page(request: Request,
 @router.get("/incidents/{incident_id}/postmortem.pdf")
 def postmortem_pdf(request: Request,
                    incident_id: str,
-                   connections: UsingConnections) -> Response:
+                   connections: ReadingAtOneMoment) -> Response:
     """The postmortem as a file to save: the page's words, printed.
 
     Made from the row each time it is asked for, never stored - so it carries
@@ -822,7 +842,7 @@ def postmortem_pdf(request: Request,
 @router.get("/incidents/{incident_id}/synopsis.pdf")
 def synopsis_pdf(request: Request,
                  incident_id: str,
-                 connections: UsingConnections) -> Response:
+                 connections: ReadingAtOneMoment) -> Response:
     """The executive synopsis as a file to save - what its Slack message links
     to, so the message carries a link rather than a file.
 

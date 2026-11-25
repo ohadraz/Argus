@@ -13,12 +13,18 @@ of them - and a process with no pool asks on a connection of its own.
 
 A unit of work is one connection and one transaction on it, committed once at
 its end by whoever opened it - or not at all, where anything inside it failed.
+
+A moment is one connection and one read-only transaction on it, in which every
+read sees the database as it was at the first: what is committed elsewhere
+meanwhile is not seen, and nothing is written. The connection leaves it as it
+came, reading at the database's own isolation and free to write.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterator
-from typing import Any
+from contextlib import nullcontext
+from typing import Any, NamedTuple
 
 import psycopg
 import pytest
@@ -35,13 +41,17 @@ from argus_testkit import (
 from core import DatabaseSettings, Fence, Holding, get_settings
 from core.stored import ALERT, SHIPPED
 from postgres import (
+    Connections,
     SchemaNotApplied,
+    at_one_moment,
+    connect,
     connect_from_env,
     open_pool,
     require_schema_at,
     reset_schema,
     unit_of_work,
 )
+from psycopg.pq import TransactionStatus
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
@@ -54,6 +64,13 @@ DONT_CARE_SERVICE = "some-service"
 
 # Refused because a worker wrote without saying which run it writes for.
 NO_RUN_HELD = "AR002"
+
+# The isolation Postgres reads at unless a transaction says otherwise, as
+# `SHOW transaction_isolation` spells it.
+THE_DATABASES_OWN_ISOLATION = "read committed"
+
+# `SHOW transaction_read_only`'s answer for a transaction free to write.
+FREE_TO_WRITE = "off"
 
 
 @pytest.mark.integration
@@ -274,6 +291,71 @@ def test_a_unit_of_work_refuses_a_commit_made_inside_it(a_clean_database: None) 
         ))
 
 
+@pytest.mark.integration
+@pytest.mark.parametrize("autocommit", [False, True])
+def test_a_read_at_one_moment_does_not_see_what_was_committed_after_its_first(
+    autocommit: bool, a_clean_database: None
+) -> None:
+    # Both kinds of connection: the checkpointer's pool commits as it goes, and
+    # a moment said outside a transaction there would be ignored.
+    some_reader = "some-reader"
+
+    Scenario() \
+        .given(
+            connections := _connections(autocommit=autocommit)
+        ) \
+        .when(
+            lambda: _read_twice_with_a_cursor_committed_between(connections, some_reader)
+        ) \
+        .then(all_of(
+            _the_readers_read_were([[], []]),
+            _the_readers_seen_from_another_connection_are([some_reader])
+        ))
+
+
+@pytest.mark.integration
+def test_a_write_at_one_moment_is_refused(a_clean_database: None) -> None:
+    # Refused rather than made under a snapshot that cannot see what it races.
+    dont_care_reader = "dont-care-reader"
+
+    def a_cursor_kept_at_one_moment() -> None:
+        with at_one_moment(connect_from_env) as conn:
+            _a_cursor_kept_by(conn, dont_care_reader)
+
+    Scenario() \
+        .when(
+            attempting(a_cursor_kept_at_one_moment)
+        ) \
+        .then(all_of(
+            an_error_was_raised(psycopg.errors.ReadOnlySqlTransaction),
+            _the_readers_seen_from_another_connection_are([])
+        ))
+
+
+@pytest.mark.integration
+def test_a_connection_leaves_a_moment_as_it_came(a_clean_database: None) -> None:
+    # A pooled connection goes back to the pool and on to its next borrower,
+    # who did not ask to read at a moment and may want to write.
+    some_reader = "some-reader"
+
+    with connect_from_env() as held:
+        Scenario() \
+            .given(
+                calling(lambda: _read_once_at_one_moment(lambda: nullcontext(held)))
+            ) \
+            .when(
+                lambda: _what_the_next_transaction_is(held, some_reader)
+            ) \
+            .then(all_of(
+                _the_next_transaction_is(_NextTransaction(
+                    status_before=TransactionStatus.IDLE,
+                    isolation=THE_DATABASES_OWN_ISOLATION,
+                    read_only=FREE_TO_WRITE
+                )),
+                _the_readers_seen_from_another_connection_are([some_reader])
+            ))
+
+
 @pytest.fixture
 def a_database_with_no_schema(postgres: None) -> Iterator[None]:
     """A database as the job has never seen it, put back afterwards.
@@ -474,6 +556,88 @@ def _a_cursor_kept_by(conn: psycopg.Connection, reader: str) -> None:
     """A row in a table nothing else in these tests writes, as `_a_write_on`'s
     is - and left uncommitted, which is the unit of work's to do."""
     conn.execute("INSERT INTO event_cursor (reader, seq) VALUES (%s, 0)", (reader,))
+
+
+class _NextTransaction(NamedTuple):
+    """What a connection was like after a moment: whether a transaction was
+    still open on it, and how the next one it opened reads."""
+    status_before: TransactionStatus
+    isolation: str
+    read_only: str
+
+
+def _connections(*, autocommit: bool) -> Connections:
+    """Connections to the suite's database, committing as they go or not."""
+    settings = DatabaseSettings.of(get_settings())
+
+    return lambda: connect(settings, connection={"autocommit": autocommit})
+
+
+def _the_readers_on(conn: psycopg.Connection) -> list[str]:
+    with conn.cursor() as cursor:
+        cursor.execute("SELECT reader FROM event_cursor ORDER BY reader")
+        return [reader for (reader,) in cursor.fetchall()]
+
+
+def _read_twice_with_a_cursor_committed_between(connections: Connections,
+                                                reader: str) -> list[list[str]]:
+    """Who keeps a cursor, read twice at one moment - with `reader`'s cursor
+    committed on another connection between the two reads."""
+    with at_one_moment(connections) as conn:
+        first = _the_readers_on(conn)
+
+        with connect_from_env() as another:
+            _a_cursor_kept_by(another, reader)
+            another.commit()
+
+        return [first, _the_readers_on(conn)]
+
+
+def _read_once_at_one_moment(connections: Connections) -> None:
+    with at_one_moment(connections) as conn:
+        _the_readers_on(conn)
+
+
+def _what_the_next_transaction_is(conn: psycopg.Connection, reader: str) -> _NextTransaction:
+    """Whether `conn` holds a transaction, then what the next one it opens reads
+    at - with a cursor kept by `reader` written in it and committed."""
+    status_before = conn.info.transaction_status
+
+    with conn.transaction(), conn.cursor() as cursor:
+        cursor.execute("SHOW transaction_isolation")
+        isolation = cursor.fetchone()
+        cursor.execute("SHOW transaction_read_only")
+        read_only = cursor.fetchone()
+        _a_cursor_kept_by(conn, reader)
+
+    return _NextTransaction(status_before=status_before,
+                            isolation=isolation[0] if isolation else "",
+                            read_only=read_only[0] if read_only else "")
+
+
+def _the_readers_read_were(expected: list[list[str]]) -> Assertion[Any]:
+    def assertion(read: Any) -> bool:
+        if read != expected:
+            raise AssertionError(
+                f"Expected each read at one moment to see the cursors kept by {expected}, "
+                f"got {read}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_next_transaction_is(expected: _NextTransaction) -> Assertion[Any]:
+    def assertion(found: Any) -> bool:
+        if found != expected:
+            raise AssertionError(
+                f"Expected the connection to leave a moment as {expected}, got {found}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _the_readers_seen_from_another_connection_are(expected: list[str]) -> Assertion[Any]:

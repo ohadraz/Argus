@@ -1,16 +1,18 @@
-"""What there is to read about one incident, read at one moment.
+"""What there is to read about one incident.
 
 Every reader that composes an answer about an incident - the postmortem's
 evidence, the incident's page, the walk asking what an earlier attempt staked -
-reads it through this one role, so that what it reads is one incident and, on
-one connection, one moment: its row, its account, its candidates, its actions,
-what people told it, its write-ups and what its walk spent.
+reads it through this one role, so that what it reads is one incident: its row,
+its account, its candidates, its actions, what people told it, its write-ups
+and what its walk spent.
 
 Built two ways, because readers hold two things. `incident_reads_on` reads on
-a connection its caller already holds, so several reads describe the same
-moment and nothing here commits; `incident_reads_over` is for a caller that
-holds only where connections come from, and asks one question at a time, each
-on a connection of its own. Neither opens anything when it is built.
+a connection its caller already holds, and nothing here commits: several reads
+on it are one moment where the caller holds it inside `postgres.at_one_moment`,
+and otherwise each sees what was committed when it ran. `incident_reads_over`
+is for a caller that holds only where connections come from, and asks one
+question at a time, each on a connection of its own. Neither opens anything
+when it is built.
 """
 
 from __future__ import annotations
@@ -173,7 +175,8 @@ class _OverConnections:
 
 def incident_reads_on(conn: psycopg.Connection) -> IncidentReads:
     """The incident's reads on `conn`, which the caller holds: every read made
-    through it describes the moment that connection sees."""
+    through it sees what that connection sees - one moment inside
+    `postgres.at_one_moment`, and otherwise the moment each read ran."""
     return _OnAConnection(conn)
 
 

@@ -22,7 +22,8 @@ without all five installed and reachable.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from decimal import Decimal
 
@@ -137,9 +138,14 @@ from incident_record.repository import (
     taken_actions,
 )
 from narration import what_to_do
-from orchestrator.gathering import gather_evidence, write_postmortem_for, write_synopsis_for
+from orchestrator.gathering import (
+    ReadingAt,
+    gather_evidence,
+    write_postmortem_for,
+    write_synopsis_for,
+)
 from orchestrator.walk.investigating import ASKING_THE_FLAG_PROVIDER
-from postgres import connect_from_env
+from postgres import Connections, connect_from_env
 from postmortem_writing import CandidateRecord, DeploymentChangesRecord, IncidentEvidence, Sources
 from postmortem_writing.grounding import FLAGS_FIELD
 
@@ -191,6 +197,9 @@ NOT_PUT_BACK = ("did not help, and was not put back: the incident was ended befo
                 "it could be, so it is still in place")
 # When the walk recorded a change made, in the cases that read nothing of it.
 DONT_CARE_MOMENT_IT_WAS_MADE = DONT_CARE_TAKEN_AT
+
+# What a write-up's model blames, where nothing reads it.
+DONT_CARE_ROOT_CAUSE = "dont care"
 SOME_OTHER_FLAG = "legacy-checkout-fallback"
 
 # A rollback that suspended the sync of an application that had been syncing
@@ -3109,6 +3118,67 @@ def test_a_postmortem_counts_the_tokens_its_own_writing_spent(
 
 
 @pytest.mark.component
+def test_a_postmortem_gathers_its_evidence_at_the_moment_it_is_handed(
+    a_clean_database: None
+) -> None:
+    # On the connections it was handed: the moment is how they are read, never
+    # where they come from.
+    entered: list[Connections] = []
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: write_postmortem_for(
+                incident_id,
+                connections=connect_from_env,
+                sources=_sources_recording_into([]),
+                client_for=_a_model_submitting(DONT_CARE_ROOT_CAUSE, []),
+                judge_for=_a_judge_reading_into([]),
+                reading_at=_a_moment_noted_in(entered)
+            )
+        ) \
+        .then(
+            _read_at_a_moment_of(entered, [connect_from_env])
+        )
+
+
+@pytest.mark.component
+def test_a_synopsis_reads_what_it_is_written_from_at_the_moment_it_is_handed(
+    a_clean_database: None
+) -> None:
+    entered: list[Connections] = []
+
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+        postmortems.record(conn, incident_id, _a_postmortem_saying(DONT_CARE_ROOT_CAUSE),
+                           at=utc_now())
+
+    Scenario() \
+        .given(
+            incident_id
+        ) \
+        .when(
+            lambda: write_synopsis_for(
+                incident_id,
+                connections=connect_from_env,
+                money=_sources_recording_into([]).money,
+                client_for=_a_model_overviewing(),
+                judge_for=_a_judge_reading_into([]),
+                address_of=_the_page_of,
+                reading_at=_a_moment_noted_in(entered)
+            )
+        ) \
+        .then(
+            _read_at_a_moment_of(entered, [connect_from_env])
+        )
+
+
+@pytest.mark.component
 def test_an_overview_is_judged_against_the_stored_postmortem_as_its_reader_reads_it(
     a_clean_database: None
 ) -> None:
@@ -4682,6 +4752,32 @@ def _a_postmortem_saying(root_cause: str) -> PostmortemDocument:
 
 def _the_page_of(incident_id: str) -> str:
     return f"http://argus.example/incidents/{incident_id}"
+
+
+def _a_moment_noted_in(entered: list[Connections]) -> ReadingAt:
+    """A stand-in for the moment a write-up reads in, noting in `entered` the
+    connections each was taken over, and handing out one of theirs."""
+    @contextmanager
+    def a_moment(connections: Connections) -> Iterator[psycopg.Connection]:
+        entered.append(connections)
+        with connections() as conn:
+            yield conn
+
+    return a_moment
+
+
+def _read_at_a_moment_of(entered: list[Connections],
+                         expected: list[Connections]) -> Assertion[object]:
+    def assertion(_written: object) -> bool:
+        if entered != expected:
+            raise AssertionError(
+                f"Expected what the write-up is written from read at one moment, over "
+                f"{expected}, and it was read at {len(entered)}, over {entered}."
+            )
+
+        return True
+
+    return assertion
 
 
 def _the_judge_read(read: list[Transcript], expected: list[str]) -> Assertion[object]:
