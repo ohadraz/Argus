@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from cache_store import CacheStore
 from code_host import CodeHostWrites
 from core import WriteMcpEndpoint, parse_iso
 from core.models import (
@@ -59,7 +60,6 @@ from write_mcp_server import (
     rolling_back,
     scaling,
 )
-from write_mcp_server.discarding import DiscardSettings
 from write_mcp_server.fencing import FencedMCPServer, HoldForAChange
 
 
@@ -67,16 +67,16 @@ def build_server(endpoint: WriteMcpEndpoint,
                  flags: FlagProviderWrites,
                  code: CodeHostWrites,
                  platform: DeploymentPlatformWrites,
-                 discard_settings: DiscardSettings,
+                 store: CacheStore,
                  hold_for_a_change: HoldForAChange,
                  argus_account: str) -> FencedMCPServer:
     """Registers the write tools against one deployment's configuration.
 
-    One slice and three ports. The discard speaks to the store a service keeps
-    its derived copies in. The code tools speak to the code host, the flag tools
-    to the flag provider, and the restart, the rollback, the scale-out, the
-    autoscaler pin and the pin to a card all speak to the deployment platform -
-    and all three are handed their port rather than a slice:
+    Four ports. The discard speaks to the store a service keeps its derived
+    copies in, the code tools to the code host, the flag tools to the flag
+    provider, and the restart, the rollback, the scale-out, the autoscaler pin
+    and the pin to a card all to the deployment platform - and each is handed
+    its port rather than a slice:
     where each is, under what credential and by which routes is its adapter's,
     built once by the process's root (`apps.write_mcp`). Every credential named
     belongs to this tier, and none of them belongs in another's calls. What
@@ -406,7 +406,7 @@ def build_server(endpoint: WriteMcpEndpoint,
         and a store that never answered is a mitigation that did not happen.
         The behavior lives in `discarding.discard_cache_entries`; this is
         registration only."""
-        return discarding.discard_cache_entries(keys, discard_settings)
+        return discarding.discard_cache_entries(keys, store)
 
     @mcp.change(marked=True)
     def restore_autoscaler_floor(

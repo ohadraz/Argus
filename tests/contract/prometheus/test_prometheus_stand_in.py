@@ -46,8 +46,8 @@ from argus_testkit import (
     attempting,
     the_error_mentioned,
 )
-from core import get_settings
 from core.models import MetricBucket, RuleSeries, SeriesQuery, WorseWhen
+from log_source.target_service import TargetServiceLogSettings
 from metrics_source import MetricsUnavailable
 from metrics_source.prometheus_adapter import buckets_between
 from metrics_source.prometheus_settings import PrometheusSettings
@@ -58,7 +58,7 @@ from metrics_source.prometheus_settings import PrometheusSettings
 # is configured to find them.
 THE_REAL_ONE = "http://localhost:9090"
 THE_STAND_IN = PrometheusSettings().prometheus_base_url
-THE_SHOP = get_settings().target_service_url
+THE_SHOP = TargetServiceLogSettings().target_service_url
 
 # A generated scenario, because a generated one goes on writing a minute every
 # minute and fills every field a bucket has - so the counters the rates are

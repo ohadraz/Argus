@@ -2,7 +2,7 @@
 
 Two layers, as the flag reader has them and for the same reason: one makes the
 request and is where a URL and an outage live, and the other maps the answer onto
-the type Mitigation weighs.
+the type Mitigation weighs. The adapter is the two composed, behind the port.
 
 The mapping is where the work is, and all of it is about the one field a caller
 cannot check for itself. An outage must not read as a service that calls nothing,
@@ -19,19 +19,22 @@ from unittest.mock import create_autospec
 
 import httpx2
 import pytest
-from argus_testkit import raising, returning
+from argus_testkit import raising, returning, the_answer_was
 from argus_testkit.assertions import Assertion, all_of, an_error_was_raised
 from argus_testkit.scenario import Scenario, attempting, calling
-from core import Settings
 from core.models import Ownership, ServiceDependency
-from read_mcp_server.registry import (
-    RegistryUnavailable,
-    ServiceRegistrySettings,
+from service_register import RegistryUnavailable
+from service_register.target_service import (
+    FetchRegisteredService,
+    TargetServiceRegister,
+    TargetServiceRegisterSettings,
     fetch_registered_service,
     what_a_service_depends_on,
 )
 
 SOME_SERVICE = "io-shop"
+SOME_BASE_URL = "http://registry.invalid"
+SOME_SERVICE_PATH = "/registry/services/{service}"
 
 
 @pytest.mark.unit
@@ -170,15 +173,15 @@ def test_the_request_goes_to_the_service_it_was_asked_about() -> None:
     Scenario() \
         .given(
             some_settings := _some_registry_settings(
-                base_url="http://registry.invalid",
-                service_path="/registry/services/{service}"
+                base_url=SOME_BASE_URL,
+                service_path=SOME_SERVICE_PATH
             )
         ) \
         .when(
             lambda: fetch_registered_service(SOME_SERVICE, some_settings, get=get)
         ) \
         .then(_the_url_asked_for(
-            get, "http://registry.invalid/registry/services/io-shop"
+            get, f"{SOME_BASE_URL}{SOME_SERVICE_PATH.format(service=SOME_SERVICE)}"
         ))
 
 
@@ -200,19 +203,42 @@ def test_a_register_answering_an_error_status_is_an_outage() -> None:
 
 
 @pytest.mark.unit
-def test_the_register_is_configurable_from_the_environment_argus_runs_under() -> None:
-    # A slice only narrows if `Settings` actually holds every field it names,
-    # and nothing else here would find out: the narrowing happens once, where
-    # the server is composed, and a missing field fails there - at start-up, in a
-    # process nobody is watching - rather than where it was going to be read.
-    #
-    # It carries exactly two, and the absence is as deliberate as the presence:
-    # no credential. A register of what calls what is not secret inside the
-    # organisation keeping it, and a field for one here would be a field the read
-    # tier could be handed a mutating token in.
+def test_the_adapter_asks_the_register_about_the_service_and_maps_what_it_holds() -> None:
+    # The port's one call is the two layers composed: asked at the address the
+    # deployment configured, about the service named, and answered as the type
+    # Mitigation weighs.
+    get = a_mock_http_get()
+    get.return_value = _a_response(a_register_listing(
+        _an_entry(name="io-pay", ownership="third-party")
+    ))
+
     Scenario() \
-        .given(the_environment := Settings()) \
-        .when(lambda: ServiceRegistrySettings.of(the_environment)) \
+        .given(
+            register := TargetServiceRegister(_some_registry_settings(), get=get)
+        ) \
+        .when(
+            lambda: register.dependencies_of(SOME_SERVICE)
+        ) \
+        .then(all_of(
+            _the_url_asked_for(
+                get, f"{SOME_BASE_URL}{SOME_SERVICE_PATH.format(service=SOME_SERVICE)}"
+            ),
+            _the_dependencies_are("io-pay"),
+            _the_first_one_is_ours(False)
+        ))
+
+
+@pytest.mark.unit
+def test_the_register_carries_where_it_is_and_no_credential() -> None:
+    # The settings carry exactly two fields, and the absence is as deliberate as
+    # the presence: no credential. A register of what calls what is not secret
+    # inside the organisation keeping it, and a field for one here would be a
+    # field the read tier could be handed a mutating token in. Read off the
+    # declared defaults rather than off a `TargetServiceRegisterSettings()`,
+    # which would read the developer's own environment.
+    Scenario() \
+        .given() \
+        .when(lambda: TargetServiceRegisterSettings.model_construct()) \
         .then(all_of(
             _it_carries_exactly({
                 "service_registry_base_url",
@@ -222,14 +248,55 @@ def test_the_register_is_configurable_from_the_environment_argus_runs_under() ->
         ))
 
 
-def _it_carries_exactly(field_names: set[str]) -> Assertion[ServiceRegistrySettings]:
-    def assertion(narrowed: ServiceRegistrySettings) -> bool:
-        carried = set(type(narrowed).model_fields)
+@pytest.mark.unit
+def test_the_register_is_configured_by_the_variables_it_always_was(
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The names a deployment already sets, unchanged by the move out of the
+    # kernel's `Settings` - a renamed variable is a deployment that silently
+    # falls back to its defaults.
+    some_base_url = "http://kuki.invalid:8181"
+    some_service_path = "/buki/{service}/calls"
+
+    Scenario() \
+        .given(
+            calling(lambda: monkeypatch.setenv("SERVICE_REGISTRY_BASE_URL", some_base_url)),
+            calling(lambda: monkeypatch.setenv("SERVICE_REGISTRY_SERVICE_PATH",
+                                               some_service_path))
+        ) \
+        .when(lambda: TargetServiceRegisterSettings()) \
+        .then(the_answer_was(TargetServiceRegisterSettings(
+            service_registry_base_url=some_base_url,
+            service_registry_service_path=some_service_path
+        )))
+
+
+@pytest.mark.unit
+def test_an_unconfigured_register_is_the_demos() -> None:
+    # The defaults the kernel's `Settings` declared before the settings moved,
+    # spelled out because there is nothing left to derive them from. Read off
+    # the declared defaults rather than off a `TargetServiceRegisterSettings()`,
+    # which would read the developer's own environment. The demo Target Service
+    # stands in for the register, so its address is the shop's.
+    the_demos_register = "http://localhost:8080"
+    the_demos_route = "/registry/services/{service}"
+
+    Scenario() \
+        .when(lambda: TargetServiceRegisterSettings.model_construct().model_dump()) \
+        .then(the_answer_was({
+            "service_registry_base_url": the_demos_register,
+            "service_registry_service_path": the_demos_route
+        }))
+
+
+def _it_carries_exactly(field_names: set[str]) -> Assertion[TargetServiceRegisterSettings]:
+    def assertion(settings: TargetServiceRegisterSettings) -> bool:
+        carried = set(type(settings).model_fields)
 
         if carried != field_names:
             raise AssertionError(
-                f"Expected the slice to carry exactly {sorted(field_names)}, and "
-                f"it carries {sorted(carried)}."
+                f"Expected the settings to carry exactly {sorted(field_names)}, and "
+                f"they carry {sorted(carried)}."
             )
 
         return True
@@ -237,7 +304,8 @@ def _it_carries_exactly(field_names: set[str]) -> Assertion[ServiceRegistrySetti
     return assertion
 
 
-def _the_path_names_the_service_it_is_asked_about() -> Assertion[ServiceRegistrySettings]:
+def _the_path_names_the_service_it_is_asked_about(
+) -> Assertion[TargetServiceRegisterSettings]:
     """That the configured path has somewhere to put a service name.
 
     A path with no placeholder formats to itself, which is deliberate - a
@@ -246,11 +314,11 @@ def _the_path_names_the_service_it_is_asked_about() -> Assertion[ServiceRegistry
     same URL for every service would have every incident read one service's
     dependencies.
     """
-    def assertion(narrowed: ServiceRegistrySettings) -> bool:
-        if "{service}" not in narrowed.service_registry_service_path:
+    def assertion(settings: TargetServiceRegisterSettings) -> bool:
+        if "{service}" not in settings.service_registry_service_path:
             raise AssertionError(
                 f"The configured register path "
-                f"[{narrowed.service_registry_service_path}] names no service, "
+                f"[{settings.service_registry_service_path}] names no service, "
                 f"so every service would be looked up at the same URL."
             )
 
@@ -260,13 +328,11 @@ def _the_path_names_the_service_it_is_asked_about() -> Assertion[ServiceRegistry
 
 
 def a_mock_registry() -> Any:
-    """A stand-in for whatever asks the register, spec'd against the port.
+    """A stand-in for whatever asks the register, spec'd against the protocol.
 
     Not against `fetch_registered_service`: that takes the settings it reads
     under, and what maps the answer only names a service.
     """
-    from read_mcp_server.registry import FetchRegisteredService
-
     return create_autospec(FetchRegisteredService, instance=True)
 
 
@@ -300,10 +366,10 @@ def _a_response(body: dict[str, Any]) -> Any:
 
 
 def _some_registry_settings(
-    base_url: str = "http://registry.invalid",
-    service_path: str = "/registry/services/{service}"
-) -> ServiceRegistrySettings:
-    return ServiceRegistrySettings(
+    base_url: str = SOME_BASE_URL,
+    service_path: str = SOME_SERVICE_PATH
+) -> TargetServiceRegisterSettings:
+    return TargetServiceRegisterSettings(
         service_registry_base_url=base_url,
         service_registry_service_path=service_path
     )

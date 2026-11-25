@@ -36,10 +36,12 @@ from core.models import (
 from core.vector_store import VectorSearch
 from deployment_platform import DeploymentPlatformReads
 from flag_provider import FlagProviderReads
+from log_source import LogSource
 from mcp_transport import TracedMCPServer
 from metrics_source import MetricsSource, SeriesClassifier
 from postgres import Connections
 from pydantic import Field
+from service_register import ServiceRegister
 
 from read_mcp_server import (
     alert_rules,
@@ -54,13 +56,7 @@ from read_mcp_server import (
 from read_mcp_server.change_source import ChangeSource
 from read_mcp_server.deploy_history import fetch_deploys
 from read_mcp_server.meaning import IndexReadSettings
-from read_mcp_server.registry import (
-    ServiceRegistrySettings,
-    fetch_registered_service,
-    what_a_service_depends_on,
-)
 from read_mcp_server.repository import RepositoryReadSettings
-from read_mcp_server.retrieval import TargetServiceSettings
 from read_mcp_server.window import RetrievalSettings
 
 logger = logging.getLogger(__name__)
@@ -68,12 +64,12 @@ logger = logging.getLogger(__name__)
 
 def build_server(endpoint: ReadMcpEndpoint,
                  retrieval_settings: RetrievalSettings,
-                 target_service: TargetServiceSettings,
+                 logs: LogSource,
                  metrics: MetricsSource,
                  flags: FlagProviderReads,
                  platform: DeploymentPlatformReads,
                  code: CodeHostReads,
-                 registry_settings: ServiceRegistrySettings,
+                 register: ServiceRegister,
                  repository_settings: RepositoryReadSettings,
                  index_settings: IndexReadSettings,
                  passages: VectorSearch,
@@ -87,9 +83,10 @@ def build_server(endpoint: ReadMcpEndpoint,
     which the tests do - binds no address and builds no server. The slices
     arrive here and are closed over by the registrations below; nothing beneath
     this module reads configuration for itself. Every vendor this tier reads -
-    the metrics source, the store passages are searched in, the model a
-    question is embedded with, the platforms - arrives already built, as its
-    port, from the process's root (`apps.read_mcp`), so nothing here names one.
+    the service's logs, the metrics source, the service register, the store
+    passages are searched in, the model a question is embedded with, the
+    platforms - arrives already built, as its port, from the process's root
+    (`apps.read_mcp`), so nothing here names one.
 
     The tool bodies stay one-line delegations. What they delegate to is where
     the behaviour lives, and where an injection seam a decorated function
@@ -102,11 +99,11 @@ def build_server(endpoint: ReadMcpEndpoint,
         port=endpoint.read_mcp_port
     )
 
-    _register_telemetry(mcp, retrieval_settings, target_service, metrics, flags,
+    _register_telemetry(mcp, retrieval_settings, logs, metrics, flags,
                         platform, code, rules)
     _register_repository(mcp, repository_settings, platform, code)
     _register_rollouts_and_code(mcp, platform, code, repository_settings, rules, classify,
-                                registry_settings)
+                                register)
 
     # Everything below this line exists only where the deployment keeps an
     # index. Not a tool that answers "no" when asked: a tool that is offered
@@ -127,7 +124,7 @@ def build_server(endpoint: ReadMcpEndpoint,
 
 def _register_telemetry(mcp: TracedMCPServer,
                         retrieval_settings: RetrievalSettings,
-                        target_service: TargetServiceSettings,
+                        logs: LogSource,
                         metrics: MetricsSource,
                         flags: FlagProviderReads,
                         platform: DeploymentPlatformReads,
@@ -135,8 +132,6 @@ def _register_telemetry(mcp: TracedMCPServer,
                         rules: AlertingPlatform) -> None:
     """Registers the tools that read what the service did and what changed
     around it: its logs, its metrics, its changes and its flags."""
-    fetch_logs = retrieval.target_service_logs(target_service)
-
     # The deploy history for a window, as the change channel asks for it. The
     # deployment channel and the rollout channel are handed the platform itself,
     # so one object decides where the platform is for all three - and the code
@@ -192,7 +187,7 @@ def _register_telemetry(mcp: TracedMCPServer,
             window_end,
             filters,
             settings=retrieval_settings,
-            fetch=fetch_logs
+            fetch=logs
         )
 
     @mcp.tool()
@@ -353,13 +348,10 @@ def _register_rollouts_and_code(mcp: TracedMCPServer,
                                 repository_settings: RepositoryReadSettings,
                                 rules: AlertingPlatform,
                                 classify: SeriesClassifier,
-                                registry_settings: ServiceRegistrySettings) -> None:
+                                register: ServiceRegister) -> None:
     """Registers the tools that read where the service runs and what it
     stands on: its rollout, its placements, what it depends on, the rule that
     paged, and the code around a patch and a revision."""
-    def registered(service: str) -> dict[str, object]:
-        return fetch_registered_service(service, registry_settings)
-
     @mcp.tool()
     def get_rollout_progress(service: str) -> RolloutProgress:
         """Returns how many of a service's replicas have reached the revision
@@ -452,9 +444,9 @@ def _register_rollouts_and_code(mcp: TracedMCPServer,
         and treated as not ours. A service the register holds no entry for
         depends on nothing as far as anybody here knows; a register that could
         not be reached raises rather than answering that. What a model is told
-        of it is `descriptions.SERVICE_DEPENDENCIES`. The behavior lives in
-        `registry.what_a_service_depends_on`; this is registration only."""
-        return what_a_service_depends_on(service, fetch=registered)
+        of it is `descriptions.SERVICE_DEPENDENCIES`. The behavior lives
+        behind the service register's port; this is registration only."""
+        return register.dependencies_of(service)
 
     @mcp.tool()
     def get_placements(service: str) -> list[PodPlacement]:

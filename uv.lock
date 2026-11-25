@@ -13,6 +13,7 @@ members = [
     "argus-anthropic-double",
     "argus-apps",
     "argus-argus-testkit",
+    "argus-cache-store",
     "argus-chat-platform",
     "argus-code-host",
     "argus-codefix-agent",
@@ -32,6 +33,7 @@ members = [
     "argus-incident-record",
     "argus-investigation-agent",
     "argus-llm-anthropic",
+    "argus-log-source",
     "argus-mcp-transport",
     "argus-message-intent",
     "argus-metrics-source",
@@ -49,6 +51,7 @@ members = [
     "argus-read-mcp-server",
     "argus-repository-index",
     "argus-revenue-source",
+    "argus-service-register",
     "argus-slack-double",
     "argus-target-service-double",
     "argus-telemetry",
@@ -222,8 +225,10 @@ read-mcp = [
     { name = "argus-deployment-platform" },
     { name = "argus-embedding-fastembed" },
     { name = "argus-flag-provider" },
+    { name = "argus-log-source" },
     { name = "argus-metrics-source" },
     { name = "argus-read-mcp-server" },
+    { name = "argus-service-register" },
     { name = "argus-vector-store-qdrant" },
 ]
 relay = [
@@ -264,6 +269,7 @@ worker = [
     { name = "psycopg-pool" },
 ]
 write-mcp = [
+    { name = "argus-cache-store" },
     { name = "argus-code-host" },
     { name = "argus-deployment-platform" },
     { name = "argus-flag-provider" },
@@ -280,6 +286,7 @@ dev = [
 requires-dist = [
     { name = "argus-alert-source", marker = "extra == 'web'", editable = "modules/alert_source" },
     { name = "argus-alerting-platform", marker = "extra == 'read-mcp'", editable = "modules/alerting_platform" },
+    { name = "argus-cache-store", marker = "extra == 'write-mcp'", editable = "modules/cache_store" },
     { name = "argus-chat-platform", marker = "extra == 'intent-reader'", editable = "modules/chat_platform" },
     { name = "argus-chat-platform", marker = "extra == 'relay'", editable = "modules/chat_platform" },
     { name = "argus-chat-platform", marker = "extra == 'web'", editable = "modules/chat_platform" },
@@ -307,6 +314,7 @@ requires-dist = [
     { name = "argus-investigation-agent", marker = "extra == 'worker'", editable = "modules/investigation_agent" },
     { name = "argus-llm-anthropic", marker = "extra == 'intent-reader'", editable = "modules/llm_anthropic" },
     { name = "argus-llm-anthropic", marker = "extra == 'worker'", editable = "modules/llm_anthropic" },
+    { name = "argus-log-source", marker = "extra == 'read-mcp'", editable = "modules/log_source" },
     { name = "argus-message-intent", marker = "extra == 'intent-reader'", editable = "modules/message_intent" },
     { name = "argus-metrics-source", marker = "extra == 'read-mcp'", editable = "modules/metrics_source" },
     { name = "argus-mitigation", marker = "extra == 'worker'", editable = "modules/mitigation" },
@@ -322,6 +330,7 @@ requires-dist = [
     { name = "argus-read-mcp-server", marker = "extra == 'read-mcp'", editable = "modules/read_mcp_server" },
     { name = "argus-repository-index", marker = "extra == 'indexer'", editable = "modules/repository_index" },
     { name = "argus-revenue-source", marker = "extra == 'worker'", editable = "modules/revenue_source" },
+    { name = "argus-service-register", marker = "extra == 'read-mcp'", editable = "modules/service_register" },
     { name = "argus-telemetry", editable = "modules/telemetry" },
     { name = "argus-vector-store-qdrant", marker = "extra == 'deliverer'", editable = "modules/vector_store_qdrant" },
     { name = "argus-vector-store-qdrant", marker = "extra == 'indexer'", editable = "modules/vector_store_qdrant" },
@@ -351,6 +360,29 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "pytest", specifier = ">=8.0" }]
+
+[[package]]
+name = "argus-cache-store"
+version = "0.1.0"
+source = { editable = "modules/cache_store" }
+dependencies = [
+    { name = "argus-core" },
+    { name = "redis" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "argus-argus-testkit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "argus-core", editable = "modules/core" },
+    { name = "redis", specifier = ">=5.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
 
 [[package]]
 name = "argus-chat-platform"
@@ -834,6 +866,29 @@ dev = [
 ]
 
 [[package]]
+name = "argus-log-source"
+version = "0.1.0"
+source = { editable = "modules/log_source" }
+dependencies = [
+    { name = "argus-core" },
+    { name = "httpx2" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "argus-argus-testkit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "argus-core", editable = "modules/core" },
+    { name = "httpx2" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
+
+[[package]]
 name = "argus-mcp-transport"
 version = "0.1.0"
 source = { editable = "modules/mcp_transport" }
@@ -1252,17 +1307,19 @@ dependencies = [
     { name = "argus-core" },
     { name = "argus-deployment-platform" },
     { name = "argus-flag-provider" },
+    { name = "argus-log-source" },
     { name = "argus-mcp-transport" },
     { name = "argus-metrics-source" },
     { name = "argus-postgres" },
     { name = "argus-repository-index" },
-    { name = "httpx2" },
+    { name = "argus-service-register" },
     { name = "mcp" },
 ]
 
 [package.dev-dependencies]
 dev = [
     { name = "argus-argus-testkit" },
+    { name = "httpx2" },
 ]
 
 [package.metadata]
@@ -1272,16 +1329,20 @@ requires-dist = [
     { name = "argus-core", editable = "modules/core" },
     { name = "argus-deployment-platform", editable = "modules/deployment_platform" },
     { name = "argus-flag-provider", editable = "modules/flag_provider" },
+    { name = "argus-log-source", editable = "modules/log_source" },
     { name = "argus-mcp-transport", editable = "modules/mcp_transport" },
     { name = "argus-metrics-source", editable = "modules/metrics_source" },
     { name = "argus-postgres", editable = "modules/postgres" },
     { name = "argus-repository-index", editable = "modules/repository_index" },
-    { name = "httpx2" },
+    { name = "argus-service-register", editable = "modules/service_register" },
     { name = "mcp", specifier = ">=2.3.0" },
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
+dev = [
+    { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
+    { name = "httpx2" },
+]
 
 [[package]]
 name = "argus-repository-index"
@@ -1332,6 +1393,29 @@ dev = [
 requires-dist = [
     { name = "argus-core", editable = "modules/core" },
     { name = "stripe", specifier = ">=12.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
+
+[[package]]
+name = "argus-service-register"
+version = "0.1.0"
+source = { editable = "modules/service_register" }
+dependencies = [
+    { name = "argus-core" },
+    { name = "httpx2" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "argus-argus-testkit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "argus-core", editable = "modules/core" },
+    { name = "httpx2" },
 ]
 
 [package.metadata.requires-dev]
@@ -1573,6 +1657,7 @@ name = "argus-write-mcp-server"
 version = "0.1.0"
 source = { editable = "modules/write_mcp_server" }
 dependencies = [
+    { name = "argus-cache-store" },
     { name = "argus-code-host" },
     { name = "argus-core" },
     { name = "argus-deployment-platform" },
@@ -1582,7 +1667,6 @@ dependencies = [
     { name = "argus-postgres" },
     { name = "httpx2" },
     { name = "mcp" },
-    { name = "redis" },
 ]
 
 [package.dev-dependencies]
@@ -1592,6 +1676,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "argus-cache-store", editable = "modules/cache_store" },
     { name = "argus-code-host", editable = "modules/code_host" },
     { name = "argus-core", editable = "modules/core" },
     { name = "argus-deployment-platform", editable = "modules/deployment_platform" },
@@ -1601,7 +1686,6 @@ requires-dist = [
     { name = "argus-postgres", editable = "modules/postgres" },
     { name = "httpx2" },
     { name = "mcp", specifier = ">=2.3.0" },
-    { name = "redis", specifier = ">=5.0" },
 ]
 
 [package.metadata.requires-dev]

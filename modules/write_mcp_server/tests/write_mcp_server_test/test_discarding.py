@@ -16,6 +16,9 @@ What is deliberately absent is a read-back. Asking the store whether the keys ar
 there after it has said they are gone is the same store answering the same
 question, and the restart's own follow-up exists only because a platform performs
 one asynchronously.
+
+The store itself is the cache store's port, stood in for here; how its adapter
+reaches a real one is `cache_store`'s own suite.
 """
 
 from __future__ import annotations
@@ -34,19 +37,14 @@ from argus_testkit import (
     attempting,
     calling,
     one_record_was_logged,
-    the_answer_was,
 )
+from cache_store import CacheStore, StoreNotReached
 from core.models import CACHE, CacheEntriesDiscarded
 from mcp_transport import ToolRefusalKind, ToolRefused
 from write_mcp_server.discarding import (
-    DiscardEntries,
-    DiscardSettings,
     EntriesNotDiscarded,
     NothingLeftToDiscard,
-    StoreClient,
-    StoreNotReached,
     discard_cache_entries,
-    with_redis,
 )
 
 from write_mcp_server_test.framework.refusals import (
@@ -54,7 +52,7 @@ from write_mcp_server_test.framework.refusals import (
     what_it_left_is_known,
 )
 
-SOME_CACHE_URL = "redis://cache.invalid:6379"
+SOME_ENDPOINT = "redis://cache.invalid:6379"
 # Spelled as the store spells them. A placeholder would hide the one mistake
 # these tests exist to catch - a seam that reordered or dropped an address.
 SOME_KEYS = ("io-shop:summary:shopper-7", "io-shop:summary:shopper-2")
@@ -72,15 +70,13 @@ def test_every_key_goes_in_one_call_and_in_the_order_it_was_given() -> None:
     # plausible as the ones the check actually found.
     Scenario() \
         .given(
-            discard := _a_store_reporting(len(SOME_KEYS))
+            store := _a_store_reporting(len(SOME_KEYS))
         ) \
         .when(
-            lambda: discard_cache_entries(
-                SOME_KEYS, _some_settings(), discard=discard
-            )
+            lambda: discard_cache_entries(SOME_KEYS, store)
         ) \
         .then(
-            _it_asked_once_for(SOME_CACHE_URL, SOME_KEYS, discard)
+            _it_asked_once_for(SOME_KEYS, store)
         )
 
 
@@ -92,12 +88,10 @@ def test_the_count_the_store_reported_is_what_comes_back() -> None:
     # be confirmed on the strength of a number this tier made up.
     Scenario() \
         .given(
-            discard := _a_store_reporting(len(SOME_KEYS))
+            store := _a_store_reporting(len(SOME_KEYS))
         ) \
         .when(
-            lambda: discard_cache_entries(
-                SOME_KEYS, _some_settings(), discard=discard
-            )
+            lambda: discard_cache_entries(SOME_KEYS, store)
         ) \
         .then(
             _it_reported(len(SOME_KEYS))
@@ -113,12 +107,10 @@ def test_keys_that_were_already_gone_are_reported_as_not_removed() -> None:
     # the incident.
     Scenario() \
         .given(
-            discard := _a_store_reporting(len(SOME_KEYS) - 1)
+            store := _a_store_reporting(len(SOME_KEYS) - 1)
         ) \
         .when(
-            lambda: discard_cache_entries(
-                SOME_KEYS, _some_settings(), discard=discard
-            )
+            lambda: discard_cache_entries(SOME_KEYS, store)
         ) \
         .then(
             _it_reported(len(SOME_KEYS) - 1)
@@ -147,18 +139,16 @@ def test_a_store_that_held_none_of_them_refuses_rather_than_reporting_nothing() 
     # mean opposite things.
     Scenario() \
         .given(
-            discard := _a_store_reporting(0)
+            store := _a_store_reporting(0)
         ) \
         .when(
             attempting(
-                lambda: discard_cache_entries(
-                    SOME_KEYS, _some_settings(), discard=discard
-                )
+                lambda: discard_cache_entries(SOME_KEYS, store)
             )
         ) \
         .then(all_of(
             an_error_was_raised(NothingLeftToDiscard),
-            _it_named(SOME_CACHE_URL),
+            _it_named(SOME_ENDPOINT),
             _it_was_refused_as_exhausted()
         ))
 
@@ -176,18 +166,16 @@ def test_a_cache_that_could_not_be_reached_raises_and_says_which_one() -> None:
     # deployment configured is doing the one comparison that explains it.
     Scenario() \
         .given(
-            discard := _a_store_that_cannot_be_reached()
+            store := _a_store_that_cannot_be_reached()
         ) \
         .when(
             attempting(
-                lambda: discard_cache_entries(
-                    DONT_CARE_KEYS, _some_settings(), discard=discard
-                )
+                lambda: discard_cache_entries(DONT_CARE_KEYS, store)
             )
         ) \
         .then(all_of(
             an_error_was_raised(EntriesNotDiscarded),
-            _it_named(SOME_CACHE_URL),
+            _it_named(SOME_ENDPOINT),
             _it_was_refused_as_the_platform_unreachable(),
             what_it_left_is_known(True)
         ))
@@ -200,35 +188,19 @@ def test_a_cache_lost_once_the_discard_was_asked_for_is_not_said_to_have_changed
     # from a store that may well have answered.
     Scenario() \
         .given(
-            discard := _a_store_lost_after_it_was_asked()
+            store := _a_store_lost_after_it_was_asked()
         ) \
         .when(
             attempting(
-                lambda: discard_cache_entries(
-                    DONT_CARE_KEYS, _some_settings(), discard=discard
-                )
+                lambda: discard_cache_entries(DONT_CARE_KEYS, store)
             )
         ) \
         .then(all_of(
             an_error_was_raised(EntriesNotDiscarded),
-            _it_named(SOME_CACHE_URL),
+            _it_named(SOME_ENDPOINT),
             it_is_refused_as_unreachable(False),
             what_it_left_is_known(False)
         ))
-
-
-@pytest.mark.unit
-def test_the_slice_carries_the_endpoint_and_no_credential() -> None:
-    # The point of slicing, asked of this tool's own slice. A cache the shop
-    # keeps needs an address and nothing else here has a use for one - and a
-    # slice that named the platform's token would be this tool able to reach the
-    # deployment platform, which it has no business touching.
-    Scenario() \
-        .given(
-            settings := _some_settings()
-        ) \
-        .when(lambda: set(settings.model_dump())) \
-        .then(_it_carries_exactly({"cache_url"}))
 
 
 @pytest.mark.unit
@@ -245,80 +217,18 @@ def test_a_discard_naming_no_keys_never_reaches_the_store() -> None:
     # said what to act on rather than an estate that failed.
     Scenario() \
         .given(
-            discard := _a_store_reporting(0)
+            store := _a_store_reporting(0)
         ) \
         .when(
             attempting(
-                lambda: discard_cache_entries((), _some_settings(), discard=discard)
+                lambda: discard_cache_entries((), store)
             )
         ) \
         .then(all_of(
             an_error_was_raised(EntriesNotDiscarded),
-            _it_never_asked(discard),
+            _it_never_asked(store),
             it_is_refused_as_unreachable(False),
             what_it_left_is_known(True)
-        ))
-
-
-@pytest.mark.unit
-def test_a_store_that_does_not_answer_before_the_discard_is_not_reached() -> None:
-    # Asked before the discard, so a store that is not there is told apart
-    # from one that went once the discard was on its way.
-    store = _a_store_client()
-    store.ping.side_effect = ConnectionError("connection refused")
-
-    Scenario() \
-        .given(store) \
-        .when(attempting(lambda: with_redis(SOME_CACHE_URL, SOME_KEYS,
-                                            connect=lambda dont_care_url: store))) \
-        .then(all_of(
-            an_error_was_raised(StoreNotReached),
-            _nothing_was_unlinked(store),
-            _it_was_closed(store)
-        ))
-
-
-@pytest.mark.unit
-def test_a_store_whose_client_cannot_be_built_is_not_reached() -> None:
-    # An address the client cannot be built from was never dialled, so nothing
-    # was asked of the store.
-    Scenario() \
-        .given() \
-        .when(attempting(lambda: with_redis(SOME_CACHE_URL, SOME_KEYS,
-                                            connect=_a_client_that_cannot_be_built))) \
-        .then(an_error_was_raised(StoreNotReached))
-
-
-@pytest.mark.unit
-def test_a_store_lost_once_the_discard_was_asked_for_is_raised_as_it_came() -> None:
-    # Not "not reached": the entries may have gone, and the caller must not
-    # be told nothing changed.
-    store = _a_store_client()
-    store.unlink.side_effect = ConnectionError("connection reset by peer")
-
-    Scenario() \
-        .given(store) \
-        .when(attempting(lambda: with_redis(SOME_CACHE_URL, SOME_KEYS,
-                                            connect=lambda dont_care_url: store))) \
-        .then(all_of(
-            an_error_was_raised(ConnectionError),
-            _it_was_not_said_to_be_unreached(),
-            _it_was_closed(store)
-        ))
-
-
-@pytest.mark.unit
-def test_a_store_that_answered_says_how_many_went_and_is_let_go() -> None:
-    store = _a_store_client()
-    store.unlink.return_value = len(SOME_KEYS) - 1
-
-    Scenario() \
-        .given(store) \
-        .when(lambda: with_redis(SOME_CACHE_URL, SOME_KEYS,
-                                 connect=lambda dont_care_url: store)) \
-        .then(all_of(
-            the_answer_was(len(SOME_KEYS) - 1),
-            _it_was_closed(store)
         ))
 
 
@@ -330,10 +240,10 @@ def test_a_discard_is_logged(caplog: pytest.LogCaptureFixture) -> None:
     Scenario() \
         .given(
             calling(lambda: caplog.set_level(logging.INFO)),
-            discard := _a_store_reporting(len(SOME_KEYS) - 1)
+            store := _a_store_reporting(len(SOME_KEYS) - 1)
         ) \
         .when(
-            lambda: discard_cache_entries(SOME_KEYS, _some_settings(), discard=discard)
+            lambda: discard_cache_entries(SOME_KEYS, store)
         ) \
         .then(
             one_record_was_logged(caplog, "write_mcp_server.discarding", logging.INFO,
@@ -352,11 +262,11 @@ def test_a_discard_naming_no_keys_is_logged_as_a_warning(
     # looking at.
     Scenario() \
         .given(
-            discard := _a_store_reporting(0)
+            store := _a_store_reporting(0)
         ) \
         .when(
             attempting(
-                lambda: discard_cache_entries((), _some_settings(), discard=discard)
+                lambda: discard_cache_entries((), store)
             )
         ) \
         .then(
@@ -365,122 +275,73 @@ def test_a_discard_naming_no_keys_is_logged_as_a_warning(
         )
 
 
-def _some_settings(cache_url: str = SOME_CACHE_URL) -> DiscardSettings:
-    return DiscardSettings(cache_url=cache_url)
+def _a_store(endpoint: str = SOME_ENDPOINT) -> Any:
+    """The cache store's port, dialled at `endpoint`.
+
+    `create_autospec` rather than a hand-written stub, so a port whose signature
+    changes takes this with it instead of silently accepting the old call. Typed
+    `Any` for the reason the restart's own double is: what the test needs back is
+    both the port and the record of how it was called, and the protocol describes
+    only the first.
+    """
+    store = create_autospec(CacheStore, instance=True)
+    store.endpoint = endpoint
+
+    return store
 
 
 def _a_store_reporting(discarded: int) -> Any:
-    """A store that answers, having removed `discarded` of what it was asked.
+    """A store that answers, having removed `discarded` of what it was asked."""
+    store = _a_store()
+    store.discard.return_value = discarded
 
-    `create_autospec` rather than a hand-written stub, so a seam whose signature
-    changes takes this with it instead of silently accepting the old call. Typed
-    `Any` for the reason the restart's own double is: what the test needs back is
-    both the seam and the record of how it was called, and the protocol describes
-    only the first.
-    """
-    discard = create_autospec(DiscardEntries, instance=True)
-    discard.return_value = discarded
-
-    return discard
+    return store
 
 
 def _a_store_that_cannot_be_reached() -> Any:
-    """A store that did not answer before anything was asked of it - the seam's
+    """A store that did not answer before anything was asked of it - the port's
     own word for a connection that was never had."""
-    discard = create_autospec(DiscardEntries, instance=True)
-    discard.side_effect = StoreNotReached("connection refused")
+    store = _a_store()
+    store.discard.side_effect = StoreNotReached("connection refused")
 
-    return discard
-
-
-def _a_store_client() -> Any:
-    """A store's client, answering every ping. `Any` for the reason
-    `_a_store_reporting` gives."""
-    return create_autospec(StoreClient, instance=True)
-
-
-def _a_client_that_cannot_be_built(dont_care_url: str) -> StoreClient:
-    """What Redis's client does with an address in a scheme it does not know."""
-    raise ValueError("Redis URL must specify one of the following schemes")
-
-
-def _nothing_was_unlinked(store: Any) -> Assertion[object]:
-    def assertion(dont_care: object) -> bool:
-        if store.unlink.called:
-            raise AssertionError(
-                f"Expected nothing to be discarded from a store that did not answer, "
-                f"and it was asked {store.unlink.call_args_list}."
-            )
-
-        return True
-
-    return assertion
-
-
-def _it_was_closed(store: Any) -> Assertion[object]:
-    def assertion(dont_care: object) -> bool:
-        if store.close.call_count != 1:
-            raise AssertionError(
-                f"Expected the client closed once, and it was closed "
-                f"{store.close.call_count} times."
-            )
-
-        return True
-
-    return assertion
-
-
-def _it_was_not_said_to_be_unreached() -> Assertion[Exception | None]:
-    def assertion(raised: Exception | None) -> bool:
-        if isinstance(raised, StoreNotReached):
-            raise AssertionError(
-                f"Expected the failure raised as it came, and it was called a store "
-                f"not reached: [{raised}]."
-            )
-
-        return True
-
-    return assertion
+    return store
 
 
 def _a_store_lost_after_it_was_asked() -> Any:
     """A store that went once the discard was on its way.
 
-    An arbitrary exception rather than a Redis one: what reaches this seam is
+    An arbitrary exception rather than a Redis one: what reaches this port is
     whatever the client raised, and a module catching one specific class would
     let every other way a connection fails escape as an unhandled error.
     """
-    discard = create_autospec(DiscardEntries, instance=True)
-    discard.side_effect = OSError("connection reset by peer")
+    store = _a_store()
+    store.discard.side_effect = OSError("connection reset by peer")
 
-    return discard
+    return store
 
 
-def _it_asked_once_for(cache_url: str,
-                       keys: Sequence[str],
-                       discard: Any) -> Assertion[object]:
-    """One call, to that endpoint, naming those keys in that order.
+def _it_asked_once_for(keys: Sequence[str], store: Any) -> Assertion[object]:
+    """One call, naming those keys in that order.
 
-    The seam is passed in because what is being asserted is how it was called
+    The store is passed in because what is being asserted is how it was called
     rather than what came back - the same shape the restart's assertions about
     the action asked for have.
     """
     def assertion(dont_care_result: object) -> bool:
-        if discard.call_count != 1:
+        if store.discard.call_count != 1:
             raise AssertionError(
                 f"Expected the store to be asked once, and it was asked "
-                f"{discard.call_count} times - a discard split across calls is a "
-                f"partial one whenever any of them fails."
+                f"{store.discard.call_count} times - a discard split across calls "
+                f"is a partial one whenever any of them fails."
             )
 
-        asked_for = discard.call_args.args
+        asked_for = store.discard.call_args.args
 
-        if asked_for != (cache_url, tuple(keys)):
+        if asked_for != (tuple(keys),):
             raise AssertionError(
-                f"Expected the store at [{cache_url}] to be asked for "
-                f"{tuple(keys)}, and it was asked {asked_for} - these are "
-                f"addresses, so a set that arrived reordered or short is a "
-                f"different set of entries."
+                f"Expected the store to be asked for {tuple(keys)}, and it was "
+                f"asked {asked_for} - these are addresses, so a set that arrived "
+                f"reordered or short is a different set of entries."
             )
 
         return True
@@ -502,11 +363,11 @@ def _it_reported(discarded: int) -> Assertion[CacheEntriesDiscarded]:
     return assertion
 
 
-def _it_named(cache_url: str) -> Assertion[Exception | None]:
+def _it_named(endpoint: str) -> Assertion[Exception | None]:
     def assertion(error: Exception | None) -> bool:
-        if error is None or cache_url not in str(error):
+        if error is None or endpoint not in str(error):
             raise AssertionError(
-                f"Expected the failure to name the endpoint [{cache_url}] that "
+                f"Expected the failure to name the endpoint [{endpoint}] that "
                 f"was dialled, and it said [{error}] - leaving a reader knowing "
                 f"the cache is unreachable and unable to work out why."
             )
@@ -516,7 +377,7 @@ def _it_named(cache_url: str) -> Assertion[Exception | None]:
     return assertion
 
 
-def _it_never_asked(discard: Any) -> Assertion[Exception | None]:
+def _it_never_asked(store: Any) -> Assertion[Exception | None]:
     """That the store was not dialled at all.
 
     The point of the refusal rather than a detail of it: a call that reached the
@@ -524,10 +385,10 @@ def _it_never_asked(discard: Any) -> Assertion[Exception | None]:
     caller reads that as a platform it should stop offering actions for.
     """
     def assertion(dont_care_error: Exception | None) -> bool:
-        if discard.call_count:
+        if store.discard.call_count:
             raise AssertionError(
                 f"Expected the store never to be asked, and it was asked "
-                f"{discard.call_count} times with no keys named."
+                f"{store.discard.call_count} times with no keys named."
             )
 
         return True
@@ -553,19 +414,6 @@ def _it_was_refused_as_the_platform_unreachable() -> Assertion[Exception | None]
                 f"Expected the failure to be refused as the [{CACHE}] platform "
                 f"being unreachable, and it was [{kind}] naming [{platform}]: "
                 f"[{error}]."
-            )
-
-        return True
-
-    return assertion
-
-
-def _it_carries_exactly(fields: set[str]) -> Assertion[set[str]]:
-    def assertion(carried: set[str]) -> bool:
-        if carried != fields:
-            raise AssertionError(
-                f"Expected the slice to carry exactly {sorted(fields)}, and it "
-                f"carries {sorted(carried)}."
             )
 
         return True

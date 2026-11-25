@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import Final, Protocol
+from typing import Protocol
 
-import httpx2
-from core import SettingsSlice, parse_iso, to_iso, utc_now
+from core import parse_iso, to_iso, utc_now
 from core.models import ChangeEvent, MetricBucket, RuleSeries
+from log_source import LogSource
 from metrics_source import MetricsSource
 
 from read_mcp_server.change_source import ChangeSource
@@ -16,25 +16,6 @@ from read_mcp_server.window import (
     resolve_log_window,
     resolve_metrics_window,
 )
-
-
-class TargetServiceSettings(SettingsSlice):
-    """Where the service Argus is watching answers from.
-
-    One field, and separate from `RetrievalSettings` because it answers a
-    different question: that one says how much may be read, this says of
-    whom. A window is decided per call; an address is decided once, where the
-    process starts.
-    """
-
-    target_service_url: str
-
-
-FetchLogs = Callable[[], list[str]]
-
-# How long one read of the service's logs may take, as every other read this
-# tier makes of somebody else's API is bounded (`alert_rules`, `registry`).
-LOGS_REQUEST_TIMEOUT_SECONDS: Final = 10.0
 
 
 class SeriesTheRuleWatches(Protocol):
@@ -77,31 +58,13 @@ def _in_window(moment: datetime, window: ResolvedWindow) -> bool:
     return not (window.end is not None and moment > window.end)
 
 
-def target_service_logs(settings: TargetServiceSettings) -> FetchLogs:
-    """The real log fetcher, aimed at the service this deployment watches.
-
-    A factory rather than a function taking the address, so that what the
-    tools are handed stays the no-argument `FetchLogs` a test can stand in for
-    with a lambda. The address is bound once, where the server is built.
-    """
-    def fetch() -> list[str]:
-        response = httpx2.get(f"{settings.target_service_url}/logs",
-                              timeout=LOGS_REQUEST_TIMEOUT_SECONDS)
-        response.raise_for_status()
-        logs: list[str] = response.json()
-
-        return logs
-
-    return fetch
-
-
 def get_log_lines(alert_time: str | None = None,
                   window_start: str | None = None,
                   window_end: str | None = None,
                   filters: str | None = None,
                   *,
                   settings: RetrievalSettings,
-                  fetch: FetchLogs) -> list[str]:
+                  fetch: LogSource) -> list[str]:
     """Returns the Target Service's log lines for one window of an incident.
 
     Phase two of spec §16's two-phase retrieval: the metrics summary locates

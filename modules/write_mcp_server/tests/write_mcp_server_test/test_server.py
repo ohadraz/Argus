@@ -39,6 +39,7 @@ from unittest.mock import Mock, create_autospec
 
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, the_answer_was
+from cache_store import CacheStore
 from code_host import CodeHostWrites
 from core import Fence, WriteMcpEndpoint, to_iso
 from core.models import (
@@ -73,7 +74,6 @@ from mcp_transport import (
     ToolRefusalKind,
 )
 from pydantic import BaseModel, TypeAdapter
-from write_mcp_server.discarding import DiscardSettings
 from write_mcp_server.fencing import FencedMCPServer, HoldForAChange
 from write_mcp_server.server import build_server
 
@@ -768,7 +768,7 @@ def _a_server(flags: Mock | None = None,
         code if code is not None else create_autospec(CodeHostWrites, instance=True),
         platform if platform is not None else create_autospec(DeploymentPlatformWrites,
                                                               instance=True),
-        DiscardSettings(cache_url="redis://cache.invalid:6379"),
+        create_autospec(CacheStore, instance=True),
         hold if hold is not None else _a_hold_never_asked,
         argus_account=argus_account
     )

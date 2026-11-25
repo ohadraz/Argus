@@ -26,16 +26,16 @@ from core.models import CodeSearch, ToolDefinition
 from core.vector_store import VectorSearch
 from deployment_platform import DeploymentPlatformReads
 from flag_provider import FlagProviderReads
+from log_source import LogSource
 from mcp.server.mcpserver import MCPServer
 from metrics_source import MetricsSource, SeriesClassifier
 from postgres import Connections
 from read_mcp_client import offered
 from read_mcp_server.meaning import IndexReadSettings
-from read_mcp_server.registry import ServiceRegistrySettings
 from read_mcp_server.repository import RepositoryReadSettings
-from read_mcp_server.retrieval import TargetServiceSettings
 from read_mcp_server.server import build_server
 from read_mcp_server.window import RetrievalSettings
+from service_register import ServiceRegister
 
 SEARCHING_BY_GREP_ALONE = CodeSearch.GREP
 
@@ -76,15 +76,12 @@ def _a_read_tier(mode: CodeSearch) -> MCPServer:
                           log_initial_lookahead_minutes=5,
                           log_max_window_minutes=60,
                           metrics_window_minutes=60),
-        TargetServiceSettings(target_service_url="http://target.invalid"),
+        create_autospec(LogSource, instance=True),
         create_autospec(MetricsSource, instance=True),
         create_autospec(FlagProviderReads, instance=True),
         create_autospec(DeploymentPlatformReads, instance=True),
         create_autospec(CodeHostReads, instance=True),
-        ServiceRegistrySettings(
-            service_registry_base_url="http://registry.invalid",
-            service_registry_service_path="/registry/services/{service}"
-        ),
+        create_autospec(ServiceRegister, instance=True),
         RepositoryReadSettings(service_source_paths="src"),
         IndexReadSettings(repository_index_collection=DONT_CARE_COLLECTION,
                           repository_index_embedding_model=DONT_CARE_EMBEDDING_MODEL,

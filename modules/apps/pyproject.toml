@@ -56,11 +56,14 @@ read_mcp = [
     "argus-deployment_platform",
     "argus-embedding_fastembed",
     "argus-flag_provider",
+    "argus-log_source",
     "argus-metrics_source",
+    "argus-service_register",
     "argus-vector_store_qdrant",
 ]
 write_mcp = [
     "argus-write_mcp_server",
+    "argus-cache_store",
     "argus-code_host",
     "argus-deployment_platform",
     "argus-flag_provider",
@@ -133,7 +136,10 @@ argus-alerting_platform = { workspace = true }
 argus-code_host = { workspace = true }
 argus-deployment_platform = { workspace = true }
 argus-flag_provider = { workspace = true }
+argus-log_source = { workspace = true }
 argus-metrics_source = { workspace = true }
+argus-service_register = { workspace = true }
+argus-cache_store = { workspace = true }
 argus-write_mcp_server = { workspace = true }
 argus-repository_index = { workspace = true }
 argus-communication = { workspace = true }

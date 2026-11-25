@@ -153,7 +153,8 @@ THE_WAY_RECALL_READS = ("vector_store_qdrant.searching", "qdrant_client")
 SPOKEN_ONLY_BY_ITS_ADAPTER = {
     "qdrant_client": "vector_store_qdrant",
     "anthropic": "llm_anthropic",
-    "fastembed": "embedding_fastembed"
+    "fastembed": "embedding_fastembed",
+    "redis": "cache_store.redis"
 }
 
 # What the kernel may import beyond the standard library, and so all it may

@@ -1,24 +1,12 @@
-"""What a service calls, read from the organisation's own register (spec §12.1).
-
-The read tier's view of the service register, and the only place in Argus that
-knows its wire shape. Everything above sees `ServiceDependency`.
+"""The register as the demo Target Service keeps one, and the only place in
+Argus that knows its wire shape. Everything above the port sees
+`ServiceDependency`.
 
 Two layers, both public, because they fail for different reasons:
 `fetch_registered_service` makes the HTTP request and is where a URL and an
 outage live, while `what_a_service_depends_on` maps the answer onto the type its
-callers reason about.
-
-The register is worth a channel of its own because of one field. What a service
-calls, where, and what for are all recoverable from its source and its failures;
-whether the thing on the other end belongs to the same organisation is not, and
-it is what decides the response to a propagation incident. A neighbour's process
-can be restarted. Another company's outage can only be named and handed over.
-
-Nothing here infers that. A host that looks internal looks that way because
-somebody chose the spelling, and the owning team does not settle it either -
-somebody here owns the *integration* with a vendor. It is recorded by a person
-and looked up, which is also why the register is a channel that can be wrong in
-ways this module has to survive rather than resolve.
+callers reason about. `TargetServiceRegister` is the two composed, behind the
+port.
 """
 
 from __future__ import annotations
@@ -27,21 +15,23 @@ from collections.abc import Callable
 from typing import Any, Final, Protocol
 
 import httpx2
-from core import SettingsSlice
+from core import AdapterSettings
 from core.models import ServiceDependency
+
+from service_register.port import RegistryUnavailable
 
 __all__ = [
     "FetchRegisteredService",
-    "RegistryUnavailable",
-    "ServiceRegistrySettings",
+    "TargetServiceRegister",
+    "TargetServiceRegisterSettings",
     "fetch_registered_service",
     "what_a_service_depends_on"
 ]
 
 # The register's own field names. Named rather than spelled at the point of use,
-# for the reason every other external vocabulary in this package is: the
-# register is somebody else's document, and a literal buried in a comprehension
-# is a literal nobody finds when that document changes.
+# for the reason every other external vocabulary in Argus is: the register is
+# somebody else's document, and a literal buried in a comprehension is a literal
+# nobody finds when that document changes.
 #
 # Internal to this module, not exported. This is the one place that knows the
 # register's wire shape, and a caller holding one of these names would be a
@@ -56,7 +46,7 @@ OWNERSHIP_FIELD: Final = "ownership"
 REQUEST_TIMEOUT_SECONDS = 10.0
 
 
-class ServiceRegistrySettings(SettingsSlice):
+class TargetServiceRegisterSettings(AdapterSettings):
     """Where the register answers, and under what path.
 
     A template path rather than a fixed route, as the deploy reader's is: the
@@ -65,12 +55,18 @@ class ServiceRegistrySettings(SettingsSlice):
 
     No credential. A register of what calls what is not secret inside the
     organisation that keeps it, and a field for one here would be a field the
-    read tier could be handed a mutating credential in - see `flags`, which makes
-    the same argument about a type that cannot name what it must not hold.
+    read tier could be handed a mutating credential in - the flag provider's
+    read settings make the same argument about a type that cannot name what it
+    must not hold.
     """
 
-    service_registry_base_url: str
-    service_registry_service_path: str
+    # Where the organisation's service register answers. The demo Target Service
+    # stands in for one, so the default points at it.
+    service_registry_base_url: str = "http://localhost:8080"
+    # A template, as the deploy reader's paths are, so a register with one route
+    # per service and one with a single route are the same setting at different
+    # values. A path carrying no placeholder formats to itself.
+    service_registry_service_path: str = "/registry/services/{service}"
 
 
 HttpGet = Callable[..., httpx2.Response]
@@ -90,20 +86,31 @@ class FetchRegisteredService(Protocol):
     def __call__(self, service: str, /) -> dict[str, Any]: ...
 
 
-class RegistryUnavailable(Exception):
-    """The register could not be asked what a service depends on.
+class TargetServiceRegister:
+    """The demo Target Service's register, behind the port.
 
-    Deliberately not an empty list, and the consequence here is worse than the
-    flag reader's. "The register was down" read as "it calls nothing" leaves the
-    estate looking empty - and an estate with nothing in it is one where every
-    address is outside what Argus may touch, so an outage would quietly forbid
-    every mitigation instead of reporting itself.
+    Holds where the register is and nothing else. Built where the read server
+    is wired, and handed on typed as `ServiceRegister`.
     """
+
+    def __init__(self,
+                 settings: TargetServiceRegisterSettings,
+                 get: HttpGet = httpx2.get) -> None:
+        self._settings = settings
+        self._get = get
+
+    def dependencies_of(self, service: str, /) -> list[ServiceDependency]:
+        """What the register holds for `service`, asked and then mapped - see
+        `what_a_service_depends_on` for what an entry becomes."""
+        return what_a_service_depends_on(service, fetch=self._registered)
+
+    def _registered(self, service: str, /) -> dict[str, Any]:
+        return fetch_registered_service(service, self._settings, get=self._get)
 
 
 def fetch_registered_service(
     service: str,
-    settings: ServiceRegistrySettings,
+    settings: TargetServiceRegisterSettings,
     get: HttpGet = httpx2.get
 ) -> dict[str, Any]:
     """Asks the register what it holds about one service.
@@ -180,7 +187,7 @@ def _a_dependency_from(entry: dict[str, Any], service: str) -> ServiceDependency
         ) from error
 
 
-def _service_path(settings: ServiceRegistrySettings, service: str) -> str:
+def _service_path(settings: TargetServiceRegisterSettings, service: str) -> str:
     """The path with the service named in it.
 
     A path naming no service formats to itself, exactly as the deploy reader's

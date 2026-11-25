@@ -3,9 +3,9 @@
 The write tier's sixth action, and the first that does not go through a control
 plane. No control plane offers this one: a platform's built-in resource actions
 reach a workload's lifecycle and its size - restart, scale, pause, resume - and
-none of them reaches what a cache holds. So this module speaks to the store
-itself, over the protocol that store publishes, which is also what a responder
-doing it by hand would do.
+none of them reaches what a cache holds. So this action speaks to the store
+itself, through the cache store's port (`cache_store`), whose adapter speaks the
+protocol that store publishes.
 
 Everything above the port sees a list of keys going in and a count coming back.
 The keys are addresses and arrive from the evidence that named them; this module
@@ -31,10 +31,9 @@ records, and writing the stale figures back would be recreating the incident.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Sequence
-from typing import Any, Final, Protocol
+from collections.abc import Sequence
 
-from core import SettingsSlice
+from cache_store import CacheStore, StoreNotReached
 from core.models import CACHE, CacheEntriesDiscarded
 from mcp_transport import (
     ToolRefused,
@@ -45,71 +44,6 @@ from mcp_transport import (
 )
 
 logger = logging.getLogger(__name__)
-
-# Redis's own name for removing keys without blocking on the memory, and the one
-# place in Argus that holds it. The vendor's wire vocabulary, named here for the
-# reason Argo CD's `restart` is named in `restarting`: the spelling belongs to the
-# store, and everything above this module says "discard".
-#
-# `UNLINK` rather than `DEL` because the two differ in who waits. `DEL` frees each
-# key's memory on the connection's own thread, so one call naming many keys blocks
-# the store - and the shop reading that store is the service this is trying to put
-# right. `UNLINK` detaches the keys and reclaims the memory elsewhere, so the call
-# costs the shop nothing it would notice.
-UNLINK_COMMAND: Final = "UNLINK"
-
-# How long to wait for a store that may not be there. Short on purpose: losing a
-# cache is a slowdown by design, and a connect attempt that hangs for seconds
-# turns it into a timeout - which is the shop's own reason for a short one, and
-# the same reason here, since an action that cannot reach the store should say so
-# while the walk still has time to try something else.
-CONNECT_TIMEOUT_SECONDS: Final = 0.25
-
-
-class DiscardSettings(SettingsSlice):
-    """Where the cache is, and nothing else.
-
-    One field, and the slice is worth having for what it leaves out rather than
-    for what it carries: this tool has no business holding the credential that
-    reaches the deployment platform, and a slice naming it would be this tool
-    able to restart or roll back something.
-
-    The address is a fact about the estate, like the platform's URL beside it -
-    and it is **not** the address the service itself dials. The shop reaches its
-    cache inside the network it runs in, where Argus is a process outside that
-    network reaching the same store by a published port. One cache, two addresses,
-    which is the asymmetry the deploy history's own host already lives with.
-    """
-
-    cache_url: str
-
-
-class DiscardEntries(Protocol):
-    """How keys are actually removed from a store.
-
-    A `Protocol` rather than a `Callable` alias, for the reason `ObserveStartTime`
-    is one: a test stands it in with `create_autospec`, which needs something
-    introspectable.
-
-    It is handed the endpoint as well as the keys rather than being built around
-    one, so that nothing here holds a connection open between actions - a walk
-    takes at most a handful of these, minutes apart, and a pooled client would be
-    a connection kept alive for an incident's duration to save a handshake.
-
-    Answers how many of the named keys existed and were removed. Raises
-    `StoreNotReached` where the store was not there before the discard was
-    asked of it, and whatever the client raises once it had been.
-    """
-
-    def __call__(self, cache_url: str, keys: Sequence[str], /) -> int: ...
-
-
-class StoreNotReached(Exception):
-    """The store did not answer before anything was asked of it.
-
-    The seam's own word for it, because only the seam can tell: a failure before
-    the discard left the entries where they were, and one after it may not have.
-    """
 
 
 class NothingLeftToDiscard(ToolRefused):
@@ -146,73 +80,9 @@ class EntriesNotDiscarded(ToolRefused):
     """
 
 
-class StoreClient(Protocol):
-    """The three things `with_redis` asks of a store's client - a `Protocol` so
-    a test can stand one in with `create_autospec`."""
-
-    def ping(self) -> Any: ...
-
-    def unlink(self, *names: str) -> Any: ...
-
-    def close(self) -> None: ...
-
-
-def a_redis_at(cache_url: str) -> StoreClient:
-    """A client for the Redis at `cache_url`, and the only code in Argus that
-    imports a store's client.
-
-    `decode_responses` is not asked for, because nothing here reads a value - the
-    command answers with an integer and the keys go out as the text they arrived
-    as. Nothing is read back either, so there is no reply to decode.
-
-    Not unit-tested, and deliberately: what there would be to assert is that the
-    client was built with these arguments, which is this function's body written
-    twice. That a real store answers to it is only true or false against a real
-    store, and the end-to-end stack is where one exists.
-    """
-    from redis import Redis
-
-    return Redis.from_url(cache_url, socket_connect_timeout=CONNECT_TIMEOUT_SECONDS)
-
-
-def with_redis(cache_url: str,
-               keys: Sequence[str],
-               /,
-               connect: Callable[[str], StoreClient] = a_redis_at) -> int:
-    """Removes `keys` from the Redis at `cache_url`, answering how many went.
-
-    The real seam. A connection per call rather than a pool, for the reason the
-    protocol above says: a walk takes a handful of these minutes apart. `connect`
-    is where a test puts the store.
-    """
-    # An address the client cannot be built from was never dialled, so nothing
-    # was asked of the store.
-    try:
-        client = connect(cache_url)
-    except Exception as error:
-        raise StoreNotReached(f"{error}") from error
-
-    try:
-        # Asked before the discard, so a store that is not there is told apart
-        # from one that went once the discard was on its way - after which the
-        # entries may well be gone.
-        try:
-            client.ping()
-        except Exception as error:
-            raise StoreNotReached(f"{error}") from error
-
-        return int(client.unlink(*keys))
-    finally:
-        client.close()
-
-
-def discard_cache_entries(
-    keys: Sequence[str],
-    settings: DiscardSettings,
-    *,
-    discard: DiscardEntries = with_redis
-) -> CacheEntriesDiscarded:
-    """Discards the entries `keys` names, and answers with how many went.
+def discard_cache_entries(keys: Sequence[str], store: CacheStore) -> CacheEntriesDiscarded:
+    """Discards the entries `keys` names from `store`, and answers with how many
+    went.
 
     One call carrying all of them rather than one call each. The store takes them
     together, and a loop would be a partial discard whenever anything failed part
@@ -242,18 +112,18 @@ def discard_cache_entries(
     if not keys:
         logger.warning("no cache entries named")
         raise EntriesNotDiscarded(a_refusal_saying_what_it_left(
-            f"no cache entries were named to discard at [{settings.cache_url}], "
+            f"no cache entries were named to discard at [{store.endpoint}], "
             f"so nothing was asked of it"
         ))
 
     try:
-        discarded = discard(settings.cache_url, tuple(keys))
+        discarded = store.discard(tuple(keys))
     except StoreNotReached as error:
         raise EntriesNotDiscarded(
             an_unreachable_platform(
                 CACHE,
                 f"could not discard {len(keys)} cache entries at "
-                f"[{settings.cache_url}]: {error}"
+                f"[{store.endpoint}]: {error}"
             )
         ) from error
     except Exception as error:
@@ -263,7 +133,7 @@ def discard_cache_entries(
         # from one that may well have answered.
         raise EntriesNotDiscarded(with_what_it_left(
             f"could not discard {len(keys)} cache entries at "
-            f"[{settings.cache_url}]: {error}",
+            f"[{store.endpoint}]: {error}",
             None
         )) from error
 
@@ -271,7 +141,7 @@ def discard_cache_entries(
         raise NothingLeftToDiscard(
             an_exhausted_action(
                 f"none of the {len(keys)} entries named at "
-                f"[{settings.cache_url}] are in the store, so there is nothing "
+                f"[{store.endpoint}] are in the store, so there is nothing "
                 f"here for a discard to remove"
             )
         )

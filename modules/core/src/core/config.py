@@ -55,8 +55,6 @@ class Settings(BaseSettings):
     # by default, so a deployment cannot be one flag away from being wiped.
     schema_may_be_destroyed: bool = Field(default=False)
 
-    target_service_url: str = Field(default="http://localhost:8080")
-
     read_mcp_host: str = Field(default="localhost")
     read_mcp_port: int = Field(default=8090)
     # How long a client waits for a read tool's answer, in seconds.
@@ -502,37 +500,6 @@ class Settings(BaseSettings):
     # Below 1 by construction - at 1 this is the departure threshold again, and
     # the failure it exists to prevent returns.
     recovery_fraction_of_the_rise: float = Field(default=0.8, gt=0.0, lt=1.0)
-
-    # Where the Target Service's rendered-summary cache answers. The first
-    # address here that is a datastore rather than a control plane: every other
-    # write goes through a platform that acts on Argus's behalf, and this one is
-    # spoken to directly, in the store's own protocol.
-    #
-    # The shop holds a different address for the same cache, and that is correct
-    # rather than drift. The shop reads its own deployment configuration and
-    # dials the cluster service name there; Argus runs beside the environment
-    # rather than inside it and reaches the published port, exactly as the shop's
-    # own monitoring posts to `host.docker.internal` to reach a host Argus runs
-    # on. Two addresses for one cache, because the two parties are in different
-    # places.
-    #
-    # No credential, for the reason the service register has none: what is in
-    # here is a figure the account page would have worked out for itself, and a
-    # store holding a cheaper copy of public arithmetic is not a secret.
-    cache_url: str = Field(default="redis://localhost:6379")
-
-    # Where the organisation's service register answers. The demo Target Service
-    # stands in for one, so the default points at it - and unlike the deployment
-    # platform's settings there is nothing here to authenticate with, because a
-    # register of what calls what is not secret inside the organisation keeping
-    # it.
-    service_registry_base_url: str = Field(default="http://localhost:8080")
-    # A template, as the deploy reader's paths are, so a register with one route
-    # per service and one with a single route are the same setting at different
-    # values. A path carrying no placeholder formats to itself.
-    service_registry_service_path: str = Field(
-        default="/registry/services/{service}"
-    )
 
     # How far back to look for changes. Wide on purpose, and far wider than
     # any log window: a cause precedes its symptoms by an unbounded lag - a

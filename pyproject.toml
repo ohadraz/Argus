@@ -141,6 +141,7 @@ root_packages = [
     "alert_source",
     "alerting_platform",
     "apps",
+    "cache_store",
     "chat_platform",
     "code_host",
     "codefix_agent",
@@ -157,6 +158,7 @@ root_packages = [
     "incident_record",
     "investigation_agent",
     "llm_anthropic",
+    "log_source",
     "mcp_transport",
     "message_intent",
     "metrics_source",
@@ -173,6 +175,7 @@ root_packages = [
     "read_mcp_server",
     "repository_index",
     "revenue_source",
+    "service_register",
     "telemetry",
     "vector_store_qdrant",
     "web_app",
@@ -497,6 +500,7 @@ protected_modules = [
     "alert_source.grafana",
     "alerting_platform.grafana",
     "apps",
+    "cache_store.redis",
     "chat_platform.slack",
     "chat_platform.slack_deliveries",
     "chat_platform.slack_posting",
@@ -506,6 +510,7 @@ protected_modules = [
     "exchange_rate_source.frankfurter",
     "flag_provider.unleash",
     "llm_anthropic",
+    "log_source.target_service",
     "metrics_source.prometheus_adapter",
     "metrics_source.prometheus_settings",
     "metrics_source.prometheus_units",
@@ -517,6 +522,7 @@ protected_modules = [
     "push_source.github",
     "revenue_source.stripe_adapter",
     "revenue_source.stripe_settings",
+    "service_register.target_service",
     "telemetry",
     "vector_store_qdrant",
 ]
@@ -543,6 +549,25 @@ type = "protected"
 # contract forbids the worker's root the same, for the fence's reason.
 protected_modules = ["vector_store_qdrant.indexing"]
 allowed_importers = ["apps.deliverer", "apps.indexer"]
+
+[[tool.importlinter.contracts]]
+name = "the read server never reaches the cache store"
+type = "forbidden"
+# The store's port has one call, and it removes entries. The read tier is the
+# process that cannot change anything (§13), and a port whose whole surface is a
+# write has no business in its graph even unbuilt: the day somebody hands one
+# in, nothing else would object.
+source_modules = ["read_mcp_server"]
+forbidden_modules = ["cache_store"]
+
+[[tool.importlinter.contracts]]
+name = "the write server reads neither the service's logs nor its register"
+type = "forbidden"
+# Both are the read tier's channels. A write server reading them would be a
+# second process holding what the incident's evidence is read from, and the
+# split between the tiers is a split between what each process is handed.
+source_modules = ["write_mcp_server"]
+forbidden_modules = ["log_source", "service_register"]
 
 [[tool.importlinter.contracts]]
 name = "the incident record's tables are its own, reached through its roles"

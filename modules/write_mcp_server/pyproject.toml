@@ -14,10 +14,10 @@ dependencies = [
     "httpx2",
     "mcp>=2.3.0",
     "argus-mcp_transport",
-    # The store the cache lives in, for the one action that reaches a datastore
-    # rather than a control plane. Without `hiredis`: that extra is a compiled
-    # wheel, and Smart App Control on this machine has refused those before.
-    "redis>=5.0",
+    # The store the cache lives in, as a port, for the one action that reaches
+    # a datastore rather than a control plane. Its adapter is built by the
+    # process's root (`apps.write_mcp`) and handed on.
+    "argus-cache_store",
 ]
 
 [dependency-groups]
@@ -33,6 +33,7 @@ argus-incident_record = { workspace = true }
 argus-deployment_platform = { workspace = true }
 argus-flag_provider = { workspace = true }
 argus-code_host = { workspace = true }
+argus-cache_store = { workspace = true }
 argus-argus_testkit = { workspace = true }
 
 [build-system]

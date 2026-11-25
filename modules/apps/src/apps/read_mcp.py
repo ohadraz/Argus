@@ -2,8 +2,9 @@
 
 `python -m apps.read_mcp`. Which tools there are and what each answers is
 `read_mcp_server`'s; this decides what they read through - every platform's
-adapter, each holding a read credential alone, the metrics source and the store
-passages are searched in - and serves them.
+adapter, each holding a read credential alone, the service's logs and its
+register, the metrics source and the store passages are searched in - and
+serves them.
 """
 
 from __future__ import annotations
@@ -18,16 +19,16 @@ from core.models import MetricBucket, RuleSeries
 from deployment_platform.argocd import ArgoCd, ArgoCdSettings
 from embedding_fastembed import an_embedder
 from flag_provider.unleash import UnleashFrontend, UnleashFrontendSettings
+from log_source.target_service import TargetServiceLogSettings, target_service_logs
 from metrics_source import MetricsSource
 from metrics_source.prometheus_adapter import buckets_between, what_the_series_is
 from metrics_source.prometheus_settings import PrometheusSettings
 from postgres import open_pool
 from read_mcp_server.meaning import IndexReadSettings
-from read_mcp_server.registry import ServiceRegistrySettings
 from read_mcp_server.repository import RepositoryReadSettings
-from read_mcp_server.retrieval import TargetServiceSettings
 from read_mcp_server.server import build_server
 from read_mcp_server.window import RetrievalSettings
+from service_register.target_service import TargetServiceRegister, TargetServiceRegisterSettings
 from telemetry import start_telemetry
 from telemetry.langfuse import LangfuseSettings, to_langfuse
 from vector_store_qdrant import SearchOpenedOnFirstUse
@@ -81,7 +82,9 @@ def main() -> None:
         build_server(
             ReadMcpEndpoint.of(settings),
             RetrievalSettings.of(settings),
-            TargetServiceSettings.of(settings),
+            # The service's logs, built here for the same reason and handed on
+            # as their port, so no tool names the address they are read from.
+            target_service_logs(TargetServiceLogSettings()),
             the_minutes_at(PrometheusSettings()),
             # The flag provider's adapter, built here for the same reason and
             # handed on as its reads port - holding the evaluation credential
@@ -96,7 +99,10 @@ def main() -> None:
             # on as its reads port - holding the read credential alone, since
             # its settings have nowhere to put the one that pushes.
             GitHubReads(GitHubReadSettings()),
-            ServiceRegistrySettings.of(settings),
+            # The service register's adapter, built here for the same reason and
+            # handed on as its port - holding no credential, since a register of
+            # what calls what has none to give.
+            TargetServiceRegister(TargetServiceRegisterSettings()),
             RepositoryReadSettings.of(settings),
             index,
             # The store's reading side, handed on as the port, which can only
