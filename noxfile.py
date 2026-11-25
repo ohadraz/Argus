@@ -6,6 +6,7 @@ import functools
 import hashlib
 import json
 import os
+import random
 import signal
 import socket
 import ssl
@@ -178,7 +179,7 @@ def test_module(session: nox.Session, module: str) -> None:
     marker whose tests quietly never run.
 
     Runs against a database and a vector store of this module's own - in this
-    checkout, at ports the operating system hands this run (`_the_places_for`)
+    checkout, at ports drawn for this run (`_the_places_for`)
     - so it can run beside `e2e_replay`, beside another module's suite, or
     beside this same suite in another checkout, rather than stop the database
     any of them is using or lose the bind to the store any of them is talking
@@ -434,9 +435,9 @@ def sweep(session: nox.Session) -> None:
 
     They can share a machine because none of them shares infrastructure: each
     brings up a database under a compose project of its own, the databases and
-    stores they publish bind ports the operating system hands them
-    (`integration`'s, and `_the_places_for` per module), and every server a
-    suite starts itself listens on a port handed it the same way. A project is not
+    stores they publish bind ports drawn for them (`integration`'s, and
+    `_the_places_for` per module), and every server a suite starts itself
+    listens on a port the operating system hands it. A project is not
     enough on its own - it decides whose container a container is, and the
     published port is still the host's
     one address - which is what a vector store on the default 6333 in both
@@ -852,10 +853,10 @@ def _contract_against(session: nox.Session,
     that runs here rather than across the internet. Anything after `--` goes to
     pytest, as everywhere else here.
 
-    Each double listens on a port the operating system hands this run
-    (`_free_ports`) rather than on the one the stack gives it, which is the
-    port a stack already up - or another copy of this session, a second
-    checkout's or a WSL run's - is listening on. Told to the double and to the
+    Each double listens on a port drawn for this run (`_free_ports`) rather
+    than on the one the stack gives it, which is the port a stack already up -
+    or another copy of this session, a second checkout's or a WSL run's - is
+    listening on. Told to the double and to the
     tests through the setting both read it from (`_PORT_SETTING_OF_DOUBLE`).
     And each is started with a token of its own, so it counts as up only once
     it answers with that token rather than once anything answers there.
@@ -919,7 +920,7 @@ def integration(session: nox.Session) -> None:
 
     Its database is its own - this checkout's compose project
     (`_INTEGRATION_PROJECT`) - and it, its doubles and its write tier listen
-    on ports the operating system hands this run (`_free_ports`), so this can
+    on ports drawn for this run (`_free_ports`), so this can
     run beside an `e2e` or `e2e_replay` session rather than behind it - and
     beside another copy of itself, a second checkout's or a WSL run's, without
     either suite reaching the other's servers or resetting the other's
@@ -1685,47 +1686,76 @@ def _started_with_a_token(env: dict[str, str] | None = None) -> tuple[dict[str, 
 
 
 def _free_ports(how_many: int, besides: Collection[str] = frozenset()) -> list[str]:
-    """`how_many` loopback ports nothing was listening on a moment ago, no two
+    """`how_many` ports nothing was listening on a moment ago, no two
     the same and none of them in `besides`, for services a session starts that
     no stack shares.
 
-    Asked of the operating system rather than written here. A written port is
-    shared by every copy of a session running at once - a second checkout's,
-    or a WSL run's, whose listeners `wslrelay.exe` forwards to this machine's
-    loopback - and `_wait_for_http`, which takes any answer as ready, then
-    hands one copy's suite the other's server while its own died on the bind.
-    Held together until all are found, so none is handed out twice, and let go
-    before they are returned, so the services can bind them.
+    Drawn rather than written here. A written port is shared by every copy of
+    a session running at once - a second checkout's, or a WSL run's, whose
+    listeners `wslrelay.exe` forwards to this machine's loopback - and
+    `_wait_for_http`, which takes any answer as ready, then hands one copy's
+    suite the other's server while its own died on the bind. `random.sample`
+    draws no port twice, and each is bound here to see that nothing holds it -
+    one that cannot be bound is drawn again - and let go at once, so the
+    services can bind it.
+
+    Bound on every address a holder may be on (`_HELD_ON`), one after the
+    other. On Windows a bind of one address succeeds while another process
+    listens on the other, and Docker Desktop publishes a port on all of them -
+    so a probe of loopback alone reads another session's published database
+    as free. Never both at once: on Linux and macOS the two conflict even in
+    one process, and there the wildcard alone already sees both.
+
+    Drawn from `_DRAWN_FROM` rather than asked of the operating system, whose
+    answer here is one of its own ephemeral ports. Docker Desktop binds a
+    published port inside its Linux VM, whose own outgoing connections take
+    ports from 32768 to 60999 - so a port this machine found free can be held
+    in the VM, and the service fails to bind it there.
 
     `besides` is the ports this process has already handed out and whose
     services may not have bound them yet - `test_all`'s, for the suites it
-    is running. Nothing is listening on such a port, so the operating system
-    may well offer it again (on Linux and macOS it picks at random), and the
-    second suite to bind it would die at setup. A draw that repeats one is
-    asked again.
+    is running. Nothing is listening on such a port, so it binds here as free,
+    and the second suite to bind it would die at setup. A draw that repeats one
+    is drawn again.
 
     Written here rather than imported from the testkit's `a_free_port`, which
     is not necessarily installed when this file is read.
     """
     while True:
-        asking = [socket.socket(socket.AF_INET, socket.SOCK_STREAM) for _ in range(how_many)]
+        drawn = [str(port) for port in random.sample(_DRAWN_FROM, how_many)]
+        if any(port in besides for port in drawn):
+            continue
+
+        if all(_nothing_holds(int(port), address)
+               for port in drawn for address in _HELD_ON):
+            return drawn
+
+
+def _nothing_holds(port: int, address: str) -> bool:
+    """Whether `port` binds on `address` - let go at once."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as asking:
         try:
-            for one in asking:
-                one.bind((_LOOPBACK, 0))
+            asking.bind((address, port))
+        except OSError:
+            return False
 
-            ports = [str(one.getsockname()[1]) for one in asking]
-        finally:
-            for one in asking:
-                one.close()
+    return True
 
-        if not any(port in besides for port in ports):
-            return ports
+
+# Where `_free_ports` draws from: below the 32768-60999 that Docker Desktop's
+# Linux VM takes its own outgoing ports from, and above the ports services are
+# commonly configured on.
+_DRAWN_FROM: Final = range(20_000, 32_768)
 
 
 # Where a port from `_free_ports` is found free, and so where it is addressed:
 # by address rather than by `localhost`, which resolves to IPv6 first and would
 # reach a listener holding the same number on `[::1]` before this run's own.
 _LOOPBACK: Final = "127.0.0.1"
+
+# Every address a port `_free_ports` draws may already be held on: all of them,
+# where Docker Desktop publishes, and loopback, where a double listens.
+_HELD_ON: Final = ("0.0.0.0", _LOOPBACK)
 
 
 # The services `e2e` runs locally rather than in docker-compose (design.md's
@@ -1881,7 +1911,7 @@ def _the_project_of(module: str) -> str:
 
 def _the_places_for(module: str, besides: Collection[str] = frozenset()) -> dict[str, str]:
     """One module's own database and vector store, for one run of its suite:
-    its project, and ports the operating system hands this run (`_free_ports`),
+    its project, and ports drawn for this run (`_free_ports`),
     none of them in `besides` - the ports `test_all` has handed the suites it
     is running.
 
