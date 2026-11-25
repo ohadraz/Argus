@@ -72,7 +72,11 @@ SOME_OTHER_FLAG = "recommendations-v2"
 
 # The routes, as a real Unleash spells them.
 THE_EVALUATION = "/api/frontend"
-THE_EVENTS = "/api/admin/events"
+THE_EVENT_SEARCH = "/api/admin/search/events"
+
+# The largest page the event search serves, as it is asked for. Asked for a
+# larger one, it serves 50 and says nothing of it.
+THE_LARGEST_PAGE = "1000"
 
 # The provider's own names for the two events that change what a service
 # evaluates, spelled out rather than imported: this file is what pins them.
@@ -157,10 +161,15 @@ def _evaluating_toggles(*toggles: dict[str, Any]) -> _Answer:
 
 
 def _recording(*events: dict[str, Any]) -> _Answer:
-    """The event log as Unleash answers it: newest first, the whole log."""
-    return lambda: httpx2.Response(200, json={
-        "version": 1, "events": list(events), "totalEvents": len(events)
-    })
+    """The event search as Unleash answers it when every event it matches fits
+    one page: the events newest first, and how many it matched."""
+    return _a_page(*events, total=len(events))
+
+
+def _a_page(*events: dict[str, Any], total: int) -> _Answer:
+    """One page of the event search, and `total`, how many events it matched in
+    all - which the pages before and after this one hold the rest of."""
+    return lambda: httpx2.Response(200, json={"events": list(events), "total": total})
 
 
 def _holding(flag: str,
@@ -198,6 +207,10 @@ def _answering_status(status: int) -> _Answer:
 
 def _answering_text(text: str) -> _Answer:
     return lambda: httpx2.Response(200, text=text)
+
+
+def _answering_json(body: dict[str, Any]) -> _Answer:
+    return lambda: httpx2.Response(200, json=body)
 
 
 def _failing_with(error: Exception) -> _Answer:
@@ -365,13 +378,13 @@ def test_a_flag_set_is_confirmed_with_the_evaluation_credential() -> None:
 def test_the_history_is_read_with_the_admin_credential() -> None:
     # The provider serves its event log to admin tokens alone, which is why the
     # audit lives in the write tier at all.
-    provider = _Provider().answering(GET, THE_EVENTS, _recording())
+    provider = _Provider().answering(GET, THE_EVENT_SEARCH, _recording())
 
     Scenario() \
         .given(unleash := _unleash_over(provider)) \
         .when(lambda: unleash.changes_since(SINCE)) \
         .then(lambda _: _every_request_to_carried(
-            provider, GET, THE_EVENTS, SOME_ADMIN_TOKEN
+            provider, GET, THE_EVENT_SEARCH, SOME_ADMIN_TOKEN
         ))
 
 
@@ -914,7 +927,7 @@ def test_a_change_is_read_as_the_provider_recorded_it() -> None:
     # Every field at once: the flag, the state it was changed *to*, when, by
     # whom, and whether that was Argus. A reader that found the right flag and
     # read its direction backwards is the failure this exists to prevent.
-    provider = _Provider().answering(GET, THE_EVENTS, _recording(
+    provider = _Provider().answering(GET, THE_EVENT_SEARCH, _recording(
         _an_enabling_of(SOME_FLAG, at=INSIDE_THE_WINDOW, created_by=SOME_HUMAN)
     ))
 
@@ -935,7 +948,7 @@ def test_a_flag_that_was_switched_off_is_reported_as_disabled() -> None:
     # The case current state cannot answer. A flag switched off into an incident
     # is off now, and so is every flag that has been off for a year - only the
     # history tells the two apart, and only it carries the direction.
-    provider = _Provider().answering(GET, THE_EVENTS, _recording(
+    provider = _Provider().answering(GET, THE_EVENT_SEARCH, _recording(
         _a_disabling_of(SOME_FLAG, at=INSIDE_THE_WINDOW)
     ))
 
@@ -947,9 +960,9 @@ def test_a_flag_that_was_switched_off_is_reported_as_disabled() -> None:
 
 @pytest.mark.unit
 def test_changes_before_the_window_are_not_reported() -> None:
-    # The window is applied here rather than by the provider, whose events
-    # endpoint ignores a row limit and answers with the whole log.
-    provider = _Provider().answering(GET, THE_EVENTS, _recording(
+    # The window is applied here rather than by the provider, which is asked
+    # for no `from`: it cuts one at a day in its database session's zone.
+    provider = _Provider().answering(GET, THE_EVENT_SEARCH, _recording(
         _an_enabling_of(SOME_FLAG, at=BEFORE_THE_WINDOW)
     ))
 
@@ -964,7 +977,7 @@ def test_a_change_at_the_very_moment_asked_from_is_reported() -> None:
     # At or after: the history is asked from a plan's own read and from the
     # moment a put-back's change was written, and a change recorded that same
     # instant - Argus's own, or somebody's - is one the question is about.
-    provider = _Provider().answering(GET, THE_EVENTS, _recording(
+    provider = _Provider().answering(GET, THE_EVENT_SEARCH, _recording(
         _an_enabling_of(SOME_FLAG, at=SINCE)
     ))
 
@@ -979,7 +992,7 @@ def test_changes_in_another_environment_are_not_reported() -> None:
     # One Target Service maps to one environment. A flag toggled in staging did
     # not cause the incident in production, and reverting it would change an
     # environment nobody was looking at.
-    provider = _Provider().answering(GET, THE_EVENTS, _recording(
+    provider = _Provider().answering(GET, THE_EVENT_SEARCH, _recording(
         _an_enabling_of(SOME_FLAG, at=INSIDE_THE_WINDOW, environment=SOME_OTHER_ENVIRONMENT)
     ))
 
@@ -994,10 +1007,10 @@ def test_events_that_are_not_flag_toggles_are_not_reported() -> None:
     # The log records everything the provider does to itself - features
     # created, strategies added, tokens issued. None of them changed what the
     # service evaluates, so none of them is a change to undo.
-    provider = _Provider().answering(GET, THE_EVENTS, _recording(
-        _an_event("feature-created", SOME_FLAG, at=INSIDE_THE_WINDOW),
-        _an_event("feature-strategy-add", SOME_FLAG, at=INSIDE_THE_WINDOW),
-        _an_event("api-token-created", None, at=INSIDE_THE_WINDOW)
+    provider = _Provider().answering(GET, THE_EVENT_SEARCH, _recording(
+        _an_event("feature-created", SOME_FLAG, at=INSIDE_THE_WINDOW, event_id=13),
+        _an_event("feature-strategy-add", SOME_FLAG, at=INSIDE_THE_WINDOW, event_id=12),
+        _an_event("api-token-created", None, at=INSIDE_THE_WINDOW, event_id=11)
     ))
 
     Scenario() \
@@ -1010,7 +1023,7 @@ def test_events_that_are_not_flag_toggles_are_not_reported() -> None:
 def test_changes_are_reported_oldest_first() -> None:
     # The provider answers newest first. Callers ask which change was *latest*,
     # and every other windowed read in Argus runs in time order.
-    provider = _Provider().answering(GET, THE_EVENTS, _recording(
+    provider = _Provider().answering(GET, THE_EVENT_SEARCH, _recording(
         _a_disabling_of(SOME_FLAG, at=LATER_IN_THE_WINDOW, event_id=12),
         _an_enabling_of(SOME_FLAG, at=INSIDE_THE_WINDOW, event_id=11)
     ))
@@ -1028,7 +1041,7 @@ def test_two_changes_within_the_same_second_keep_the_order_they_happened_in() ->
     # newest-first order, so "the latest change" becomes the earliest and the
     # flag is reverted the wrong way. The provider's event ids do not tie.
     the_same_second = INSIDE_THE_WINDOW
-    provider = _Provider().answering(GET, THE_EVENTS, _recording(
+    provider = _Provider().answering(GET, THE_EVENT_SEARCH, _recording(
         _a_disabling_of(SOME_FLAG, at=the_same_second, event_id=13),
         _an_enabling_of(SOME_FLAG, at=the_same_second, event_id=12)
     ))
@@ -1040,11 +1053,123 @@ def test_two_changes_within_the_same_second_keep_the_order_they_happened_in() ->
 
 
 @pytest.mark.unit
+def test_the_history_is_searched_for_the_toggles_of_the_configured_environment_from_the_newest(
+) -> None:
+    # Filters that can only narrow the answer to what the adapter keeps, which
+    # it still checks itself. No `from`: the provider cuts one at a day in its
+    # database session's zone, and a cut the adapter cannot undo could drop a
+    # change. The first page, as large as the provider serves one.
+    provider = _Provider().answering(GET, THE_EVENT_SEARCH, _recording())
+
+    Scenario() \
+        .given(unleash := _unleash_over(provider, environment=SOME_ENVIRONMENT)) \
+        .when(lambda: unleash.changes_since(SINCE)) \
+        .then(lambda _: _the_history_was_asked(provider, [{
+            "type": f"IS_ANY_OF:{ENABLED_EVENT},{DISABLED_EVENT}",
+            "environment": f"IS:{SOME_ENVIRONMENT}",
+            "offset": "0",
+            "limit": THE_LARGEST_PAGE
+        }]))
+
+
+@pytest.mark.unit
+def test_a_page_short_of_the_total_is_followed_by_the_next_from_where_it_ended() -> None:
+    # Never stopped at a short page: a page asked larger than the provider
+    # serves comes back shorter, and nothing in it says so.
+    provider = _Provider().answering(
+        GET, THE_EVENT_SEARCH,
+        _a_page(_a_disabling_of(SOME_FLAG, at=LATER_IN_THE_WINDOW, event_id=12),
+                _an_enabling_of(SOME_FLAG, at=INSIDE_THE_WINDOW, event_id=11),
+                total=3),
+        _a_page(_a_disabling_of(SOME_FLAG, at=SINCE, event_id=10), total=3)
+    )
+
+    Scenario() \
+        .given(unleash := _unleash_over(provider)) \
+        .when(lambda: _what_changed(unleash.changes_since(SINCE))) \
+        .then(all_of(
+            the_answer_was([(SOME_FLAG, False), (SOME_FLAG, True), (SOME_FLAG, False)]),
+            lambda _: _the_history_was_asked_from(provider, [0, 2])
+        ))
+
+
+@pytest.mark.unit
+def test_the_history_is_read_no_further_than_its_first_change_before_the_moment_asked_from(
+) -> None:
+    # Newest first, so everything after it is older still. The page staged
+    # after it would be read only by an adapter that read on.
+    provider = _Provider().answering(
+        GET, THE_EVENT_SEARCH,
+        _a_page(_an_enabling_of(SOME_FLAG, at=INSIDE_THE_WINDOW, event_id=12),
+                _a_disabling_of(SOME_FLAG, at=BEFORE_THE_WINDOW, event_id=11),
+                total=4),
+        _a_page(_an_enabling_of(SOME_OTHER_FLAG, at=LATER_IN_THE_WINDOW, event_id=10),
+                total=4)
+    )
+
+    Scenario() \
+        .given(unleash := _unleash_over(provider)) \
+        .when(lambda: _what_changed(unleash.changes_since(SINCE))) \
+        .then(all_of(
+            the_answer_was([(SOME_FLAG, True)]),
+            lambda _: _the_history_was_asked_from(provider, [0])
+        ))
+
+
+@pytest.mark.unit
+def test_an_empty_page_ends_the_history_whatever_the_total_said() -> None:
+    # Events dropped from the log between two pages leave a total the pages
+    # never reach, which would otherwise be asked after for ever. The page
+    # staged after the empty one would be read only by an adapter that read on.
+    provider = _Provider().answering(
+        GET, THE_EVENT_SEARCH,
+        _a_page(_an_enabling_of(SOME_FLAG, at=INSIDE_THE_WINDOW, event_id=12), total=3),
+        _a_page(total=3),
+        _a_page(_an_enabling_of(SOME_OTHER_FLAG, at=INSIDE_THE_WINDOW, event_id=11), total=3)
+    )
+
+    Scenario() \
+        .given(unleash := _unleash_over(provider)) \
+        .when(lambda: _what_changed(unleash.changes_since(SINCE))) \
+        .then(all_of(
+            the_answer_was([(SOME_FLAG, True)]),
+            lambda _: _the_history_was_asked_from(provider, [0, 1])
+        ))
+
+
+@pytest.mark.unit
+def test_a_change_pushed_onto_the_next_page_by_a_newer_one_is_read_once() -> None:
+    # A change recorded between two pages moves every older one a place down,
+    # so the first page's last is the second page's first. Read twice, it would
+    # be a change made twice - and the second time, made in the wrong order.
+    pushed = _an_enabling_of(SOME_FLAG, at=INSIDE_THE_WINDOW, event_id=11)
+    provider = _Provider().answering(
+        GET, THE_EVENT_SEARCH,
+        _a_page(_a_disabling_of(SOME_FLAG, at=LATER_IN_THE_WINDOW, event_id=12), pushed,
+                total=3),
+        _a_page(pushed, _a_disabling_of(SOME_FLAG, at=SINCE, event_id=10), total=4)
+    )
+
+    Scenario() \
+        .given(unleash := _unleash_over(provider)) \
+        .when(lambda: _what_changed(unleash.changes_since(SINCE))) \
+        .then(all_of(
+            the_answer_was([(SOME_FLAG, False), (SOME_FLAG, True), (SOME_FLAG, False)]),
+            lambda _: _the_history_was_asked_from(provider, [0, 2])
+        ))
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     "answer",
     [_failing_with(httpx2.ConnectError(REFUSED)), _answering_status(403),
-     _answering_text("<html>login</html>")],
-    ids=["unreachable", "refused the credential", "not json"]
+     _answering_text("<html>login</html>"),
+     _answering_json({"version": 1,
+                      "events": [_an_enabling_of(SOME_FLAG, at=INSIDE_THE_WINDOW)],
+                      "totalEvents": 1}),
+     _answering_json({"total": 1})],
+    ids=["unreachable", "refused the credential", "not json", "the old route's answer",
+         "no events"]
 )
 def test_a_history_that_could_not_be_read_is_unavailable_rather_than_empty(
     answer: _Answer
@@ -1052,7 +1177,7 @@ def test_a_history_that_could_not_be_read_is_unavailable_rather_than_empty(
     # "Nothing changed" is a conclusion Mitigation acts on - it escalates. An
     # outage read as an empty history would look like an environment with
     # nothing to revert, which is a different incident entirely.
-    provider = _Provider().answering(GET, THE_EVENTS, answer)
+    provider = _Provider().answering(GET, THE_EVENT_SEARCH, answer)
 
     Scenario() \
         .given(unleash := _unleash_over(provider)) \
@@ -1063,14 +1188,14 @@ def test_a_history_that_could_not_be_read_is_unavailable_rather_than_empty(
 @pytest.mark.unit
 def test_an_unreadable_history_says_where_it_was_asked() -> None:
     provider = _Provider().answering(
-        GET, THE_EVENTS, _failing_with(httpx2.ConnectError(REFUSED))
+        GET, THE_EVENT_SEARCH, _failing_with(httpx2.ConnectError(REFUSED))
     )
 
     Scenario() \
         .given(unleash := _unleash_over(provider)) \
         .when(attempting(lambda: unleash.changes_since(SINCE))) \
         .then(_it_said(
-            f"could not read flag history at [{DONT_CARE_BASE_URL}{THE_EVENTS}]: {REFUSED}"
+            f"could not read flag history at [{DONT_CARE_BASE_URL}{THE_EVENT_SEARCH}]: {REFUSED}"
         ))
 
 
@@ -1092,14 +1217,14 @@ def test_the_history_is_read_where_no_actor_is_configured(
     # since the plan is writable whoever Argus writes as: a history refused
     # before it was read, where Argus and its operators share a credential,
     # would hold back every write in that deployment.
-    provider = _Provider().answering(GET, THE_EVENTS, _recording(*recorded))
+    provider = _Provider().answering(GET, THE_EVENT_SEARCH, _recording(*recorded))
 
     Scenario() \
         .given(unleash := _unleash_over(provider, actor=NO_ACTOR)) \
         .when(lambda: _what_changed(unleash.changes_since(SINCE))) \
         .then(all_of(
             the_answer_was(expected),
-            lambda _: _it_was_asked_once(provider, GET, THE_EVENTS)
+            lambda _: _it_was_asked_once(provider, GET, THE_EVENT_SEARCH)
         ))
 
 
@@ -1127,7 +1252,7 @@ def test_whether_argus_made_a_change_is_read_off_who_the_provider_says_made_it(
     # one repository and compared in this one, and drift between the two would
     # switch the recognition off quietly. A change nobody is recorded for is not
     # Argus's: "the provider did not say" is not "Argus did it".
-    provider = _Provider().answering(GET, THE_EVENTS, _recording(
+    provider = _Provider().answering(GET, THE_EVENT_SEARCH, _recording(
         _an_enabling_of(SOME_FLAG, at=INSIDE_THE_WINDOW, created_by=created_by)
     ))
 
@@ -1142,7 +1267,7 @@ def test_no_change_is_said_to_be_argus_own_or_not_where_no_actor_is_configured()
     # Argus and its operators sharing one credential is a real deployment, and
     # there the provider cannot tell their changes apart. `None` on every change,
     # a change under the very name Argus would have used included.
-    provider = _Provider().answering(GET, THE_EVENTS, _recording(
+    provider = _Provider().answering(GET, THE_EVENT_SEARCH, _recording(
         _a_disabling_of(SOME_FLAG, at=LATER_IN_THE_WINDOW, created_by=SOME_ARGUS_ACTOR,
                         event_id=13),
         _an_enabling_of(SOME_FLAG, at=INSIDE_THE_WINDOW, created_by=SOME_HUMAN,
@@ -1178,7 +1303,7 @@ def test_whether_anybody_else_changed_a_flag_since_a_moment(recorded: list[dict[
     # somebody's deliberate decision, and putting the flag back would overwrite
     # it. A change nobody is recorded for counts as somebody else's - a flag left
     # as found can be put back by hand, and an overwritten decision cannot.
-    provider = _Provider().answering(GET, THE_EVENTS, _recording(*recorded))
+    provider = _Provider().answering(GET, THE_EVENT_SEARCH, _recording(*recorded))
 
     Scenario() \
         .given(unleash := _unleash_over(provider)) \
@@ -1197,7 +1322,7 @@ def test_whether_anybody_else_changed_a_flag_is_not_answered_where_no_actor_is_c
 ) -> None:
     # Nobody can say, and that includes a log with nothing in it. Told either
     # answer, an undo would act on a guess about whose write it was looking at.
-    provider = _Provider().answering(GET, THE_EVENTS, _recording(*recorded))
+    provider = _Provider().answering(GET, THE_EVENT_SEARCH, _recording(*recorded))
 
     Scenario() \
         .given(unleash := _unleash_over(provider, actor=NO_ACTOR)) \
@@ -1212,7 +1337,7 @@ def test_whether_anybody_else_changed_a_flag_is_not_answered_where_the_history_c
     # `False`, which is the difference between putting a change back and
     # overwriting a person.
     provider = _Provider().answering(
-        GET, THE_EVENTS, _failing_with(httpx2.ConnectError(REFUSED))
+        GET, THE_EVENT_SEARCH, _failing_with(httpx2.ConnectError(REFUSED))
     )
 
     Scenario() \
@@ -1228,7 +1353,7 @@ def test_a_history_that_could_not_be_read_for_whether_anybody_else_changed_a_fla
     # Answered as nobody-can-say, which is right, and which loses the reason -
     # so the reason is logged here, where the failure still is.
     provider = _Provider().answering(
-        GET, THE_EVENTS, _failing_with(httpx2.ConnectError(REFUSED))
+        GET, THE_EVENT_SEARCH, _failing_with(httpx2.ConnectError(REFUSED))
     )
 
     Scenario() \
@@ -1363,6 +1488,34 @@ def _it_was_asked_once(provider: _Provider, method: str, path: str) -> bool:
         raise AssertionError(
             f"Expected one {method} to [{path}], and the provider was asked "
             f"{[(request.method, request.url.path) for request in provider.asked]}."
+        )
+
+    return True
+
+
+def _the_history_was_asked(provider: _Provider, queries: list[dict[str, str]]) -> bool:
+    """Every query the event search was asked, in order - whole, so a filter or
+    a bound nobody meant to send is caught as surely as one missing."""
+    asked = [dict(request.url.params) for request in provider.requests_to(GET, THE_EVENT_SEARCH)]
+
+    if asked != queries:
+        raise AssertionError(f"Expected the event search asked {queries}, got {asked}.")
+
+    return True
+
+
+def _the_history_was_asked_from(provider: _Provider, offsets: list[int]) -> bool:
+    """Where each page of the event search was asked from, in order, each as
+    large as the provider serves one."""
+    asked = [
+        (request.url.params.get("offset"), request.url.params.get("limit"))
+        for request in provider.requests_to(GET, THE_EVENT_SEARCH)
+    ]
+    expected = [(str(offset), THE_LARGEST_PAGE) for offset in offsets]
+
+    if asked != expected:
+        raise AssertionError(
+            f"Expected the event search asked from (offset, limit) {expected}, got {asked}."
         )
 
     return True

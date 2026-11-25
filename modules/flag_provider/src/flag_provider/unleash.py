@@ -33,6 +33,7 @@ import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
+from itertools import takewhile
 from typing import Any, Final
 
 import httpx2
@@ -47,9 +48,21 @@ from flag_provider.failures import FlagProviderUnavailable, FlagWriteFailed
 logger = logging.getLogger(__name__)
 
 # The routes, as Unleash spells them. Evaluation is the frontend API, answered to
-# the evaluation credential; the event log is the admin API's.
+# the evaluation credential; the event log is searched through the admin API's.
 EVALUATION_PATH: Final = "/api/frontend"
-EVENTS_PATH: Final = "/api/admin/events"
+EVENTS_PATH: Final = "/api/admin/search/events"
+
+# The event search's query: two filters, each an operator and its values, and the
+# page asked for.
+SEARCH_TYPE: Final = "type"
+SEARCH_ENVIRONMENT: Final = "environment"
+SEARCH_OFFSET: Final = "offset"
+SEARCH_LIMIT: Final = "limit"
+ANY_OF_OPERATOR: Final = "IS_ANY_OF:"
+EQUALS_OPERATOR: Final = "IS:"
+# The largest page the event search serves. Asked for a larger one, it serves 50
+# and says nothing of it - which is why a short page never ends a read.
+EVENTS_PAGE_SIZE: Final = 1000
 
 # How a request carries its credential. Unleash takes the token bare, with no
 # scheme in front of it.
@@ -71,8 +84,10 @@ TOGGLES: Final = "toggles"
 TOGGLE_NAME: Final = "name"
 TOGGLE_ENABLED: Final = "enabled"
 
-# The event log's answer, and the fields of one of its rows.
+# The event search's answer - a page of rows, and how many rows its filters
+# matched in all - and the fields of one of its rows.
 EVENTS: Final = "events"
+EVENTS_TOTAL: Final = "total"
 EVENT_ID: Final = "id"
 EVENT_TYPE: Final = "type"
 EVENT_FLAG: Final = "featureName"
@@ -140,11 +155,11 @@ class UnleashSettings(UnleashFrontendSettings):
     Target Service maps to one environment, and a flag toggled in another did
     not cause its incident.
 
-    `actor` is the name the provider attributes Argus's own writes to - the
-    username on the admin credential, seeded by the Target Environment's compose
-    file. It is what tells a change Argus made from one a human made. Empty is
-    the honest setting where Argus and its operators share one credential, and
-    then no change is said to be Argus's own or not.
+    `actor` is the name the provider attributes Argus's own writes to - the admin
+    token's name, which Unleash records as a change's `createdBy`, seeded by the
+    Target Environment's compose file. It is what tells a change Argus made from
+    one a human made. Empty is the honest setting where Argus and its operators
+    share one credential, and then no change is said to be Argus's own or not.
     """
 
     admin_token: str = Field(default="")
@@ -296,28 +311,34 @@ class Unleash:
         and having one direction decided here rather than at each call site is
         what stops two of them disagreeing about which end of the list that is.
 
-        The window is applied here rather than by the provider: its events
-        endpoint ignores a row limit and answers with the whole log. Correct at
-        any size and cheap at the scale this runs at; a real deployment would want
-        the provider's own filtering, and this adapter is the one place that
-        changes.
-        """
-        try:
-            response = self._admin.get(EVENTS_PATH)
-            response.raise_for_status()
-            body: dict[str, Any] = response.json()
-        except Exception as error:
-            raise FlagProviderUnavailable(
-                f"could not read flag history at [{self._settings.base_url}{EVENTS_PATH}]: "
-                f"{error}"
-            ) from error
+        Read from the provider's event search, which answers newest first, a page
+        at a time: until the first event older than `since`, until the pages have
+        held as many events as the search says it matched, or until a page comes
+        back empty. Never because a page came back short - a page asked larger
+        than the provider serves comes back short, and says nothing of it. An
+        event read twice, pushed onto the next page by one recorded between the
+        two, is kept once, by its id.
 
-        toggles = [
-            event
-            for event in body.get(EVENTS, [])
-            if self._is_a_toggle_of_this_environment(event)
-            and parse_iso(event[EVENT_CREATED_AT]) >= since
-        ]
+        The search is asked for this environment's toggles alone, which can only
+        narrow its answer to what is kept here, and what is kept is checked here
+        all the same. It is asked for no `from`: the provider cuts one at a day
+        in its database session's zone, and a cut made there could drop a change
+        the moment asked from keeps - so the moment is applied here.
+        """
+        kept: dict[int, dict[str, Any]] = {}
+        read = 0
+
+        while True:
+            page, total = self._a_page_of_the_history(read)
+            read += len(page)
+            within = list(takewhile(lambda event: parse_iso(event[EVENT_CREATED_AT]) >= since,
+                                    page))
+            kept.update((_recorded_order(event), event) for event in within)
+
+            if not page or len(within) < len(page) or read >= total:
+                break
+
+        toggles = [event for event in kept.values() if self._is_a_toggle_of_this_environment(event)]
 
         return [self._as_flag_change(event) for event in sorted(toggles, key=_recorded_order)]
 
@@ -361,6 +382,33 @@ class Unleash:
             return None
 
         return [change for change in changes if change.flag == flag]
+
+    def _a_page_of_the_history(self, offset: int) -> tuple[list[dict[str, Any]], int]:
+        """The page of the event search starting `offset` events from the newest,
+        and how many events the search matched in all.
+
+        An answer missing either is unreadable rather than an empty page: an
+        empty page ends the read, and a history cut short there reads as nothing
+        having changed."""
+        query: dict[str, str | int] = {
+            SEARCH_TYPE: f"{ANY_OF_OPERATOR}{ENABLED_EVENT},{DISABLED_EVENT}",
+            SEARCH_ENVIRONMENT: f"{EQUALS_OPERATOR}{self._settings.environment}",
+            SEARCH_OFFSET: offset,
+            SEARCH_LIMIT: EVENTS_PAGE_SIZE
+        }
+
+        try:
+            response = self._admin.get(EVENTS_PATH, params=query)
+            response.raise_for_status()
+            body: dict[str, Any] = response.json()
+            page: list[dict[str, Any]] = body[EVENTS]
+
+            return page, int(body[EVENTS_TOTAL])
+        except Exception as error:
+            raise FlagProviderUnavailable(
+                f"could not read flag history at [{self._settings.base_url}{EVENTS_PATH}]: "
+                f"{error}"
+            ) from error
 
     def _wait_until_evaluating(self, flag: str, enabled: bool, undo: FlagUndo) -> None:
         for attempt in range(_EVALUATION_ATTEMPTS):

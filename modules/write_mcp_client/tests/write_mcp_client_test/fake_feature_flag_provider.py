@@ -16,6 +16,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Thread
 from typing import Any, Final
+from urllib.parse import parse_qs, urlsplit
 
 from argus_testkit import a_free_port
 from core import get_settings
@@ -113,10 +114,8 @@ class FakeUnleashHandler(BaseHTTPRequestHandler):
                     ]
                 }
             )
-        elif self.path.startswith("/api/admin/events"):
-            self._respond_with(
-                {"version": 1, "events": self.events, "totalEvents": len(self.events)}
-            )
+        elif self.path.startswith("/api/admin/search/events"):
+            self._respond_with(self._a_page_of_the_events())
         elif feature is not None:
             self._respond_with(self._the_feature(feature))
         else:
@@ -137,6 +136,20 @@ class FakeUnleashHandler(BaseHTTPRequestHandler):
             type(self).enabled_flags = self.enabled_flags - {flag}
 
         self._respond_with({})
+
+    def _a_page_of_the_events(self) -> dict[str, Any]:
+        """One page of the event search, as Unleash answers it: newest first
+        (`created_at`, then `id`, descending), from `offset` for `limit` rows,
+        with how many there are in all. Every staged row is a toggle in
+        `THE_ENVIRONMENT`, so the search's filters leave all of them."""
+        asked = parse_qs(urlsplit(self.path).query)
+        offset = int(asked.get("offset", ["0"])[0])
+        limit = int(asked.get("limit", ["50"])[0])
+        newest_first = sorted(self.events,
+                              key=lambda event: (event["createdAt"], event["id"]),
+                              reverse=True)
+
+        return {"events": newest_first[offset:offset + limit], "total": len(self.events)}
 
     def _the_feature(self, flag: str) -> dict[str, Any]:
         """One feature as the admin API answers for it - its `featureSchema`, in

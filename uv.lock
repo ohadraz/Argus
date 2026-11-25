@@ -24,6 +24,7 @@ members = [
     "argus-exchange-rate-source",
     "argus-executive-synopsis",
     "argus-flag-provider",
+    "argus-flag-provider-double",
     "argus-github-double",
     "argus-http-applying",
     "argus-incident-cost",
@@ -633,6 +634,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "argus-argus-testkit" },
+    { name = "argus-flag-provider-double" },
 ]
 
 [package.metadata]
@@ -644,7 +646,25 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
+dev = [
+    { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
+    { name = "argus-flag-provider-double", editable = "test_support/flag_provider_double" },
+]
+
+[[package]]
+name = "argus-flag-provider-double"
+version = "0.1.0"
+source = { editable = "test_support/flag_provider_double" }
+dependencies = [
+    { name = "argus-core" },
+    { name = "argus-flag-provider" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "argus-core", editable = "modules/core" },
+    { name = "argus-flag-provider", editable = "modules/flag_provider" },
+]
 
 [[package]]
 name = "argus-github-double"
@@ -1478,6 +1498,7 @@ dev = [
     { name = "argus-anthropic-double" },
     { name = "argus-argus-testkit" },
     { name = "argus-deployment-platform-double" },
+    { name = "argus-flag-provider-double" },
     { name = "grimp" },
     { name = "httpx2" },
     { name = "import-linter" },
@@ -1501,6 +1522,7 @@ dev = [
     { name = "argus-anthropic-double", editable = "test_support/anthropic_double" },
     { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
     { name = "argus-deployment-platform-double", editable = "test_support/deployment_platform_double" },
+    { name = "argus-flag-provider-double", editable = "test_support/flag_provider_double" },
     { name = "grimp" },
     { name = "httpx2" },
     { name = "import-linter", specifier = ">=2.15" },
