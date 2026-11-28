@@ -9,6 +9,7 @@ composition roots of those three build it.
 """
 
 from chat_platform.platform import (
+    ChatDeliveryUnreadable,
     ChatDeliveryUnverified,
     ChatPlatformReads,
     ChatPlatformWrites,
@@ -24,6 +25,7 @@ from chat_platform.platform import (
 )
 
 __all__ = [
+    "ChatDeliveryUnreadable",
     "ChatDeliveryUnverified",
     "ChatPlatformReads",
     "ChatPlatformWrites",

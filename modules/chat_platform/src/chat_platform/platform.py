@@ -39,6 +39,17 @@ class ChatDeliveryUnverified(Exception):
     """
 
 
+class ChatDeliveryUnreadable(Exception):
+    """A delivery the platform signed, just now, in none of its shapes.
+
+    Apart from `ChatDeliveryUnverified`, because the two say different things
+    to whoever looks: that is the sender's identity, this is its input. Raised
+    rather than read as nothing to act on, because a delivery nobody can read
+    may be a person's word lost - and refused, the platform's own log of failed
+    deliveries is where whoever configured the app finds out.
+    """
+
+
 class Handshake(BaseModel):
     """The platform checking that the address answers before it sends anything
     to it. Answered with `challenge`, and nothing else is done."""
@@ -164,7 +175,11 @@ class ChatPlatformReads(Protocol):
         ...
 
     def parse_delivery(self, body: bytes, headers: Mapping[str, str]) -> Delivery:
-        """What one delivery says, once its signature proves who sent it."""
+        """What one delivery says, once its signature proves who sent it.
+
+        Raises `ChatDeliveryUnverified` for a delivery the platform did not
+        sign, just now, as it arrived - before any of it is read - and
+        `ChatDeliveryUnreadable` for one it did, in none of its shapes."""
         ...
 
     def person_named(self, person_id: str) -> str | None:

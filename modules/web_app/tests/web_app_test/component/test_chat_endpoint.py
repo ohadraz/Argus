@@ -5,7 +5,8 @@ a channel and another for what is pressed on a message - and both lead to the
 same handling. What a person's words and a person's press do to the incident
 record, and what each other outcome is answered with: the platform waits three
 seconds and retries what it is not answered for, so everything Argus receives
-intact is answered as received, and only a forgery is refused.
+intact is answered as received, and only a forgery, or a delivery the platform
+signed in none of its shapes, is refused.
 
 The platform is stood in through the app's own dependency seam: it is somebody
 else's API, and what it says is decided in the adapter's suite. The incident
@@ -28,6 +29,7 @@ import httpx2
 import pytest
 from argus_testkit import Assertion, Scenario, all_of, calling, one_record_was_logged
 from chat_platform import (
+    ChatDeliveryUnreadable,
     ChatDeliveryUnverified,
     ChatPlatformReads,
     Delivery,
@@ -257,6 +259,26 @@ def test_a_forged_delivery_is_refused_and_logged(webhook: str,
                 the_response_was(HttpStatus.UNAUTHORIZED),
                 one_record_was_logged(caplog, "web_app.app", logging.WARNING,
                                       "chat delivery refused")
+            ))
+
+
+@pytest.mark.component
+@pytest.mark.parametrize("webhook", [EVENTS_WEBHOOK, INTERACTIONS_WEBHOOK])
+def test_an_unreadable_delivery_is_refused_as_unprocessable_and_logged(
+    webhook: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Signed by the platform, so its input rather than a fault here: refused
+    # as the alert and push doors refuse theirs, not failed - and logged, since
+    # whoever configured the app learns of it nowhere else.
+    with _the_platform_refusing(ChatDeliveryUnreadable("unreadable")), \
+            TestClient(app) as client:
+        Scenario() \
+            .given(calling(lambda: caplog.set_level(logging.WARNING))) \
+            .when(lambda: client.post(webhook, content=DONT_CARE_BODY)) \
+            .then(all_of(
+                the_response_was(HttpStatus.UNPROCESSABLE_ENTITY),
+                one_record_was_logged(caplog, "web_app.app", logging.WARNING,
+                                      "chat delivery rejected")
             ))
 
 

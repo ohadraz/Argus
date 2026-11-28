@@ -17,6 +17,7 @@ members = [
     "argus-argus-testkit",
     "argus-cache-store",
     "argus-chat-platform",
+    "argus-chat-platform-double",
     "argus-code-host",
     "argus-code-host-double",
     "argus-codefix-agent",
@@ -439,6 +440,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "argus-argus-testkit" },
+    { name = "argus-chat-platform-double" },
     { name = "argus-slack-double" },
     { name = "httpx2" },
     { name = "uvicorn", extra = ["standard"] },
@@ -453,9 +455,25 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
+    { name = "argus-chat-platform-double", editable = "test_support/chat_platform_double" },
     { name = "argus-slack-double", editable = "test_support/slack_double" },
     { name = "httpx2" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
+]
+
+[[package]]
+name = "argus-chat-platform-double"
+version = "0.1.0"
+source = { editable = "test_support/chat_platform_double" }
+dependencies = [
+    { name = "argus-chat-platform" },
+    { name = "argus-core" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "argus-chat-platform", editable = "modules/chat_platform" },
+    { name = "argus-core", editable = "modules/core" },
 ]
 
 [[package]]
@@ -1683,6 +1701,7 @@ dev = [
     { name = "argus-alerting-platform-double" },
     { name = "argus-anthropic-double" },
     { name = "argus-argus-testkit" },
+    { name = "argus-chat-platform-double" },
     { name = "argus-code-host-double" },
     { name = "argus-deployment-platform-double" },
     { name = "argus-flag-provider-double" },
@@ -1712,6 +1731,7 @@ dev = [
     { name = "argus-alerting-platform-double", editable = "test_support/alerting_platform_double" },
     { name = "argus-anthropic-double", editable = "test_support/anthropic_double" },
     { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
+    { name = "argus-chat-platform-double", editable = "test_support/chat_platform_double" },
     { name = "argus-code-host-double", editable = "test_support/code_host_double" },
     { name = "argus-deployment-platform-double", editable = "test_support/deployment_platform_double" },
     { name = "argus-flag-provider-double", editable = "test_support/flag_provider_double" },

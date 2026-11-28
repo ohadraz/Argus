@@ -27,6 +27,7 @@ from urllib.parse import parse_qs
 from core.models import a_chat_message, a_chat_thread
 
 from chat_platform.platform import (
+    ChatDeliveryUnreadable,
     ChatDeliveryUnverified,
     Delivery,
     Handshake,
@@ -100,10 +101,23 @@ def parse_delivery(body: bytes,
     """What one delivery says, in Argus's words.
 
     Raises `ChatDeliveryUnverified` unless the body is signed with `secret` at a
-    moment within five minutes of `now`, before any of it is parsed.
+    moment within five minutes of `now`, before any of it is parsed. A verified
+    delivery in none of Slack's shapes - no text, no JSON, no object, a form
+    with no payload, an event or a press missing a field it is read by - is
+    `ChatDeliveryUnreadable`, saying what was wrong as the error that found it.
     """
     _verify(body, headers, secret, now)
 
+    # `AttributeError` too: an envelope, an event or an action that is no
+    # object meets `.get` on something that has none.
+    try:
+        return _what_it_says(body, headers)
+    except (AttributeError, LookupError, TypeError, ValueError) as unreadable:
+        raise ChatDeliveryUnreadable(repr(unreadable)) from unreadable
+
+
+def _what_it_says(body: bytes, headers: Mapping[str, str]) -> Delivery:
+    """A verified delivery, read as whichever of Slack's two kinds it is."""
     if _the_header(headers, CONTENT_TYPE_HEADER) == FORM_CONTENT_TYPE:
         return _a_press(json.loads(parse_qs(body.decode())[PAYLOAD][0]))
 
@@ -159,7 +173,9 @@ def _a_message(event: Mapping[str, Any]) -> Delivery:
 
 
 def _a_press(payload: Mapping[str, Any]) -> Delivery:
-    """A button pressed, which is Argus's only if it is the confirm button."""
+    """A button pressed, which is Argus's only if it is the confirm button, on
+    a message in a thread - where Argus posts its offers, so a press on a
+    message in none is about no incident, as a message in none is."""
     actions = payload.get(ACTIONS) or []
 
     if payload.get(TYPE) != BLOCK_ACTIONS or not actions:
@@ -170,10 +186,15 @@ def _a_press(payload: Mapping[str, Any]) -> Delivery:
     if action.get(ACTION_ID) != CONFIRM_ACTION:
         return Irrelevant(why=f"a press of [{action.get(ACTION_ID)}]")
 
+    thread = payload[MESSAGE].get(THREAD_TS)
+
+    if not thread:
+        return Irrelevant(why="a press on a message in no thread")
+
     channel = str(payload[CHANNEL][ID])
 
     return Pressed(
-        thread=a_chat_thread(SLACK, channel, str(payload[MESSAGE][THREAD_TS])),
+        thread=a_chat_thread(SLACK, channel, str(thread)),
         person_id=str(payload[USER][ID]),
         message=a_chat_message(SLACK, channel, str(action[VALUE]))
     )

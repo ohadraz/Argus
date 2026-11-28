@@ -7,7 +7,9 @@ because what it can say - a person pressed "resolve" - ends an incident, and a
 press recorded once can otherwise be replayed for ever. The second is
 translation into Argus's words, and the rule this suite exists for: only a
 person's new reply in a thread is ingested. Argus's own posts, edits, deletions,
-joins and channel chatter are not someone telling Argus something.
+joins and channel chatter are not someone telling Argus something. And what
+Slack signed in none of its shapes is unreadable: the sender's input, said as
+such, rather than a fault in whoever read it.
 
 The payloads are Slack's Events API and `block_actions` shapes as
 docs.slack.dev documents them, trimmed to the fields parsed.
@@ -15,16 +17,14 @@ docs.slack.dev documents them, trimmed to the fields parsed.
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from urllib.parse import urlencode
 
 import pytest
 from argus_testkit import Assertion, Scenario, an_error_was_raised, attempting
 from chat_platform.platform import (
+    ChatDeliveryUnreadable,
     ChatDeliveryUnverified,
     Delivery,
     Handshake,
@@ -40,28 +40,29 @@ from chat_platform.slack_deliveries import (
     CHALLENGE,
     CHANNEL,
     CONFIRM_ACTION,
-    CONTENT_TYPE_HEADER,
     EVENT,
     EVENT_CALLBACK,
-    FORM_CONTENT_TYPE,
-    ID,
-    MESSAGE,
     MESSAGE_EVENT,
     PAYLOAD,
-    SIGNATURE_HEADER,
-    SIGNATURE_VERSION,
     SUBTYPE,
     TEXT,
     THREAD_TS,
-    TIMESTAMP_HEADER,
     TS,
     TYPE,
     URL_VERIFICATION,
     USER,
-    VALUE,
     parse_delivery,
 )
 from core.models import a_chat_message, a_chat_thread
+
+from chat_platform_test.framework.slack_deliveries import (
+    a_form,
+    a_press,
+    a_press_payload,
+    an_event,
+    an_interaction,
+    slack_signed,
+)
 
 # The chat platform's name, as its adapter gives it - what a reader is
 # told a report came from, and what its references are filed under.
@@ -79,7 +80,7 @@ SOME_PERSON = "U-some-person"
 @pytest.mark.unit
 def test_a_reply_in_a_thread_is_parsed_as_a_person_writing() -> None:
     some_words = "rolled the flag back by hand, we're fine"
-    some_delivery = _an_event({TYPE: MESSAGE_EVENT, CHANNEL: SOME_CHANNEL, USER: SOME_PERSON,
+    some_delivery = an_event({TYPE: MESSAGE_EVENT, CHANNEL: SOME_CHANNEL, USER: SOME_PERSON,
                                TEXT: some_words, TS: SOME_REPLY, THREAD_TS: SOME_THREAD})
 
     Scenario() \
@@ -226,7 +227,7 @@ def test_a_message_in_the_channel_rather_than_a_thread_is_irrelevant() -> None:
     # An incident is talked about in its own thread. A channel message is not
     # about any one incident, and guessing which would be Argus putting words
     # into an incident nobody addressed.
-    some_delivery = _an_event({TYPE: MESSAGE_EVENT, CHANNEL: SOME_CHANNEL, USER: SOME_PERSON,
+    some_delivery = an_event({TYPE: MESSAGE_EVENT, CHANNEL: SOME_CHANNEL, USER: SOME_PERSON,
                                TEXT: "anyone around?", TS: SOME_REPLY})
 
     Scenario() \
@@ -240,7 +241,7 @@ def test_the_message_that_opened_a_thread_is_not_a_reply_in_it() -> None:
     # Slack marks a thread's first message with its own timestamp as the
     # thread's. That message is Argus opening the war room, not anyone writing
     # in it.
-    some_delivery = _an_event({TYPE: MESSAGE_EVENT, CHANNEL: SOME_CHANNEL, USER: SOME_PERSON,
+    some_delivery = an_event({TYPE: MESSAGE_EVENT, CHANNEL: SOME_CHANNEL, USER: SOME_PERSON,
                                TEXT: "some words", TS: SOME_THREAD, THREAD_TS: SOME_THREAD})
 
     Scenario() \
@@ -253,7 +254,7 @@ def test_the_message_that_opened_a_thread_is_not_a_reply_in_it() -> None:
 def test_a_bots_reply_is_irrelevant() -> None:
     # Argus's own replies arrive here too. Ingested, each one would be
     # classified, and classifying Argus's own offer is Argus talking to itself.
-    some_delivery = _an_event({TYPE: MESSAGE_EVENT, CHANNEL: SOME_CHANNEL, BOT_ID: "B-some-bot",
+    some_delivery = an_event({TYPE: MESSAGE_EVENT, CHANNEL: SOME_CHANNEL, BOT_ID: "B-some-bot",
                                TEXT: "some words", TS: SOME_REPLY, THREAD_TS: SOME_THREAD})
 
     Scenario() \
@@ -266,7 +267,7 @@ def test_a_bots_reply_is_irrelevant() -> None:
 def test_a_reply_nobody_is_named_as_writing_is_irrelevant() -> None:
     # No bot's id and no person's either. There is nobody to offer anything to,
     # and nobody to credit a resolution to.
-    some_delivery = _an_event({TYPE: MESSAGE_EVENT, CHANNEL: SOME_CHANNEL,
+    some_delivery = an_event({TYPE: MESSAGE_EVENT, CHANNEL: SOME_CHANNEL,
                                TEXT: "some words", TS: SOME_REPLY, THREAD_TS: SOME_THREAD})
 
     Scenario() \
@@ -281,7 +282,7 @@ def test_anything_other_than_a_new_message_is_irrelevant(subtype: str) -> None:
     # An edit is the same message again, and a deletion is a person taking
     # their words back. Neither is a person telling Argus something new, and
     # ingesting either would offer to resolve an incident twice for one sentence.
-    some_delivery = _an_event({TYPE: MESSAGE_EVENT, SUBTYPE: subtype, CHANNEL: SOME_CHANNEL,
+    some_delivery = an_event({TYPE: MESSAGE_EVENT, SUBTYPE: subtype, CHANNEL: SOME_CHANNEL,
                                USER: SOME_PERSON, TS: SOME_REPLY, THREAD_TS: SOME_THREAD})
 
     Scenario() \
@@ -292,7 +293,7 @@ def test_anything_other_than_a_new_message_is_irrelevant(subtype: str) -> None:
 
 @pytest.mark.unit
 def test_an_event_that_is_not_a_message_is_irrelevant() -> None:
-    some_delivery = _an_event({TYPE: "reaction_added", USER: SOME_PERSON})
+    some_delivery = an_event({TYPE: "reaction_added", USER: SOME_PERSON})
 
     Scenario() \
         .given(some_delivery) \
@@ -324,28 +325,87 @@ def test_an_interaction_that_is_not_a_press_is_irrelevant() -> None:
         .then(_it_is_irrelevant())
 
 
+@pytest.mark.unit
+def test_a_press_on_a_message_in_no_thread_is_irrelevant() -> None:
+    # Argus posts its offers in an incident's thread, so a press on a message
+    # in none is about no incident - as a message in none is.
+    some_delivery = _a_press(CONFIRM_ACTION, value=SOME_REPLY, thread=None)
+
+    Scenario() \
+        .given(some_delivery) \
+        .when(lambda: parse_delivery(some_delivery, _signed(some_delivery, form=True),
+                                    SOME_SECRET, NOW)) \
+        .then(_it_is_irrelevant())
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("some_delivery", [
+    pytest.param(json.dumps({TYPE: URL_VERIFICATION}).encode(),
+                 id="an-address-check-with-no-challenge"),
+    pytest.param(json.dumps({TYPE: EVENT_CALLBACK}).encode(), id="an-event-callback-with-no-event"),
+    pytest.param(json.dumps({TYPE: EVENT_CALLBACK, EVENT: "some event"}).encode(),
+                 id="an-event-that-is-no-object"),
+    pytest.param(an_event({TYPE: MESSAGE_EVENT, CHANNEL: SOME_CHANNEL, USER: SOME_PERSON,
+                           THREAD_TS: SOME_THREAD}), id="a-reply-with-no-id"),
+    pytest.param(an_event({TYPE: MESSAGE_EVENT, USER: SOME_PERSON, TS: SOME_REPLY,
+                           THREAD_TS: SOME_THREAD}), id="a-reply-in-no-channel")
+])
+def test_an_event_slack_signed_in_none_of_its_shapes_is_unreadable(some_delivery: bytes) -> None:
+    # Signed, so Slack's own input and not a forgery; answered as unreadable
+    # rather than failing whoever read it.
+    Scenario() \
+        .when(attempting(lambda: parse_delivery(some_delivery, _signed(some_delivery),
+                                                SOME_SECRET, NOW))) \
+        .then(an_error_was_raised(ChatDeliveryUnreadable))
+
+
+def _a_confirm() -> dict[str, Any]:
+    """What a press of the confirm button by `SOME_PERSON` in `SOME_THREAD`
+    says, before it is put in its form. Above the case it is altered in,
+    because that case's rows are written as the module loads."""
+    return a_press_payload(person_id=SOME_PERSON, channel=SOME_CHANNEL, thread=SOME_THREAD,
+                           action_id=CONFIRM_ACTION, value=SOME_REPLY)
+
+
+def _without(payload: dict[str, Any], field: str) -> dict[str, Any]:
+    return {name: value for name, value in payload.items() if name != field}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("some_delivery", [
+    pytest.param(a_form({"some-field": "some value"}), id="a-form-with-no-payload"),
+    pytest.param(a_form({PAYLOAD: "not json"}), id="a-payload-that-is-not-json"),
+    pytest.param(an_interaction(["some", "list"]), id="a-payload-that-is-no-object"),
+    pytest.param(an_interaction({**_a_confirm(), ACTIONS: "some actions"}),
+                 id="actions-that-are-no-list"),
+    pytest.param(an_interaction({**_a_confirm(), ACTIONS: [{ACTION_ID: CONFIRM_ACTION}]}),
+                 id="a-confirm-with-no-value"),
+    pytest.param(an_interaction(_without(_a_confirm(), CHANNEL)), id="a-press-in-no-channel"),
+    pytest.param(an_interaction(_without(_a_confirm(), USER)), id="a-press-by-nobody")
+])
+def test_an_interaction_slack_signed_in_none_of_its_shapes_is_unreadable(
+    some_delivery: bytes
+) -> None:
+    Scenario() \
+        .when(attempting(lambda: parse_delivery(some_delivery,
+                                                _signed(some_delivery, form=True),
+                                                SOME_SECRET, NOW))) \
+        .then(an_error_was_raised(ChatDeliveryUnreadable))
+
+
 def _a_reply() -> bytes:
-    return _an_event({TYPE: MESSAGE_EVENT, CHANNEL: SOME_CHANNEL, USER: SOME_PERSON,
-                      TEXT: "some words", TS: SOME_REPLY, THREAD_TS: SOME_THREAD})
+    return an_event({TYPE: MESSAGE_EVENT, CHANNEL: SOME_CHANNEL, USER: SOME_PERSON,
+                     TEXT: "some words", TS: SOME_REPLY, THREAD_TS: SOME_THREAD})
 
 
-def _an_event(event: dict[str, Any]) -> bytes:
-    """One Events API body, as the bytes Slack signs."""
-    return json.dumps({TYPE: EVENT_CALLBACK, EVENT: event}).encode()
-
-
-def _a_press(action_id: str, value: str, kind: str = BLOCK_ACTIONS) -> bytes:
-    """One interaction body, `block_actions` unless told otherwise: a form
-    field holding the payload as JSON."""
-    payload = {
-        TYPE: kind,
-        USER: {ID: SOME_PERSON},
-        CHANNEL: {ID: SOME_CHANNEL},
-        MESSAGE: {TS: "1760000200.000300", THREAD_TS: SOME_THREAD},
-        ACTIONS: [{ACTION_ID: action_id, VALUE: value}]
-    }
-
-    return urlencode({PAYLOAD: json.dumps(payload)}).encode()
+def _a_press(action_id: str,
+             value: str,
+             kind: str = BLOCK_ACTIONS,
+             thread: str | None = SOME_THREAD) -> bytes:
+    """One interaction body by `SOME_PERSON` in `SOME_THREAD`, `block_actions`
+    unless told otherwise."""
+    return a_press(person_id=SOME_PERSON, channel=SOME_CHANNEL, thread=thread,
+                   action_id=action_id, value=value, kind=kind)
 
 
 def _signed(body: bytes,
@@ -353,17 +413,9 @@ def _signed(body: bytes,
             at: datetime = NOW,
             form: bool = False,
             timestamp: str | None = None) -> dict[str, str]:
-    """Slack's signature: an HMAC-SHA256, in hex, of the version, the
-    timestamp and the raw body joined by colons.
-
-    The timestamp is `at` in epoch seconds, unless one is given as it is to be
-    sent."""
-    sent = timestamp if timestamp is not None else str(int(at.timestamp()))
-    signed = f"{SIGNATURE_VERSION}:{sent}:".encode() + body
-    digest = hmac.new(secret.encode(), signed, hashlib.sha256).hexdigest()
-    headers = {SIGNATURE_HEADER: f"{SIGNATURE_VERSION}={digest}", TIMESTAMP_HEADER: sent}
-
-    return headers | ({CONTENT_TYPE_HEADER: FORM_CONTENT_TYPE} if form else {})
+    """Slack's signature over `body`, under `SOME_SECRET` at `NOW` unless told
+    otherwise."""
+    return slack_signed(body, secret=secret, at=at, form=form, timestamp=timestamp)
 
 
 def _it_is_parsed_as(expected: Delivery) -> Assertion[Delivery]:

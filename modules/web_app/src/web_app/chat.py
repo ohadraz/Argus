@@ -75,7 +75,8 @@ def receive_chat_delivery(body: bytes,
 
     Returns the challenge where the platform is checking the address, and
     `None` for every other delivery. Raises `ChatDeliveryUnverified` for one the
-    platform did not sign; every other outcome returns, because a delivery
+    platform did not sign, and `ChatDeliveryUnreadable` for one it signed in
+    none of its shapes; every other outcome returns, because a delivery
     about something Argus does not act on was still received.
     """
     delivery = platform.parse_delivery(body, headers)

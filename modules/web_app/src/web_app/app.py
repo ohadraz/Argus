@@ -8,7 +8,7 @@ from typing import Annotated, Final, assert_never
 
 import psycopg
 from alert_source import AlertSource, AlertUnreadable, OnlyResolved
-from chat_platform import ChatDeliveryUnverified, ChatPlatformReads
+from chat_platform import ChatDeliveryUnreadable, ChatDeliveryUnverified, ChatPlatformReads
 from core import DatabaseSettings
 from core.models import IncidentStatus, Lifespan, Reference, Report, ReportChannel
 from core.telemetry import ARGUS_INCIDENT_ID
@@ -519,10 +519,11 @@ def _a_chat_delivery(body: bytes,
     writes and the platform's reads run in the threadpool.
 
     `404` where the deployment has no chat workspace, which is optional. `401`
-    for a delivery it did not sign. `200` for everything else, acted on or not,
-    and inside the platform's three seconds: received intact is received, and a
-    delivery answered late is one the platform sends again. The challenge is
-    the answer where the platform is checking the address.
+    for a delivery it did not sign, and `422` for one it signed in none of its
+    shapes, as an alert or a push is refused. `200` for everything else, acted
+    on or not, and inside the platform's three seconds: received intact is
+    received, and a delivery answered late is one the platform sends again.
+    The challenge is the answer where the platform is checking the address.
 
     Needs a public URL to be reached at all - an ingress, or a tunnel for a
     demo - which is the deployment's to give it.
@@ -543,6 +544,14 @@ def _a_chat_delivery(body: bytes,
         # away.
         logger.warning("chat delivery refused", extra={"reason": str(refused)})
         raise HTTPException(status_code=401, detail=str(refused)) from refused
+    except ChatDeliveryUnreadable as unreadable:
+        # The platform's input rather than a fault here, as an alert's is: and
+        # whoever configured the app finds it in the platform's log of failed
+        # deliveries.
+        logger.warning("chat delivery rejected", exc_info=True)
+        raise HTTPException(
+            status_code=422, detail=f"the delivery could not be read: {unreadable}"
+        ) from unreadable
 
     return {"challenge": challenge} if challenge is not None else {"received": "true"}
 

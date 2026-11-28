@@ -35,6 +35,7 @@ from argus_testkit import (
     one_record_was_logged,
 )
 from chat_platform import (
+    ChatDeliveryUnreadable,
     ChatDeliveryUnverified,
     ChatPlatformReads,
     Delivery,
@@ -282,16 +283,22 @@ def test_anything_else_is_answered_with_nothing_changes_nothing_and_says_why(
 
 
 @pytest.mark.unit
-def test_an_unverified_delivery_is_refused_and_changes_nothing() -> None:
+@pytest.mark.parametrize("refusal", [
+    pytest.param(ChatDeliveryUnverified("forged"), id="unverified"),
+    pytest.param(ChatDeliveryUnreadable("unreadable"), id="unreadable")
+])
+def test_a_delivery_the_platform_refuses_is_refused_and_changes_nothing(
+    refusal: Exception
+) -> None:
     platform = _a_platform(saying=A_PRESS)
-    platform.parse_delivery.side_effect = ChatDeliveryUnverified("forged")
+    platform.parse_delivery.side_effect = refusal
     record = _a_record(knowing={SOME_THREAD.value: SOME_ARGUS_INCIDENT},
                        answering=_accepted(IncidentStatus.RESOLVED))
 
     Scenario() \
         .when(attempting(lambda: receive_chat_delivery(DONT_CARE_BODY, DONT_CARE_HEADERS,
                                                        platform=platform, record=record))) \
-        .then(all_of(an_error_was_raised(ChatDeliveryUnverified), _nothing_ended(record)))
+        .then(all_of(an_error_was_raised(type(refusal)), _nothing_ended(record)))
 
 
 def _a_platform(saying: Delivery) -> Any:
