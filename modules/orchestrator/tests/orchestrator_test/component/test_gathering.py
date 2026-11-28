@@ -3510,7 +3510,8 @@ def _an_action_taken(conn: psycopg.Connection,
                      left_behind_known: bool = True,
                      number: int = 1,
                      undone: Undone | None = None,
-                     subject: str = SOME_FLAG) -> None:
+                     subject: str = SOME_FLAG,
+                     automated_sync_put_back: bool | None = None) -> None:
     """One finished action, on a candidate of its own - performed, unless a
     case says the attempt ended before its write, and known to have left what
     its descriptor says, unless a case says nobody can tell. A case writing
@@ -3532,7 +3533,8 @@ def _an_action_taken(conn: psycopg.Connection,
                          at=DONT_CARE_TAKEN_AT,
                          performed=performed,
                          left_behind_known=left_behind_known,
-                         undone=undone)
+                         undone=undone,
+                         automated_sync_put_back=automated_sync_put_back)
 
 
 def _a_pin_taken(conn: psycopg.Connection,
@@ -4895,6 +4897,40 @@ def test_a_refuted_action_s_sync_is_said_stopped_unless_its_put_back_resumed_it(
                 calling(lambda: _an_action_taken(
                     conn, incident_id, ROLL_BACK_DEPLOYMENT, Verdict.REFUTED,
                     A_ROLLBACK_THAT_SUSPENDED_SYNC, undone=undone))
+            ) \
+            .when(
+                lambda: [action.paused_sync_of
+                         for action in gather_evidence(conn, incident_id).actions]
+            ) \
+            .then(
+                the_answer_was([paused])
+            )
+
+
+@pytest.mark.component
+@pytest.mark.parametrize(("sync_put_back", "paused"), [
+    pytest.param(True, None, id="its-sync-came-back"),
+    pytest.param(False, A_ROLLBACK_THAT_SUSPENDED_SYNC.application, id="its-sync-did-not"),
+    pytest.param(None, A_ROLLBACK_THAT_SUSPENDED_SYNC.application, id="nobody-can-say")
+])
+def test_a_put_back_not_established_names_a_stopped_sync_only_where_it_did_not_come_back(
+    sync_put_back: bool | None,
+    paused: str | None,
+    a_clean_database: None
+) -> None:
+    # Not established covers either half of a put-back failing. Where the
+    # change's own half failed and the sync was resumed, nothing of Argus's
+    # stops the sync - and where nobody can say, it is said stopped, the
+    # reading that sends somebody to look.
+    with connect_from_env() as conn:
+        incident_id = _an_incident_that_ended(conn)
+
+        Scenario() \
+            .given(
+                calling(lambda: _an_action_taken(
+                    conn, incident_id, ROLL_BACK_DEPLOYMENT, Verdict.ESCALATED,
+                    A_ROLLBACK_THAT_SUSPENDED_SYNC, undone=Undone.NOT_ESTABLISHED,
+                    automated_sync_put_back=sync_put_back))
             ) \
             .when(
                 lambda: [action.paused_sync_of

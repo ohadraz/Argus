@@ -357,6 +357,31 @@ EVERY_HALF_RESTORE = [
                  id="card-pin")
 ]
 
+# Every kind that restores two things, with a way to build its restorer from
+# whether each half went back - its own change first, the sync second.
+EVERY_TWO_HALVED_RESTORE = [
+    pytest.param(RollBackDeploymentKind(), lambda: a_rollback_descriptor_for(SOME_APPLICATION),
+                 "restore_deployment",
+                 lambda change, sync: _a_restorer_that_puts_back(revision=change,
+                                                                 automated_sync=sync),
+                 id="rollback"),
+    pytest.param(ScaleOutKind(), lambda: a_resize_descriptor_for(SOME_APPLICATION),
+                 "restore_capacity",
+                 lambda change, sync: _a_capacity_restorer_that_puts_back(count=change,
+                                                                          automated_sync=sync),
+                 id="scale-out"),
+    pytest.param(PinAutoscalerKind(), lambda: a_pin_descriptor_for(SOME_APPLICATION),
+                 "restore_autoscaling",
+                 lambda change, sync: _an_autoscaling_restorer_that_puts_back(
+                     floor=change, automated_sync=sync),
+                 id="autoscaler-pin"),
+    pytest.param(PinToAcceleratorKind(), lambda: a_card_pin_descriptor_for(SOME_APPLICATION),
+                 "restore_accelerator_pin",
+                 lambda change, sync: _an_accelerator_pin_restorer_that_puts_back(
+                     pin=change, automated_sync=sync),
+                 id="card-pin")
+]
+
 # Every answer but a restore, with the way back that brings it about.
 EVERY_ANSWER_BUT_A_RESTORE = [
     pytest.param(RollBackDeploymentKind(), lambda: a_rollback_descriptor_for(SOME_APPLICATION),
@@ -2111,7 +2136,8 @@ def test_a_change_somebody_made_their_own_while_argus_s_suspension_stands_is_lef
             _it_reports(Undone.LEFT_STANDING),
             _it_says_what_is_still_changed(SOME_FINDING),
             _it_says_what_is_still_changed("left as they set it"),
-            _it_says_what_is_still_changed("suspended still stands")
+            _it_says_what_is_still_changed("suspended still stands"),
+            _its_sync_was_put_back(False)
         ))
 
 
@@ -2128,7 +2154,8 @@ def test_a_change_somebody_made_their_own_with_nothing_of_argus_s_standing_is_le
     # resume, and a person who reverted in git and turned sync back on has
     # ended Argus's suspension themselves. The write tier, which read the
     # platform, says which - so nothing of Argus's is left, and the change is
-    # left as found.
+    # left as found, its sync as Argus found it. The tier wrote nothing and
+    # answers that it put no sync back, so that answer is not what is carried.
     Scenario() \
         .given(
             putting_back := the_way_back(**{
@@ -2140,7 +2167,8 @@ def test_a_change_somebody_made_their_own_with_nothing_of_argus_s_standing_is_le
         ) \
         .then(all_of(
             _it_reports(Undone.LEFT_AS_FOUND),
-            _it_says_exactly(f"was left as found: {SOME_FINDING}")
+            _it_says_exactly(f"was left as found: {SOME_FINDING}"),
+            _its_sync_was_put_back(True)
         ))
 
 
@@ -2182,6 +2210,77 @@ def test_a_change_the_write_tier_could_not_read_is_not_established(
         .then(
             _it_reports(Undone.NOT_ESTABLISHED)
         )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("kind", "a_descriptor", "write", "a_restorer_putting_back"),
+                         EVERY_TWO_HALVED_RESTORE)
+@pytest.mark.parametrize(("change_put_back", "sync_put_back"), [(False, True), (True, False)],
+                         ids=["only-the-sync-came-back", "only-the-change-came-back"])
+def test_a_change_only_partly_put_back_keeps_whether_its_sync_came_back(
+    kind: UndoableKind[Any], a_descriptor: Callable[[], UndoDescriptor], write: str,
+    a_restorer_putting_back: Callable[[bool, bool], MagicMock],
+    change_put_back: bool, sync_put_back: bool
+) -> None:
+    # Either half failing is not established, and that alone cannot say which
+    # half remains. A change whose own half failed while its sync was resumed
+    # has no sync stopped, and an account reading only the outcome would say
+    # it had.
+    Scenario() \
+        .given(
+            putting_back := the_way_back(**{
+                write: a_restorer_putting_back(change_put_back, sync_put_back)
+            })
+        ) \
+        .when(
+            lambda: kind.undo(a_descriptor(), putting_back)
+        ) \
+        .then(all_of(
+            _it_reports(Undone.NOT_ESTABLISHED),
+            _its_sync_was_put_back(sync_put_back)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("kind", "a_descriptor", "write", "a_whole_restore"),
+                         [case for case in EVERY_WHOLE_RESTORE if case.id != "flag"])
+def test_a_change_put_back_whole_keeps_that_its_sync_came_back(
+    kind: UndoableKind[Any], a_descriptor: Callable[[], UndoDescriptor], write: str,
+    a_whole_restore: Callable[[], MagicMock]
+) -> None:
+    Scenario() \
+        .given(
+            putting_back := the_way_back(**{write: a_whole_restore()})
+        ) \
+        .when(
+            lambda: kind.undo(a_descriptor(), putting_back)
+        ) \
+        .then(all_of(
+            _it_reports(Undone.RESTORED),
+            _its_sync_was_put_back(True)
+        ))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("kind", "a_descriptor", "write", "spec", "dont_care_subject"),
+                         EVERY_KIND_OF_RESTORE)
+def test_a_restore_that_raised_says_nothing_of_whether_its_sync_came_back(
+    kind: UndoableKind[Any], a_descriptor: Callable[[], UndoDescriptor], write: str, spec: type,
+    dont_care_subject: str
+) -> None:
+    # Nobody answered, so nobody can say: neither that the sync came back nor
+    # that it did not - a flag's change has none either way.
+    Scenario() \
+        .given(
+            the_restore_raises := _a_collaborator_raising(spec)
+        ) \
+        .when(
+            lambda: kind.undo(a_descriptor(), the_way_back(**{write: the_restore_raises}))
+        ) \
+        .then(all_of(
+            _it_reports(Undone.NOT_ESTABLISHED),
+            _its_sync_was_put_back(None)
+        ))
 
 
 @pytest.mark.unit
@@ -2708,6 +2807,19 @@ def _it_reports(expected: Undone) -> Assertion[UndoAttempt]:
             raise AssertionError(
                 f"Expected the undo to report [{expected}], got "
                 f"[{attempt.outcome}]: {attempt.detail}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _its_sync_was_put_back(expected: bool | None) -> Assertion[UndoAttempt]:
+    def assertion(attempt: UndoAttempt) -> bool:
+        if attempt.automated_sync_put_back is not expected:
+            raise AssertionError(
+                f"Expected the undo to say whether its sync was put back as [{expected}], "
+                f"got [{attempt.automated_sync_put_back}]: {attempt.detail}."
             )
 
         return True

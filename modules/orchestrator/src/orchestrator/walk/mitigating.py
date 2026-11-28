@@ -557,6 +557,10 @@ def _the_attempt_recorded(state: IncidentState,
         # What putting a refuted change back did, so the cleanup after the
         # incident does not put it back a second time.
         undone=result.undone,
+        # And which half of it came back, which the outcome alone cannot say
+        # where it is not established. On the row and not the line: the line's
+        # words already say which half remains.
+        automated_sync_put_back=result.automated_sync_put_back,
         narrating=VerdictReached(
             incident_id=state.incident_id,
             hypothesis_id=state.cursor.hypothesis.id,

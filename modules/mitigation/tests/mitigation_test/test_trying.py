@@ -1319,6 +1319,43 @@ def test_a_refuted_change_put_back_as_its_undo_told_it_ends_as_the_undo_said() -
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("undone", list(Undone))
+@pytest.mark.parametrize("sync_put_back", [True, False],
+                         ids=["its-sync-came-back", "its-sync-did-not"])
+def test_whether_a_refuted_change_s_sync_came_back_travels_on_the_outcome(
+    undone: Undone, sync_put_back: bool
+) -> None:
+    # Two halves put back, and either failing is not established - which alone
+    # cannot say whether the sync Argus suspended is still suspended. The row
+    # keeps what the undo said of it, so the account of the incident does not
+    # name a stopped sync that was resumed.
+    Scenario() \
+        .given(
+            undo := _an_undo_answering(undone, automated_sync_put_back=sync_put_back)
+        ) \
+        .when(
+            lambda: take_action(
+                an_admission_of(an_action_setting(DONT_CARE_FLAG, enabled=True)),
+                settings=_some_mitigation_settings(),
+                thresholds=_some_thresholds(),
+                plan=DONT_CARE_PLAN,
+                acted_from=_CLAIMED_AT,
+                writes=the_writes(),
+                fetch_metrics=metrics_reading(a_still_failing_window()),
+                now=a_clock_that_runs_out_after_one_look(ACTION_TIME),
+                sleep=dont_care_sleep,
+                undo=undo,
+                kinds=_every_action_is(
+                    _a_kind_that_did(DONT_CARE_WHAT_IT_DID, an_undo_descriptor_for(DONT_CARE_FLAG))
+                )
+            )
+        ) \
+        .then(
+            _whether_its_sync_came_back_is_carried_as(sync_put_back)
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     ("a_window", "a_clock", "an_undo", "verdict"),
     [
@@ -4107,11 +4144,13 @@ def _an_undo_that_restores(flag: str) -> MagicMock:
     return undo
 
 
-def _an_undo_answering(outcome: Undone) -> MagicMock:
+def _an_undo_answering(outcome: Undone,
+                       automated_sync_put_back: bool | None = None) -> MagicMock:
     """An undo that found this, about a change whose subject nothing reads."""
     undo: MagicMock = create_autospec(UndoChange, instance=True)
     undo.return_value = UndoAttempt(
-        subject=DONT_CARE_FLAG, outcome=outcome, detail="dont care what it found"
+        subject=DONT_CARE_FLAG, outcome=outcome, detail="dont care what it found",
+        automated_sync_put_back=automated_sync_put_back
     )
 
     return undo
@@ -4802,6 +4841,21 @@ def _putting_it_back_is_carried_as(expected: Undone,
             raise AssertionError(
                 f"Expected the outcome to carry the undo as [{expected}] saying "
                 f"[{said}], got [{outcome.undone}] saying [{outcome.undone_detail}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _whether_its_sync_came_back_is_carried_as(expected: bool | None) -> Assertion[Outcome]:
+    """What the undo said of the sync Argus suspended, carried for the action's
+    row, which keeps which half of a put-back came back."""
+    def assertion(outcome: Outcome) -> bool:
+        if outcome.automated_sync_put_back is not expected:
+            raise AssertionError(
+                f"Expected the outcome to carry whether its sync was put back as "
+                f"[{expected}], got [{outcome.automated_sync_put_back}]."
             )
 
         return True

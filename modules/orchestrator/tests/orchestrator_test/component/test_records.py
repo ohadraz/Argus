@@ -350,6 +350,54 @@ def test_a_verdict_survives_a_narration_that_could_not_be_written(
 
 
 @pytest.mark.component
+def test_a_verdict_keeps_whether_its_put_back_restored_the_sync(
+    a_clean_database: None
+) -> None:
+    # A put-back not established may have left either half: the row keeps
+    # whether the sync came back, beside what putting it back did.
+    some_outcome = Verdict.ESCALATED
+
+    with connect_from_env() as conn:
+        incident_id = incidents.create(conn, DONT_CARE_ALERT, at=utc_now())
+        a_candidate = a_determined_hypothesis(incident_id)
+        hypotheses.record(conn, a_candidate)
+        taken_actions.claim(
+            conn,
+            incident_id,
+            hypothesis_id=a_candidate.id,
+            action_type=DONT_CARE_ACTION,
+            subject=DONT_CARE_FLAG,
+            at=utc_now()
+        )
+
+    records = Records(connect_from_env, publisher_for=events_into_connection)
+
+    Scenario() \
+        .given(
+            a_candidate.id
+        ) \
+        .when(
+            lambda: records.complete_action(
+                incident_id,
+                hypothesis_id=a_candidate.id,
+                outcome=some_outcome,
+                undo_descriptor=DONT_CARE_UNDO_DESCRIPTOR,
+                left_behind_known=True,
+                undone=Undone.NOT_ESTABLISHED,
+                automated_sync_put_back=True,
+                narrating=VerdictReached(
+                    incident_id=incident_id,
+                    hypothesis_id=a_candidate.id,
+                    outcome=some_outcome
+                )
+            )
+        ) \
+        .then(
+            _the_action_keeps_its_sync_as(incident_id, a_candidate.id, True)
+        )
+
+
+@pytest.mark.component
 def test_a_change_made_is_on_the_claim_for_anybody_who_reads_it_next(
     a_clean_database: None
 ) -> None:
@@ -1164,6 +1212,29 @@ def _the_action_records_the_outcome(incident_id: str,
         if taken.outcome != outcome:
             raise AssertionError(
                 f"Expected the action to record [{outcome}], got [{taken.outcome}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_action_keeps_its_sync_as(incident_id: str,
+                                  hypothesis_id: str,
+                                  expected: bool | None) -> Assertion[None]:
+    def assertion(_result: None) -> bool:
+        with connect_from_env() as conn:
+            taken = taken_actions.get_action_for_hypothesis(conn, incident_id, hypothesis_id)
+
+        if taken is None:
+            raise AssertionError(
+                f"Expected an action for candidate [{hypothesis_id}], got none."
+            )
+
+        if taken.automated_sync_put_back is not expected:
+            raise AssertionError(
+                f"Expected the action to keep its sync put back as [{expected}], got "
+                f"[{taken.automated_sync_put_back}]."
             )
 
         return True

@@ -46,8 +46,11 @@ logger = logging.getLogger(__name__)
 # wrong here.
 type TakenActionsOf = Callable[[str], list[TakenAction]]
 # What the unwind did with one change, kept on the change's row (by its id) and
-# said, as one write. A seam for the reason the reading is one.
-type RecordUndone = Callable[[str, ChangeUndone], None]
+# said, as one write - with whether the put-back left the sync Argus suspended
+# as Argus found it, kept on the row beside the line rather than in it: the
+# line's words already say which half remains. A seam for the reason the
+# reading is one.
+type RecordUndone = Callable[[str, ChangeUndone, bool | None], None]
 # Which action the changes made inside it are for, by its row's id, so the write
 # tier marks a put-back as the action it puts back. The process's `Holding`.
 type ActingFor = Callable[[str], AbstractContextManager[None]]
@@ -138,9 +141,13 @@ def undone_recorded_through(connections: Connections,
     (`publish_beside`), so a line that cannot be written costs the row nothing.
     """
 
-    def record_undone(action_id: str, said: ChangeUndone) -> None:
+    def record_undone(action_id: str,
+                      said: ChangeUndone,
+                      automated_sync_put_back: bool | None) -> None:
         with connections() as conn:
-            the_walks_writes_on(conn).record_undone(action_id, said.outcome)
+            the_walks_writes_on(conn).record_undone(
+                action_id, said.outcome, automated_sync_put_back=automated_sync_put_back
+            )
             publish_beside(conn, said, publisher_for(conn))
 
     return record_undone
@@ -214,7 +221,7 @@ def unwind_incident(incident_id: str,
                 subject=unaccounted.subject,
                 outcome=unaccounted.outcome,
                 detail=unaccounted.detail
-            ))
+            ), unaccounted.automated_sync_put_back)
 
             continue
 
@@ -229,7 +236,7 @@ def unwind_incident(incident_id: str,
                         "from records it never touched, so there was nothing "
                         "of Argus's to write back"
                     )
-                ))
+                ), None)
 
             continue
 
@@ -242,7 +249,7 @@ def unwind_incident(incident_id: str,
             subject=attempt.subject,
             outcome=attempt.outcome,
             detail=attempt.detail
-        ))
+        ), attempt.automated_sync_put_back)
 
 
 def _said_in_the_log(attempt: UndoAttempt) -> None:

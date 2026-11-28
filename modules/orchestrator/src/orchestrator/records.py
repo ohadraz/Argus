@@ -204,7 +204,8 @@ class Records:
         performed: bool = True,
         *,
         left_behind_known: bool,
-        undone: Undone | None = None
+        undone: Undone | None = None,
+        automated_sync_put_back: bool | None = None
     ) -> None:
         """Records what came of the action, and says so, in one write.
 
@@ -222,7 +223,8 @@ class Records:
                 undo_descriptor=undo_descriptor,
                 performed=performed,
                 left_behind_known=left_behind_known,
-                undone=undone
+                undone=undone,
+                automated_sync_put_back=automated_sync_put_back
             )
             publish_beside(conn, narrating, self._publisher_for(conn))
 

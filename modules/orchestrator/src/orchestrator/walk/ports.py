@@ -319,7 +319,8 @@ class CompleteAction(Protocol):
     `left_behind_known` is whether the descriptor is the whole of what the
     attempt left behind, and has no default for the reason `Outcome`'s has
     none. `undone` is what the attempt's own putting back did, `None` where it
-    attempted none.
+    attempted none, and `automated_sync_put_back` whether that left the sync
+    Argus suspended as Argus found it - `None` where nobody answered.
     """
 
     def __call__(
@@ -332,7 +333,8 @@ class CompleteAction(Protocol):
         performed: bool = True,
         *,
         left_behind_known: bool,
-        undone: Undone | None = None
+        undone: Undone | None = None,
+        automated_sync_put_back: bool | None = None
     ) -> None: ...
 
 

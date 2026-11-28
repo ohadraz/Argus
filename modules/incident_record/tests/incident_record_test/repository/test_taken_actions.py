@@ -691,6 +691,158 @@ def test_what_the_cleanup_did_with_a_change_is_kept_on_its_row() -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("sync_put_back", [True, False, None],
+                         ids=["its-sync-came-back", "its-sync-did-not", "nobody-can-say"])
+def test_a_completed_action_keeps_whether_its_own_putting_back_restored_its_sync(
+        sync_put_back: bool | None) -> None:
+    # A put-back with two halves is not established where either fails, and
+    # the outcome alone cannot say which half remains - so the row keeps
+    # whether the sync Argus suspended came back, as the undo said it.
+    some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(conn, some_alert)
+            ) \
+            .given(
+                dont_care_hypothesis_id := a_hypothesis_recorded_for(incident_id)
+            ) \
+            .when(
+                lambda: taken_actions.record(
+                    conn,
+                    incident_id,
+                    hypothesis_id=dont_care_hypothesis_id,
+                    action_type=ROLL_BACK_DEPLOYMENT,
+                    subject=THE_ROLLBACK_AS_MADE.application,
+                    outcome=Verdict.ESCALATED,
+                    undo_descriptor=THE_ROLLBACK_AS_MADE,
+                    at=DONT_CARE_INSTANT,
+                    left_behind_known=True,
+                    undone=Undone.NOT_ESTABLISHED,
+                    automated_sync_put_back=sync_put_back
+                )
+            ) \
+            .then(
+                _whether_its_sync_came_back_is_read_back_as(conn, incident_id, sync_put_back)
+            )
+
+
+@pytest.mark.integration
+def test_an_action_nothing_put_back_says_nothing_of_whether_its_sync_came_back() -> None:
+    # Nothing attempted a put-back, so nothing said anything about the sync: a
+    # row with no answer reads as stopped wherever Argus stopped it.
+    some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(conn, some_alert)
+            ) \
+            .given(
+                dont_care_hypothesis_id := a_hypothesis_recorded_for(incident_id)
+            ) \
+            .when(
+                lambda: taken_actions.record(
+                    conn,
+                    incident_id,
+                    hypothesis_id=dont_care_hypothesis_id,
+                    action_type=ROLL_BACK_DEPLOYMENT,
+                    subject=THE_ROLLBACK_AS_MADE.application,
+                    outcome=Verdict.STOPPED,
+                    undo_descriptor=THE_ROLLBACK_AS_MADE,
+                    at=DONT_CARE_INSTANT,
+                    left_behind_known=True
+                )
+            ) \
+            .then(
+                _whether_its_sync_came_back_is_read_back_as(conn, incident_id, None)
+            )
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("sync_put_back", [True, False],
+                         ids=["its-sync-came-back", "its-sync-did-not"])
+def test_whether_the_cleanup_restored_a_change_s_sync_is_kept_on_its_row(
+        sync_put_back: bool) -> None:
+    # The cleanup's put-back has the same two halves as the walk's own, and the
+    # same row keeps which came back.
+    some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(conn, some_alert)
+            ) \
+            .given(
+                dont_care_hypothesis_id := a_hypothesis_recorded_for(incident_id)
+            ) \
+            .given(
+                action_id := _a_change_recorded(conn, incident_id, dont_care_hypothesis_id)
+            ) \
+            .when(
+                lambda: taken_actions.record_undone(conn, action_id, Undone.NOT_ESTABLISHED,
+                                                    automated_sync_put_back=sync_put_back)
+            ) \
+            .then(all_of(
+                _what_was_undone_is_read_back_as(conn, incident_id, Undone.NOT_ESTABLISHED),
+                _whether_its_sync_came_back_is_read_back_as(conn, incident_id, sync_put_back)
+            ))
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(("earlier_answer", "later_answer", "kept"), [
+    pytest.param(True, None, True, id="came-back-then-a-put-back-that-raised"),
+    pytest.param(True, False, True, id="came-back-then-a-put-back-that-resumed-nothing"),
+    pytest.param(False, True, True, id="not-back-then-a-put-back-that-resumed-it"),
+    pytest.param(False, None, False, id="not-back-then-a-put-back-that-raised")
+])
+def test_a_sync_s_return_once_known_is_kept_and_any_answer_is_kept_over_none(
+    earlier_answer: bool, later_answer: bool | None, kept: bool
+) -> None:
+    # No put-back suspends sync, so a sync once resumed stays resumed: a later
+    # pass that resumed nothing - the sync an earlier pass resumed, still coming
+    # back - says only that it resumed nothing, and one whose put-back raised
+    # knows nothing at all. So a return is kept whatever follows, a later pass
+    # that resumed the sync is kept over an earlier one that could not, and an
+    # answer is never erased by a pass that had none.
+    some_alert = Alert(service="buki-service", alert_name="HighErrorRate")
+
+    with connect_from_env() as conn:
+        a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
+
+        Scenario() \
+            .given(
+                incident_id := an_incident_created_for(conn, some_alert)
+            ) \
+            .given(
+                dont_care_hypothesis_id := a_hypothesis_recorded_for(incident_id)
+            ) \
+            .given(
+                action_id := _a_change_recorded(conn, incident_id, dont_care_hypothesis_id)
+            ) \
+            .given(
+                calling(lambda: taken_actions.record_undone(
+                    conn, action_id, Undone.NOT_ESTABLISHED,
+                    automated_sync_put_back=earlier_answer
+                ))
+            ) \
+            .when(
+                lambda: taken_actions.record_undone(conn, action_id, Undone.NOT_ESTABLISHED,
+                                                    automated_sync_put_back=later_answer)
+            ) \
+            .then(
+                _whether_its_sync_came_back_is_read_back_as(conn, incident_id, kept)
+            )
+
+
+@pytest.mark.integration
 def test_an_action_only_claimed_is_not_known_to_have_left_nothing() -> None:
     # A worker that stopped after its claim may have made the change, so the
     # row says nothing is known until something more is written.
@@ -1255,13 +1407,11 @@ def test_a_completed_action_leaves_no_column_of_its_row_empty() -> None:
     # writes it: a claim with its plan, a candidate and a subject; the change
     # made, with what puts it back and when the walk recorded it, on its clock;
     # owing its put-back once the watch refuted it, with why; and completed
-    # with the verdict and the walk's own putting back of it. A row
-    # legitimately lacking one of those is a different case with its own test
-    # above; this asks whether the complete case reaches the table complete.
+    # with the verdict and the walk's own putting back of it, sync and all - a
+    # rollback, since a flag has no sync to put back. A row legitimately
+    # lacking one of those is a different case with its own test above; this
+    # asks whether the complete case reaches the table complete.
     some_alert = Alert(service="io-shop", alert_name="HighErrorRate")
-    the_flag_that_was_changed = "monthly-spend-feature"
-    some_plan = FlagUndo(flag=the_flag_that_was_changed, was_enabled=True)
-    some_change_made = some_plan.model_copy(update={"written_at": SOME_MOMENT_ARGUS_WROTE})
 
     with connect_from_env() as conn:
         a_hypothesis_recorded_for = partial(_a_hypothesis_recorded_for, conn)
@@ -1270,13 +1420,12 @@ def test_a_completed_action_leaves_no_column_of_its_row_empty() -> None:
 
         def claimed_made_and_owing_its_put_back() -> None:
             taken_actions.claim(conn, incident_id, hypothesis_id=hypothesis_id,
-                                action_type="revert-feature-flag",
-                                subject=the_flag_that_was_changed, at=DONT_CARE_INSTANT,
-                                planned=Planned(descriptor=some_plan,
-                                                since=SOME_MOMENT_ITS_STATE_WAS_READ))
+                                action_type=ROLL_BACK_DEPLOYMENT,
+                                subject=THE_ROLLBACK_AS_MADE.application, at=DONT_CARE_INSTANT,
+                                planned=SOME_PLANNED_ROLLBACK)
             taken_actions.advance(conn, incident_id, hypothesis_id=hypothesis_id,
                                   to=ActionProgress.PERFORMED,
-                                  undo_descriptor=some_change_made,
+                                  undo_descriptor=THE_ROLLBACK_AS_MADE,
                                   performed_at=SOME_MOMENT_IT_WAS_ANNOUNCED)
             taken_actions.owe_a_put_back(conn, incident_id, hypothesis_id=hypothesis_id,
                                          because=SOME_FINDING)
@@ -1291,9 +1440,10 @@ def test_a_completed_action_leaves_no_column_of_its_row_empty() -> None:
                     incident_id,
                     hypothesis_id=hypothesis_id,
                     outcome=Verdict.REFUTED,
-                    undo_descriptor=some_change_made,
+                    undo_descriptor=THE_ROLLBACK_AS_MADE,
                     left_behind_known=True,
-                    undone=Undone.RESTORED
+                    undone=Undone.RESTORED,
+                    automated_sync_put_back=True
                 )
             ) \
             .then(
@@ -1572,6 +1722,24 @@ def _what_was_undone_is_read_back_as(conn: psycopg.Connection,
         if read_back != [expected]:
             raise AssertionError(
                 f"Expected one action whose undone reads [{expected}], "
+                f"and the incident's actions read {read_back}"
+            )
+
+        return True
+
+    return assertion
+
+
+def _whether_its_sync_came_back_is_read_back_as(conn: psycopg.Connection,
+                                                incident_id: str,
+                                                expected: bool | None) -> Assertion[object]:
+    def assertion(_result: object) -> bool:
+        read_back = [action.automated_sync_put_back
+                     for action in taken_actions.get_by_incident(conn, incident_id)]
+
+        if read_back != [expected]:
+            raise AssertionError(
+                f"Expected one action whose sync put back reads [{expected}], "
                 f"and the incident's actions read {read_back}"
             )
 

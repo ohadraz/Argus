@@ -83,12 +83,22 @@ class UndoAttempt(BaseModel):
     back other than as its kind usually tells it - a scale-out whose count was
     left to its autoscaler was put back to no count at all, and the kind's own
     ending would name one. `None` where the kind's ending is true.
+
+    `automated_sync_put_back` is whether the reconciliation Argus suspended is
+    back as Argus found it - true also where sync was off and left off. Carried
+    because a put-back with two halves is not established where either fails,
+    and the outcome alone cannot say which half remains. The write tier's
+    answer of that name, except where it left the change as somebody set it:
+    there it writes nothing and answers `False` whatever the platform holds, so
+    `not sync_still_suspended` is the fact. `None` for a kind with no sync (a
+    flag) and for an attempt that raised, where nobody answered.
     """
 
     subject: str
     outcome: Undone
     detail: str
     said_as: str | None = None
+    automated_sync_put_back: bool | None = None
 
 
 def propose_action(hypothesis: Hypothesis,

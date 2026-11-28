@@ -922,6 +922,54 @@ def test_the_action_row_and_its_line_keep_what_putting_it_back_did(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("sync_put_back", [True, False, None],
+                         ids=["its-sync-came-back", "its-sync-did-not", "nobody-can-say"])
+def test_the_action_row_keeps_whether_putting_it_back_restored_its_sync(
+    sync_put_back: bool | None,
+    take: MagicMock,
+    record_action: MagicMock,
+    complete_action: MagicMock,
+    record_outcome: MagicMock,
+    already_taken: MagicMock,
+    acting_for: ports.ActingFor,
+    still_wanted: MagicMock
+) -> None:
+    # A put-back not established may have left either half of it; the row
+    # keeps which, so the account does not name a stopped sync that was resumed.
+    dont_care_what_it_said = "was only partly put back"
+
+    Scenario() \
+        .given(
+            calling(lambda: _the_action_came_back(take, Verdict.ESCALATED,
+                                                  undo_descriptor=FlagUndo(
+                                                      flag=DONT_CARE_FLAG, was_enabled=True
+                                                  ),
+                                                  undone=Undone.NOT_ESTABLISHED,
+                                                  undone_detail=dont_care_what_it_said,
+                                                  automated_sync_put_back=sync_put_back)),
+            an_action_taking_incident := _a_mitigating_incident(
+                proposing=_an_action_with_an_undo_descriptor(),
+                about=a_determined_hypothesis(a_random_id())
+            )
+        ) \
+        .when(lambda: mitigation_node(an_action_taking_incident,
+                                      take=take,
+                                      plan_action=_a_plan_nobody_checks(),
+                                      resuming=_resuming_nobody_checks(),
+                                      advance_action=_an_advance_nobody_checks(),
+                                      owe_a_put_back=_an_owing_nobody_checks(),
+                                      complete_action=complete_action,
+                                      record_action=record_action,
+                                      record_outcome=record_outcome,
+                                      already_taken=already_taken,
+                                      acting_for=acting_for,
+                                      still_wanted=still_wanted)) \
+        .then(
+            _whether_its_sync_came_back_was_kept_as(sync_put_back, complete_action)
+        )
+
+
+@pytest.mark.unit
 def test_a_candidate_abandoned_mid_verification_is_not_recorded_as_tested(
     take: MagicMock,
     record_action: MagicMock,
@@ -3152,7 +3200,8 @@ def _the_action_came_back(take: MagicMock,
                           left_behind_known: bool = True,
                           not_performed_because: str | None = None,
                           undone: Undone | None = None,
-                          undone_detail: str | None = None) -> None:
+                          undone_detail: str | None = None,
+                          automated_sync_put_back: bool | None = None) -> None:
     """The agent answers with `verdict` - telling of the change as it makes it,
     as the real one does, wherever the action was performed."""
     outcome = Outcome(verdict=verdict,
@@ -3164,7 +3213,8 @@ def _the_action_came_back(take: MagicMock,
                       left_behind_known=left_behind_known,
                       not_performed_because=not_performed_because,
                       undone=undone,
-                      undone_detail=undone_detail)
+                      undone_detail=undone_detail,
+                      automated_sync_put_back=automated_sync_put_back)
 
     def taking(dont_care_admitted: Admitted[Action], /, **keywords: object) -> Outcome:
         change_made = cast(ChangeMade, keywords["change_made"])
@@ -4408,6 +4458,22 @@ def _putting_it_back_was_kept_as(expected: Undone,
                 f"Expected the row and the line to keep the undo as [{expected}] "
                 f"saying [{said}], got row [{found[0]}] and line [{found[1]}] "
                 f"saying [{found[2]}]."
+            )
+
+        return True
+
+    return assertion
+
+
+def _whether_its_sync_came_back_was_kept_as(expected: bool | None,
+                                            complete_action: MagicMock
+                                            ) -> Assertion[StateDelta]:
+    def assertion(dont_care_result: StateDelta) -> bool:
+        kept = _the_completion(complete_action).get("automated_sync_put_back")
+
+        if kept is not expected:
+            raise AssertionError(
+                f"Expected the row to keep its sync put back as [{expected}], got [{kept}]."
             )
 
         return True

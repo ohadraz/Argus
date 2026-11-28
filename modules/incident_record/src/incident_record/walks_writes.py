@@ -77,7 +77,8 @@ class TheWalksWrites(Protocol):
 
     def complete(self, incident_id: str, /, hypothesis_id: str, outcome: Verdict,
                  undo_descriptor: UndoDescriptor | None, performed: bool = True, *,
-                 left_behind_known: bool, undone: Undone | None = None) -> None:
+                 left_behind_known: bool, undone: Undone | None = None,
+                 automated_sync_put_back: bool | None = None) -> None:
         """Records what came of a claimed action."""
         ...
 
@@ -97,8 +98,10 @@ class TheWalksWrites(Protocol):
         """Records a refuted change as owed back, with what the wait found."""
         ...
 
-    def record_undone(self, action_id: str, undone: Undone, /) -> None:
-        """Records what putting an action's change back did."""
+    def record_undone(self, action_id: str, undone: Undone, /, *,
+                      automated_sync_put_back: bool | None = None) -> None:
+        """Records what putting an action's change back did, and whether it
+        left the sync Argus suspended as Argus found it."""
         ...
 
     def claim_fix(self, incident_id: str, fix: ClaimedFix, /, *,
@@ -151,11 +154,12 @@ class _OnAConnection:
 
     def complete(self, incident_id: str, /, hypothesis_id: str, outcome: Verdict,
                  undo_descriptor: UndoDescriptor | None, performed: bool = True, *,
-                 left_behind_known: bool, undone: Undone | None = None) -> None:
+                 left_behind_known: bool, undone: Undone | None = None,
+                 automated_sync_put_back: bool | None = None) -> None:
         taken_actions.complete(self._conn, incident_id, hypothesis_id=hypothesis_id,
                                outcome=outcome, undo_descriptor=undo_descriptor,
                                performed=performed, left_behind_known=left_behind_known,
-                               undone=undone)
+                               undone=undone, automated_sync_put_back=automated_sync_put_back)
 
     def advance(self, incident_id: str, /, hypothesis_id: str, to: ActionProgress,
                 undo_descriptor: UndoDescriptor | None, *,
@@ -172,8 +176,10 @@ class _OnAConnection:
         taken_actions.owe_a_put_back(self._conn, incident_id, hypothesis_id=hypothesis_id,
                                      because=because)
 
-    def record_undone(self, action_id: str, undone: Undone, /) -> None:
-        taken_actions.record_undone(self._conn, action_id, undone)
+    def record_undone(self, action_id: str, undone: Undone, /, *,
+                      automated_sync_put_back: bool | None = None) -> None:
+        taken_actions.record_undone(self._conn, action_id, undone,
+                                    automated_sync_put_back=automated_sync_put_back)
 
     def claim_fix(self, incident_id: str, fix: ClaimedFix, /, *,
                   at: datetime) -> ClaimedFix:

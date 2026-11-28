@@ -22,6 +22,9 @@ from postgres import connect_from_env
 from orchestrator_test.framework.builders import a_determined_hypothesis
 
 SOME_FLAG = "monthly-spend-feature"
+# Whether the put-back said its sync came back, where a case is about something
+# else.
+DONT_CARE_SYNC_PUT_BACK = None
 
 
 @pytest.mark.component
@@ -43,7 +46,7 @@ def test_what_the_unwind_did_is_not_durable_before_the_line_that_says_it(
             action_id
         ) \
         .when(
-            lambda: record_undone(action_id, _put_back(incident_id))
+            lambda: record_undone(action_id, _put_back(incident_id), DONT_CARE_SYNC_PUT_BACK)
         ) \
         .then(all_of(
             _nothing_outside_saw_it_kept(seen_mid_write),
@@ -71,12 +74,34 @@ def test_what_the_unwind_did_survives_a_line_that_could_not_be_written(
             action_id
         ) \
         .when(
-            lambda: record_undone(action_id, _put_back(incident_id))
+            lambda: record_undone(action_id, _put_back(incident_id), DONT_CARE_SYNC_PUT_BACK)
         ) \
         .then(all_of(
             _the_row_keeps(incident_id, Undone.RESTORED),
             _nothing_was_said(incident_id)
         ))
+
+
+@pytest.mark.component
+def test_whether_the_unwind_restored_a_change_s_sync_is_kept_on_its_row(
+    a_clean_database: None
+) -> None:
+    # Not established says only that one half or the other remains; the row
+    # keeps which, beside it, so a resumed sync is not written up as stopped.
+    incident_id, action_id = _a_change_a_withdrawn_walk_left()
+
+    record_undone = undone_recorded_through(connect_from_env)
+
+    Scenario() \
+        .given(
+            action_id
+        ) \
+        .when(
+            lambda: record_undone(action_id, _only_partly_put_back(incident_id), True)
+        ) \
+        .then(
+            _the_row_keeps_its_sync_as(incident_id, True)
+        )
 
 
 def _a_change_a_withdrawn_walk_left() -> tuple[str, str]:
@@ -106,6 +131,11 @@ def _a_change_a_withdrawn_walk_left() -> tuple[str, str]:
 def _put_back(incident_id: str) -> ChangeUndone:
     return ChangeUndone(incident_id=incident_id, subject=SOME_FLAG,
                         outcome=Undone.RESTORED, detail="dont care")
+
+
+def _only_partly_put_back(incident_id: str) -> ChangeUndone:
+    return ChangeUndone(incident_id=incident_id, subject=SOME_FLAG,
+                        outcome=Undone.NOT_ESTABLISHED, detail="dont care")
 
 
 def _nobody_can_write(dont_care_event: IncidentEvent) -> None:
@@ -156,6 +186,23 @@ def _the_row_keeps(incident_id: str, expected: Undone) -> Assertion[None]:
             raise AssertionError(
                 f"Expected the change's row to keep [{expected}], the incident's rows "
                 f"keep {kept}."
+            )
+
+        return True
+
+    return assertion
+
+
+def _the_row_keeps_its_sync_as(incident_id: str, expected: bool | None) -> Assertion[None]:
+    def assertion(_result: None) -> bool:
+        with connect_from_env() as conn:
+            kept = [action.automated_sync_put_back
+                    for action in taken_actions.get_by_incident(conn, incident_id)]
+
+        if kept != [expected]:
+            raise AssertionError(
+                f"Expected the change's row to keep its sync put back as [{expected}], "
+                f"the incident's rows keep {kept}."
             )
 
         return True

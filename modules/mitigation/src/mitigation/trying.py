@@ -1778,6 +1778,7 @@ def _undone(performed: Performed,
                 undo_descriptor=undo_descriptor,
                 undone=attempt.outcome,
                 undone_detail=attempt.detail,
+                automated_sync_put_back=attempt.automated_sync_put_back
             )
         case Undone.LEFT_STANDING:
             # Not a refutation, though the wait found against the change.
@@ -1796,7 +1797,8 @@ def _undone(performed: Performed,
                 detail=f"{taken}, but {because}, and [{attempt.subject}] {attempt.detail}",
                 undo_descriptor=undo_descriptor,
                 undone=attempt.outcome,
-                undone_detail=attempt.detail
+                undone_detail=attempt.detail,
+                automated_sync_put_back=attempt.automated_sync_put_back
             )
         case Undone.LEFT_AS_FOUND:
             return Outcome(
@@ -1807,6 +1809,7 @@ def _undone(performed: Performed,
                 undo_descriptor=undo_descriptor,
                 undone=attempt.outcome,
                 undone_detail=attempt.detail,
+                automated_sync_put_back=attempt.automated_sync_put_back
             )
         case Undone.RESTORED:
             # The undo's own telling where it gave one: the kind's ending is how
@@ -1827,6 +1830,7 @@ def _undone(performed: Performed,
                 undo_descriptor=undo_descriptor,
                 undone=attempt.outcome,
                 undone_detail=attempt.detail,
+                automated_sync_put_back=attempt.automated_sync_put_back
             )
         case Undone.NO_UNDO_WAS_OWED:
             # Reached by nothing today: this is what an *unwind* reports for a
@@ -1848,6 +1852,7 @@ def _undone(performed: Performed,
                 undo_descriptor=undo_descriptor,
                 undone=attempt.outcome,
                 undone_detail=attempt.detail,
+                automated_sync_put_back=attempt.automated_sync_put_back
             )
 
     assert_never(attempt.outcome)

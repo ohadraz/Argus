@@ -512,6 +512,7 @@ class RollBackDeploymentKind:
             return UndoAttempt(
                 subject=application,
                 outcome=Undone.RESTORED,
+                automated_sync_put_back=restored.automated_sync_put_back,
                 detail=(
                     f"was put back on the revision at history "
                     f"entry [{descriptor.was_on_history_id}], and its "
@@ -535,6 +536,9 @@ class RollBackDeploymentKind:
                 f"was only partly put back - {still_changed} "
                 f"remains as Argus left it"
             ),
+            # Which half remains, which the outcome cannot say: a change whose
+            # own half failed with its sync resumed has no sync of Argus's stopped.
+            automated_sync_put_back=restored.automated_sync_put_back
         )
 
     def put_back_as(self, descriptor: DeploymentRollbackUndo, /) -> str:
@@ -664,6 +668,7 @@ class ScaleOutKind:
             return UndoAttempt(
                 subject=application,
                 outcome=Undone.RESTORED,
+                automated_sync_put_back=restored.automated_sync_put_back,
                 detail=(
                     "had its count left to its autoscaler, and its automated sync "
                     "was restored"
@@ -678,6 +683,7 @@ class ScaleOutKind:
             return UndoAttempt(
                 subject=application,
                 outcome=Undone.RESTORED,
+                automated_sync_put_back=restored.automated_sync_put_back,
                 detail=(
                     f"was put back to [{descriptor.was_replicas}] "
                     f"replica{'' if descriptor.was_replicas == 1 else 's'}, and its "
@@ -701,6 +707,9 @@ class ScaleOutKind:
                 f"was only partly put back - {still_changed} "
                 f"remains as Argus left it"
             ),
+            # Which half remains, which the outcome cannot say: a change whose
+            # own half failed with its sync resumed has no sync of Argus's stopped.
+            automated_sync_put_back=restored.automated_sync_put_back
         )
 
     def put_back_as(self, descriptor: ReplicaUndo, /) -> str:
@@ -813,6 +822,7 @@ class PinAutoscalerKind:
             return UndoAttempt(
                 subject=application,
                 outcome=Undone.RESTORED,
+                automated_sync_put_back=restored.automated_sync_put_back,
                 detail=(
                     f"had its autoscaler floor put back to "
                     f"[{descriptor.was_min_replicas}], and its automated sync "
@@ -836,6 +846,9 @@ class PinAutoscalerKind:
                 f"was only partly put back - {still_changed} "
                 f"remains as Argus left it"
             ),
+            # Which half remains, which the outcome cannot say: a change whose
+            # own half failed with its sync resumed has no sync of Argus's stopped.
+            automated_sync_put_back=restored.automated_sync_put_back
         )
 
     def put_back_as(self, descriptor: AutoscalerUndo, /) -> str:
@@ -979,6 +992,7 @@ class PinToAcceleratorKind:
             return UndoAttempt(
                 subject=application,
                 outcome=Undone.RESTORED,
+                automated_sync_put_back=restored.automated_sync_put_back,
                 detail=(
                     f"had its pods let off [{descriptor.pinned_to}], and its "
                     f"automated sync restored"
@@ -1001,6 +1015,9 @@ class PinToAcceleratorKind:
                 f"was only partly put back - {still_changed} "
                 f"remains as Argus left it"
             ),
+            # Which half remains, which the outcome cannot say: a change whose
+            # own half failed with its sync resumed has no sync of Argus's stopped.
+            automated_sync_put_back=restored.automated_sync_put_back
         )
 
     def put_back_as(self, descriptor: AcceleratorPinUndo, /) -> str:
@@ -1186,9 +1203,13 @@ def arrival_of(action: Action, *, rollouts: RolloutReader) -> HasArrived:
     return kind_of(action).arrival(action, rollouts)
 
 
-def _left_as_somebody_set_it(subject: str, found: str, sync_still_suspended: bool) -> UndoAttempt:
+def _left_as_somebody_set_it(subject: str,
+                             found: str,
+                             sync_still_suspended: bool) -> UndoAttempt:
     """A change to a deployment the write tier found somebody else's since, and
-    so wrote nothing to - said in the tier's own words for what it found.
+    so wrote nothing to - said in the tier's own words for what it found, and
+    carrying whether the sync is back as every put-back of these kinds does:
+    left standing, it is not; left as found, it is (`UndoAttempt`).
 
     Two answers, decided on what the tier read rather than on what Argus found
     before it acted. Where the reconciliation Argus suspended still stands,
@@ -1209,7 +1230,8 @@ def _left_as_somebody_set_it(subject: str, found: str, sync_still_suspended: boo
                 f"was somebody else's since ({found}), so it was left as they set it "
                 f"- and the reconciliation Argus suspended still stands, because "
                 f"resuming it would overwrite them"
-            )
+            ),
+            automated_sync_put_back=False
         )
 
     logger.info("change left as found", extra={"subject": subject, "found": found})
@@ -1217,7 +1239,8 @@ def _left_as_somebody_set_it(subject: str, found: str, sync_still_suspended: boo
     return UndoAttempt(
         subject=subject,
         outcome=Undone.LEFT_AS_FOUND,
-        detail=f"was left as found: {found}"
+        detail=f"was left as found: {found}",
+        automated_sync_put_back=True
     )
 
 

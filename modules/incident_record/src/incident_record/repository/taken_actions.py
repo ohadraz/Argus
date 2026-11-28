@@ -37,7 +37,8 @@ _ASKINGS_FOR_AN_OPEN_SUBJECT: Final = 2
 _COLUMNS: Final = (
     "id, incident_id, hypothesis_id, type, subject, has_a_way_back, "
     "undo_descriptor, undo_shape, outcome, taken_at, progress, left_behind_known, "
-    "undone, plan, plan_shape, since, performed_at, put_back_because"
+    "undone, automated_sync_put_back, plan, plan_shape, since, performed_at, "
+    "put_back_because"
 )
 
 
@@ -233,7 +234,8 @@ def complete(
     performed: bool = True,
     *,
     left_behind_known: bool,
-    undone: Undone | None = None
+    undone: Undone | None = None,
+    automated_sync_put_back: bool | None = None
 ) -> None:
     """Records what came of an action already claimed (spec §11.1, §13), and
     whether it was performed at all.
@@ -268,6 +270,12 @@ def complete(
     to the cleanup after the incident - the safe reading for a caller that
     forgot to say.
 
+    And whether that putting back left the sync Argus suspended as Argus found
+    it, as the write tier answered: a put-back with two halves is not
+    established where either fails, and `undone` cannot say which remains.
+    `None` where nobody answered - the reading that leaves a sync Argus stopped
+    said stopped.
+
     Committing is the caller's. The event reporting this verdict is written on
     the same connection, and a commit here would put the verdict beyond reach
     of the account before the account existed.
@@ -279,7 +287,8 @@ def complete(
             "                  progress = CASE WHEN progress = %(owed)s "
             "                                   AND %(undone)s::text IS NULL "
             "                                  THEN %(owed)s ELSE %(progress)s END, "
-            "                  left_behind_known = %(known)s, undone = %(undone)s "
+            "                  left_behind_known = %(known)s, undone = %(undone)s, "
+            "                  automated_sync_put_back = %(sync_put_back)s "
             " WHERE incident_id = %(incident)s AND hypothesis_id = %(hypothesis)s",
             {
                 "outcome": outcome,
@@ -290,6 +299,7 @@ def complete(
                              else ActionProgress.NOT_PERFORMED),
                 "known": left_behind_known,
                 "undone": undone,
+                "sync_put_back": automated_sync_put_back,
                 "incident": incident_id,
                 "hypothesis": hypothesis_id
             }
@@ -413,7 +423,11 @@ def owe_a_put_back(conn: psycopg.Connection,
         )
 
 
-def record_undone(conn: psycopg.Connection, action_id: str, undone: Undone) -> None:
+def record_undone(conn: psycopg.Connection,
+                  action_id: str,
+                  undone: Undone,
+                  *,
+                  automated_sync_put_back: bool | None = None) -> None:
     """What the cleanup after an incident did with one change, on the change's
     own row.
 
@@ -423,11 +437,26 @@ def record_undone(conn: psycopg.Connection, action_id: str, undone: Undone) -> N
     changes back, so a change a withdrawal put back reads as put back rather
     than as the step that stopped.
 
+    Whether the sync came back is kept beside it, as `complete` keeps it - but
+    a known return is never taken back. No put-back suspends sync, so a later
+    `False` says only that that pass resumed nothing - a sync an earlier pass
+    resumed, still coming back, or a read that failed - and `None` (a put-back
+    that raised) says nothing. So `True` stays whatever follows, a later `True`
+    replaces a `False` - a pass that resumed what an earlier one could not -
+    `False` outlives a later `None`, and any answer fills a row that had none.
+
     By the row's own id, since the cleanup reads the rows it puts back and
     holds each one. Committing is the caller's.
     """
     with conn.cursor() as cursor:
-        cursor.execute("UPDATE action SET undone = %s WHERE id = %s", (undone, action_id))
+        cursor.execute(
+            "UPDATE action SET undone = %s, "
+            # `false` orders below `true` and a NULL is passed over.
+            "                  automated_sync_put_back = "
+            "                      GREATEST(automated_sync_put_back, %s::boolean) "
+            " WHERE id = %s",
+            (undone, automated_sync_put_back, action_id)
+        )
 
 
 def no_longer_open(conn: psycopg.Connection,
@@ -501,6 +530,7 @@ def record(
     *,
     left_behind_known: bool,
     undone: Undone | None = None,
+    automated_sync_put_back: bool | None = None,
     planned: Planned[Any] | None = None
 ) -> None:
     """One action, claimed and completed in a single step.
@@ -526,7 +556,8 @@ def record(
         )
 
     complete(conn, incident_id, hypothesis_id, outcome, undo_descriptor, performed,
-             left_behind_known=left_behind_known, undone=undone)
+             left_behind_known=left_behind_known, undone=undone,
+             automated_sync_put_back=automated_sync_put_back)
 
 
 def get_action_for_hypothesis(conn: psycopg.Connection,

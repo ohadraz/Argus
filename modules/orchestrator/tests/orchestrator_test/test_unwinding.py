@@ -21,7 +21,7 @@ somebody's to go and look at.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Sequence
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from datetime import UTC, datetime
 from typing import cast
@@ -484,6 +484,66 @@ def test_what_the_unwind_did_with_a_change_is_kept_on_its_row(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("sync_put_back", [True, False, None],
+                         ids=["its-sync-came-back", "its-sync-did-not", "nobody-can-say"])
+def test_whether_the_unwind_restored_a_change_s_sync_is_kept_on_its_row(
+    sync_put_back: bool | None, undo: MagicMock
+) -> None:
+    # A put-back with two halves is not established where either fails, and
+    # the outcome alone cannot say which remains: kept beside it, so the
+    # account does not name a stopped sync the unwind resumed.
+    kept: list[tuple[str, Undone, bool | None]] = []
+    undo.return_value = UndoAttempt(subject=_DONT_CARE_FLAG, outcome=Undone.NOT_ESTABLISHED,
+                                    detail="dont care", automated_sync_put_back=sync_put_back)
+
+    Scenario() \
+        .given(
+            a_change := _a_taken_action_carrying(_an_undo_descriptor_for(_DONT_CARE_FLAG))
+        ) \
+        .when(
+            lambda: unwind_incident(
+                _DONT_CARE_INCIDENT_ID,
+                taken_actions_of=_reading([a_change]),
+                undo=undo,
+                acting_for=_acting_for_whichever,
+                record_undone=_keeping_whether_its_sync_came_back(kept)
+            )
+        ) \
+        .then(
+            _what_was_kept_is(kept, [(a_change.id, Undone.NOT_ESTABLISHED, sync_put_back)])
+        )
+
+
+@pytest.mark.unit
+def test_a_row_no_undo_was_asked_of_is_kept_saying_nothing_of_its_sync() -> None:
+    # Nothing was put back, so nothing answered about a sync.
+    kept: list[tuple[str, Undone, bool | None]] = []
+
+    Scenario() \
+        .given(
+            rows_no_undo_is_asked_of := [
+                *_an_incident_that_discarded_cached_figures("io-shop"),
+                _a_taken_action_carrying(None)
+            ]
+        ) \
+        .when(
+            lambda: unwind_incident(
+                _DONT_CARE_INCIDENT_ID,
+                taken_actions_of=_reading(rows_no_undo_is_asked_of),
+                undo=_an_undo_never_asked(),
+                acting_for=_acting_for_whichever,
+                record_undone=_keeping_whether_its_sync_came_back(kept)
+            )
+        ) \
+        .then(
+            _what_was_kept_is(kept, [
+                (rows_no_undo_is_asked_of[0].id, Undone.NO_UNDO_WAS_OWED, None),
+                (rows_no_undo_is_asked_of[1].id, Undone.NOT_ESTABLISHED, None)
+            ])
+        )
+
+
+@pytest.mark.unit
 def test_a_change_owing_nothing_back_is_kept_as_owing_nothing() -> None:
     kept: list[tuple[str, Undone]] = []
 
@@ -667,14 +727,16 @@ def _happened_in_order(happened: list[str], expected: list[str]) -> Assertion[No
     return assertion
 
 
-def _kept_nowhere(dont_care_action_id: str, dont_care_said: ChangeUndone) -> None:
+def _kept_nowhere(dont_care_action_id: str, dont_care_said: ChangeUndone,
+                  dont_care_sync_put_back: bool | None) -> None:
     """Where a case about neither the row nor the line keeps what the unwind
     did."""
 
 
 def _saying_into(published: list[IncidentEvent]) -> unwinding.RecordUndone:
     """Where a case about what is said keeps the line, and nothing else."""
-    def record_undone(dont_care_action_id: str, said: ChangeUndone) -> None:
+    def record_undone(dont_care_action_id: str, said: ChangeUndone,
+                      dont_care_sync_put_back: bool | None) -> None:
         published.append(said)
 
     return record_undone
@@ -682,8 +744,21 @@ def _saying_into(published: list[IncidentEvent]) -> unwinding.RecordUndone:
 
 def _keeping(kept: list[tuple[str, Undone]]) -> unwinding.RecordUndone:
     """Where a case about the row keeps which row, and what it was kept as."""
-    def record_undone(action_id: str, said: ChangeUndone) -> None:
+    def record_undone(action_id: str, said: ChangeUndone,
+                      dont_care_sync_put_back: bool | None) -> None:
         kept.append((action_id, said.outcome))
+
+    return record_undone
+
+
+def _keeping_whether_its_sync_came_back(
+    kept: list[tuple[str, Undone, bool | None]]
+) -> unwinding.RecordUndone:
+    """Where a case about the row keeps which row, what it was kept as, and
+    whether the sync Argus suspended was said to have come back."""
+    def record_undone(action_id: str, said: ChangeUndone,
+                      automated_sync_put_back: bool | None) -> None:
+        kept.append((action_id, said.outcome, automated_sync_put_back))
 
     return record_undone
 
@@ -697,8 +772,8 @@ def _an_undo_never_asked() -> unwinding.UndoChange:
     return undo
 
 
-def _what_was_kept_is(kept: list[tuple[str, Undone]],
-                      expected: list[tuple[str, Undone]]) -> Assertion[None]:
+def _what_was_kept_is(kept: Sequence[tuple[object, ...]],
+                      expected: Sequence[tuple[object, ...]]) -> Assertion[None]:
     def assertion(_unwound: None) -> bool:
         if kept != expected:
             raise AssertionError(

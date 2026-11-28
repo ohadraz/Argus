@@ -229,6 +229,14 @@ CREATE TABLE IF NOT EXISTS action (
     -- cleanup puts back NULL and `not-established`, passes over the rest, and
     -- writes here what it did.
     undone TEXT,
+    -- Whether that putting back left the reconciliation Argus suspended as
+    -- Argus found it, true also where sync was off and left off. Beside
+    -- `undone` because `not-established` is either half of a put-back failing,
+    -- and only this says which remains. NULL where nobody answered: nothing
+    -- put back, a kind with no sync, an undo that raised - read as a sync Argus
+    -- stopped still stopped. A true is never taken back: no put-back suspends
+    -- sync, so a later false says only that that pass resumed nothing.
+    automated_sync_put_back BOOLEAN,
     -- When the claim was written, on the walk's clock: no default, because the
     -- database's is a clock nothing else in the incident is dated by. Before
     -- the action, not at it - a reader dating the action reads its

@@ -939,10 +939,15 @@ def _whose_sync_it_left_stopped(taken_action: TakenAction) -> str | None:
     anything. Read off what putting it back did, never off the verdict: a
     refuted change whose put-back never ran - the incident was ended first -
     still has sync stopped, and so does one left standing or whose put-back
-    could not be established.
+    could not be established - unless what put it back said the sync came back:
+    a put-back not established is either half failing, and where the change's
+    own half failed with its sync resumed, nothing of Argus's stops the sync.
+    Where nobody said, it is read as stopped, the reading that sends somebody to
+    look.
     """
-    if not taken_action.has_a_way_back or taken_action.undone in (Undone.RESTORED,
-                                                                  Undone.LEFT_AS_FOUND):
+    if (not taken_action.has_a_way_back
+            or taken_action.undone in (Undone.RESTORED, Undone.LEFT_AS_FOUND)
+            or taken_action.automated_sync_put_back is True):
         return None
 
     match taken_action.undo_descriptor:

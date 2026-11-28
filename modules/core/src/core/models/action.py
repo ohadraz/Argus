@@ -1145,3 +1145,10 @@ class Outcome(BaseModel):
     # attempted.
     undone: Undone | None = None
     undone_detail: str | None = None
+    # Whether that putting back left the reconciliation Argus suspended as Argus
+    # found it - true also where sync was off and left off. Kept on the row
+    # beside `undone`, because a put-back with two halves is not established
+    # where either fails and the outcome cannot say which half remains. `None`
+    # where no undo was attempted, for a kind with no sync, and for an undo that
+    # raised.
+    automated_sync_put_back: bool | None = None

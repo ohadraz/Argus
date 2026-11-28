@@ -127,6 +127,12 @@ class TakenAction(BaseModel):
     # undo. The cleanup puts back `None` and not established - a change that
     # may still be out there - passes over the rest, and keeps here what it did.
     undone: Undone | None = None
+    # Whether that putting back left the sync Argus suspended as Argus found
+    # it, true also where sync was off and left off.
+    # What tells the two halves of a put-back not established apart. `None`
+    # where nobody answered: nothing put back, a kind with no sync, an undo that
+    # raised - read as a sync Argus stopped still stopped.
+    automated_sync_put_back: bool | None = None
     # The change the claim was taken to make, worked out before it, in the shape
     # that puts it back - what the write compares the estate with, and what a
     # resumed walk asks the estate about - and when the platform said what it
