@@ -83,17 +83,25 @@ def test_a_comparison_reads_the_same_from_the_double_as_from_github() -> None:
 @pytest.mark.contract
 @needs_a_real_repository
 @pytest.mark.parametrize("pair", EVERY_PAIR, ids=lambda pair: pair.after[:7])
+@pytest.mark.parametrize("backwards", [
+    pytest.param(False, id="before-to-after"),
+    pytest.param(True, id="after-to-before")
+])
 def test_every_staged_deployment_reads_exactly_as_github_compares_it(
-    pair: DeploymentPair
+    pair: DeploymentPair, backwards: bool
 ) -> None:
     # Exactly, unlike the case above: the same two commits, so the same files
-    # in the same order with the same statuses and patches, and the same
-    # standing of one commit to the other. Anything less is a replay reading a
-    # diff its recording never read.
+    # in the same order with the same statuses and patches, the same standing
+    # of one commit to the other and the same commit their lines part at.
+    # Anything less is a replay reading a diff its recording never read. Both
+    # ways round, since a deploy back to the earlier commit is the comparison
+    # of a head behind its base - which lists nothing since the merge base.
+    base, head = (pair.after, pair.before) if backwards else (pair.before, pair.after)
+
     Scenario() \
         .given(calling(lambda: _the_double_holds(pair))) \
-        .when(lambda: _github_compares(pair.before, pair.after)) \
-        .then(_it_is_what_the_double_compares(pair))
+        .when(lambda: _github_compares(base, head)) \
+        .then(_it_is_what_the_double_compares(base, head))
 
 
 @pytest.mark.contract
@@ -143,16 +151,16 @@ def _github_compares(base: str, head: str) -> dict[str, Any]:
     )
 
 
-def _it_is_what_the_double_compares(pair: DeploymentPair) -> Assertion[dict[str, Any]]:
+def _it_is_what_the_double_compares(base: str, head: str) -> Assertion[dict[str, Any]]:
     def assertion(from_github: dict[str, Any]) -> bool:
         real = _as_compared(from_github)
         stood_in = _as_compared(_compared_at(
-            DEFAULT_BASE_URL, "some-owner/some-repository", pair.before, pair.after, {}
+            DEFAULT_BASE_URL, "some-owner/some-repository", base, head, {}
         ))
 
         if real != stood_in:
             raise AssertionError(
-                f"Expected the double to compare [{pair.before[:7]}...{pair.after[:7]}] "
+                f"Expected the double to compare [{base[:7]}...{head[:7]}] "
                 f"exactly as GitHub does, {real}, and it compared {stood_in}."
             )
 
@@ -177,10 +185,14 @@ def _compared_at(api_url: str,
     return compared
 
 
-def _as_compared(compared: dict[str, Any]) -> tuple[str, list[tuple[str, str, str | None]]]:
-    """The standing of the two commits, and each file as a reader is handed it."""
+def _as_compared(
+    compared: dict[str, Any]
+) -> tuple[str, str | None, list[tuple[str, str, str | None]]]:
+    """The standing of the two commits, where their lines part, and each file
+    as a reader is handed it."""
     return (
         str(compared["status"]),
+        (compared.get("merge_base_commit") or {}).get("sha"),
         [(each["filename"], each["status"], each.get("patch")) for each in compared["files"]]
     )
 

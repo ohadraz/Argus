@@ -12,12 +12,19 @@ dependencies = [
 [dependency-groups]
 dev = [
     "argus-argus_testkit",
+    "argus-code_host_double",
+    # The GitHub the port's suite asks the GitHub adapter of, served in-process
+    # through Starlette's `TestClient` - which is what `httpx` is here for.
+    "argus-github_double",
+    "httpx",
 ]
 
 
 [tool.uv.sources]
 argus-core = { workspace = true }
 argus-argus_testkit = { workspace = true }
+argus-code_host_double = { workspace = true }
+argus-github_double = { workspace = true }
 
 
 [build-system]

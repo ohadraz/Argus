@@ -25,6 +25,7 @@ dev = [
     "types-psutil",
     "argus-argus_testkit",
     "argus-anthropic_double",
+    "argus-code_host_double",
     "argus-deployment_platform_double",
     "argus-flag_provider_double",
     "import-linter>=2.15",
@@ -38,6 +39,7 @@ dev = [
 [tool.uv.sources]
 argus-argus_testkit = { workspace = true }
 argus-anthropic_double = { workspace = true }
+argus-code_host_double = { workspace = true }
 argus-deployment_platform_double = { workspace = true }
 argus-flag_provider_double = { workspace = true }
 

@@ -16,6 +16,7 @@ members = [
     "argus-cache-store",
     "argus-chat-platform",
     "argus-code-host",
+    "argus-code-host-double",
     "argus-codefix-agent",
     "argus-communication",
     "argus-core",
@@ -427,6 +428,9 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "argus-argus-testkit" },
+    { name = "argus-code-host-double" },
+    { name = "argus-github-double" },
+    { name = "httpx" },
 ]
 
 [package.metadata]
@@ -436,7 +440,27 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
+dev = [
+    { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
+    { name = "argus-code-host-double", editable = "test_support/code_host_double" },
+    { name = "argus-github-double", editable = "test_support/github_double" },
+    { name = "httpx" },
+]
+
+[[package]]
+name = "argus-code-host-double"
+version = "0.1.0"
+source = { editable = "test_support/code_host_double" }
+dependencies = [
+    { name = "argus-code-host" },
+    { name = "argus-core" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "argus-code-host", editable = "modules/code_host" },
+    { name = "argus-core", editable = "modules/core" },
+]
 
 [[package]]
 name = "argus-codefix-agent"
@@ -1581,6 +1605,7 @@ source = { virtual = "." }
 dev = [
     { name = "argus-anthropic-double" },
     { name = "argus-argus-testkit" },
+    { name = "argus-code-host-double" },
     { name = "argus-deployment-platform-double" },
     { name = "argus-flag-provider-double" },
     { name = "grimp" },
@@ -1605,6 +1630,7 @@ dev = [
 dev = [
     { name = "argus-anthropic-double", editable = "test_support/anthropic_double" },
     { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
+    { name = "argus-code-host-double", editable = "test_support/code_host_double" },
     { name = "argus-deployment-platform-double", editable = "test_support/deployment_platform_double" },
     { name = "argus-flag-provider-double", editable = "test_support/flag_provider_double" },
     { name = "grimp" },

@@ -227,6 +227,29 @@ class Repository:
 
         return DIVERGED_STATUS
 
+    def merge_base_of(self, base: str, head: str) -> str | None:
+        """Where the two commits' lines of history part, as git and GitHub find
+        it: the common ancestor no other common ancestor has in its history -
+        or `None` for two commits with no common ancestor.
+
+        Every commit's own history includes it, so for a head ahead of its base
+        this is the base, for one behind it the head, and for the same commit
+        that commit. Where more than one qualifies - two lines merged into each
+        other - the first by sha, so the answer never turns on call order.
+        """
+        was = self._refs.get(base, base)
+        now = self._refs.get(head, head)
+        common = {
+            commit for commit in self._history_of(was) & self._history_of(now)
+            if commit in self._commits
+        }
+        nearest = sorted(
+            commit for commit in common
+            if not any(commit in self._history_of(other) for other in common - {commit})
+        )
+
+        return nearest[0] if nearest else None
+
     def _history_of(self, commit: str) -> set[str]:
         """The commit and every commit it reaches back through."""
         seen: set[str] = set()
@@ -294,7 +317,15 @@ class Repository:
         return self._trees[self._commits[commit]]
 
     def changed_between(self, base: str, head: str) -> list[ChangedPath]:
-        """Every path that differs between two refs - arrived, gone or edited.
+        """Every path `head` changed since the two refs' lines of history
+        parted - arrived, gone or edited - as GitHub lists a comparison.
+
+        From the merge base rather than from `base`, as GitHub lists one: a
+        head behind its base changed nothing since then, and a diverged one
+        only what its own line did. Two commits with no common ancestor are
+        compared tree to tree: no history GitHub holds is staged for that
+        pair, and the stacks stage one (a revision never merged, against
+        `main`) whose answer no case may lose.
 
         Content compared rather than tree shas, because a differing tree says
         only that something moved and the caller's whole question is what. Both
@@ -305,8 +336,9 @@ class Repository:
         told about a file that went as much as about one that arrived -
         otherwise it answers for years with code the repository no longer has.
         """
-        was = self.files_at(base)
+        self.files_at(base)
         now = self.files_at(head)
+        was = self.files_at(self.merge_base_of(base, head) or base)
 
         return [
             ChangedPath(
@@ -337,9 +369,15 @@ class Repository:
         real API's behaviour, and worth copying precisely because it is the
         behaviour that made a live run expensive. A double that restarted at one
         would hide a suite proposing the same fix five times.
+
+        A head or a base that is no branch is refused as GitHub refuses it: the
+        request is understood and invalid, not aimed at something missing.
         """
         if head not in self._refs:
-            raise NoSuchObject(f"no branch [{head}] to propose from")
+            raise NotABranch(f"no branch [{head}] to propose from")
+
+        if base not in self._refs:
+            raise NotABranch(f"no branch [{base}] to propose onto")
 
         proposal = Proposal(
             number=len(self.proposals) + 1,
@@ -381,6 +419,11 @@ class NoSuchObject(Exception):
 class BranchAlreadyExists(Exception):
     """A branch was created twice - answered as a 422, the status the write
     tier's own test seeds to check that a refused branch stops a proposal."""
+
+
+class NotABranch(Exception):
+    """A pull request was asked for from a head, or onto a base, that is no
+    branch - answered as a 422, GitHub's status for it."""
 
 
 def _sha_of(kind: str, of: object) -> str:

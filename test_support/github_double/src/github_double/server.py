@@ -32,6 +32,7 @@ from fastapi.responses import JSONResponse
 from github_double.repository import (
     BranchAlreadyExists,
     NoSuchObject,
+    NotABranch,
     Proposal,
     repository,
 )
@@ -75,6 +76,7 @@ _FILES_FIELD: Final = "files"
 _FILENAME_FIELD: Final = "filename"
 _STATUS_FIELD: Final = "status"
 _PATCH_FIELD: Final = "patch"
+_MERGE_BASE_FIELD: Final = "merge_base_commit"
 
 # The host a proposal's address points at, which does not resolve. A double
 # answering with a reachable address would put a live link in a postmortem
@@ -89,6 +91,8 @@ _HEADS_PREFIX: Final = "heads/"
 
 _FILE_ENTRY_TYPE: Final = "blob"
 _FILE_MODE: Final = "100644"
+_DIRECTORY_ENTRY_TYPE: Final = "tree"
+_DIRECTORY_MODE: Final = "040000"
 _BASE64_ENCODING: Final = "base64"
 
 _REFS_PREFIX: Final = "refs/heads/"
@@ -116,11 +120,21 @@ def list_the_tree(owner: str, repo: str, ref: str) -> JSONResponse:
     read tier refuses that answer rather than reporting a partial repository -
     a behaviour worth having and not worth faking, since a fixture repository
     cannot reach the size that triggers it.
+
+    Every directory is named as an entry of its own, as GitHub's recursive
+    listing names one: a reader that took every entry for a file would be
+    told so here as it would be there.
     """
     try:
         held = repository.files_at(ref)
     except NoSuchObject as absent:
         return _not_found(absent)
+
+    directories = {
+        "/".join(parts[:depth])
+        for parts in (path.split("/") for path in held)
+        for depth in range(1, len(parts))
+    }
 
     return JSONResponse({
         _SHA_FIELD: ref,
@@ -128,10 +142,10 @@ def list_the_tree(owner: str, repo: str, ref: str) -> JSONResponse:
         _TREE_FIELD: [
             {
                 _PATH_FIELD: path,
-                _TYPE_FIELD: _FILE_ENTRY_TYPE,
-                _MODE_FIELD: _FILE_MODE
+                _TYPE_FIELD: _DIRECTORY_ENTRY_TYPE if path in directories else _FILE_ENTRY_TYPE,
+                _MODE_FIELD: _DIRECTORY_MODE if path in directories else _FILE_MODE
             }
-            for path in sorted(held)
+            for path in sorted({*held, *directories})
         ]
     })
 
@@ -241,6 +255,10 @@ def compare_two_commits(owner: str, repo: str, basehead: str) -> JSONResponse:
     branch it reads does not hold the revision that ran. Read from the history
     the case staged, never from the trees: two commits holding the same files
     can still be on different lines.
+
+    The files are what `head` changed since the two lines parted, and that
+    commit is named as `merge_base_commit`, as GitHub names it - absent for two
+    commits with no common ancestor, which are compared tree to tree.
     """
     base, separator, head = basehead.partition(_BETWEEN)
 
@@ -254,8 +272,11 @@ def compare_two_commits(owner: str, repo: str, basehead: str) -> JSONResponse:
     except NoSuchObject as absent:
         return _not_found(absent)
 
+    merge_base = repository.merge_base_of(base, head)
+
     return JSONResponse({
         _STATUS_FIELD: repository.relation_between(base, head),
+        **({_MERGE_BASE_FIELD: {_SHA_FIELD: merge_base}} if merge_base else {}),
         _FILES_FIELD: [
             {
                 _FILENAME_FIELD: each.path,
@@ -415,8 +436,8 @@ async def open_the_pull_request(owner: str, repo: str, request: Request) -> JSON
             base=str(asked.get(_BASE_FIELD, "")),
             draft=bool(asked.get(_DRAFT_FIELD, False))
         )
-    except NoSuchObject as absent:
-        return _not_found(absent)
+    except NotABranch as invalid:
+        return _refused(invalid)
 
     return JSONResponse(_as_pull(owner, repo, proposal), status_code=_CREATED_STATUS)
 
