@@ -31,6 +31,7 @@ dev = [
     "argus-deployment_platform_double",
     "argus-flag_provider_double",
     "argus-metrics_source_double",
+    "argus-push_source_double",
     "import-linter>=2.15",
     # The import graph with third parties in it, which `scripts/guard_layering.py`
     # builds for the one rule import-linter cannot hold. It arrives with
@@ -48,6 +49,7 @@ argus-code_host_double = { workspace = true }
 argus-deployment_platform_double = { workspace = true }
 argus-flag_provider_double = { workspace = true }
 argus-metrics_source_double = { workspace = true }
+argus-push_source_double = { workspace = true }
 
 
 # uv

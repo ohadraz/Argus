@@ -2,7 +2,7 @@
 
 Which pushes are news is decided in `pushes`' own suite, and whether a delivery
 is GitHub's in the push source's. What is left here is the door: what the
-source is handed, and where the work after it runs.
+source is handed, where the work after it runs, and what the sender is told.
 
 The source is stood in through the app's own dependency seam: it is somebody
 else's signature scheme, decided in the adapter's suite.
@@ -17,7 +17,7 @@ from unittest.mock import create_autospec
 import pytest
 from argus_testkit import Scenario, all_of
 from fastapi.testclient import TestClient
-from push_source import Pushed, PushSource
+from push_source import Pushed, PushSource, PushUnreadable
 from web_app.app import push_source_of
 
 from web_app_test.framework.application import app
@@ -52,5 +52,24 @@ def test_the_source_is_handed_the_bytes_that_arrived_off_the_event_loop() -> Non
                     the_response_was(HttpStatus.ACCEPTED),
                     handed_off_the_event_loop(asked, some_body)
                 ))
+    finally:
+        app.dependency_overrides.pop(push_source_of, None)
+
+
+@pytest.mark.component
+def test_a_delivery_the_source_cannot_read_is_refused_as_unprocessable() -> None:
+    # Neither accepted - a push it cannot read is news it needs - nor failed:
+    # the sender's input, refused as the alert door refuses an alert it cannot
+    # read, so the sender's log of deliveries shows whoever configured it why.
+    dont_care_body = b"dont-care"
+    source = create_autospec(PushSource, instance=True)
+    source.parse_delivery.side_effect = PushUnreadable("dont-care")
+    app.dependency_overrides[push_source_of] = lambda: source
+
+    try:
+        with TestClient(app) as client:
+            Scenario() \
+                .when(lambda: client.post(PUSH_WEBHOOK, content=dont_care_body)) \
+                .then(the_response_was(HttpStatus.UNPROCESSABLE_ENTITY))
     finally:
         app.dependency_overrides.pop(push_source_of, None)

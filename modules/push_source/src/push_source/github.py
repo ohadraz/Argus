@@ -16,10 +16,11 @@ import json
 import logging
 from collections.abc import Mapping
 from typing import Any, Final
+from urllib.parse import parse_qs
 
 from core import AdapterSettings
 
-from push_source.failures import PushUnverified
+from push_source.failures import PushUnreadable, PushUnverified
 from push_source.port import Pushed
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,14 @@ FULL_NAME_FIELD: Final = "full_name"
 # The header the delivery is signed in, and how that signature is spelled.
 SIGNATURE_HEADER: Final = "X-Hub-Signature-256"
 SIGNATURE_PREFIX: Final = "sha256="
+
+# How a webhook can be told to send its payload. GitHub offers two content
+# types: the payload as the body, or - the default of a webhook made through
+# its API - as one form field, `payload`, of a form-encoded body. The header
+# says which arrived.
+CONTENT_TYPE_HEADER: Final = "Content-Type"
+FORM_CONTENT_TYPE: Final = "application/x-www-form-urlencoded"
+PAYLOAD_FIELD: Final = "payload"
 
 
 class GitHubPushSettings(AdapterSettings):
@@ -71,18 +80,45 @@ class GitHubPushes:
         """The ref a verified delivery moved, and the commit it moved to.
 
         `None` for a verified delivery naming no commit: GitHub's ping, sent
-        when the webhook is created, is one, and is news of nothing."""
+        when the webhook is created, is one, and is news of nothing.
+
+        Read as either content type GitHub sends. A verified delivery that is
+        still no push - no text, no JSON, no object, a form with no payload,
+        a repository that is no object - is `PushUnreadable`, saying what was
+        wrong as the error that found it."""
         _verified(body, _the_header(headers, SIGNATURE_HEADER), self._webhook_secret)
 
-        push = json.loads(body)
-        after = push.get(AFTER_FIELD)
+        # `ValueError` for bytes that are no text or no JSON, `LookupError` for
+        # a form with no payload, `AttributeError` for JSON that is no object
+        # where one is read.
+        try:
+            return _the_push_in(json.loads(
+                _the_payload_in(body, _the_header(headers, CONTENT_TYPE_HEADER))
+            ))
+        except (ValueError, LookupError, AttributeError) as unreadable:
+            raise PushUnreadable(repr(unreadable)) from unreadable
 
-        if after is None:
-            return None
 
-        return Pushed(repository=_the_repository_of(push),
-                      ref=str(push.get(REF_FIELD, "")),
-                      after=str(after))
+def _the_payload_in(body: bytes, content_type: str | None) -> str | bytes:
+    """The JSON a delivery carries: the form field GitHub puts it in where the
+    delivery is a form, and otherwise the body itself."""
+    media_type = (content_type or "").partition(";")[0].strip().lower()
+
+    if media_type == FORM_CONTENT_TYPE:
+        return parse_qs(body.decode(), strict_parsing=True)[PAYLOAD_FIELD][0]
+
+    return body
+
+
+def _the_push_in(push: Any) -> Pushed | None:
+    after = push.get(AFTER_FIELD)
+
+    if after is None:
+        return None
+
+    return Pushed(repository=_the_repository_of(push),
+                  ref=str(push.get(REF_FIELD, "")),
+                  after=str(after))
 
 
 def _verified(body: bytes, signature: str | None, secret: str) -> None:

@@ -14,12 +14,14 @@ dependencies = [
 [dependency-groups]
 dev = [
     "argus-argus_testkit",
+    "argus-push_source_double",
 ]
 
 
 [tool.uv.sources]
 argus-core = { workspace = true }
 argus-argus_testkit = { workspace = true }
+argus-push_source_double = { workspace = true }
 
 
 [build-system]

@@ -80,14 +80,15 @@ def receive_push(body: bytes,
     """Records the commit a verified push moved the deployed branch to.
 
     Answers the commit it recorded, or `None` for a push there was nothing to
-    record about - another branch, a tag, another repository, a delivery that
-    is no push, or a deployment that keeps no index at all. All are accepted
-    deliveries: the host is told the delivery was received either way, because
-    a webhook that answers an error for news it simply does not need is a
-    webhook somebody eventually disables.
+    record about - another branch, a tag, another repository, a delivery
+    naming no commit, or a deployment that keeps no index at all. All are
+    accepted deliveries: the host is told the delivery was received either way,
+    because a webhook that answers an error for news it simply does not need is
+    a webhook somebody eventually disables.
 
-    Raises `PushUnverified` when the source cannot vouch for the delivery.
-    Asked first, and over the raw body and its headers, which is why this
+    Raises `PushUnverified` when the source cannot vouch for the delivery, and
+    `PushUnreadable` when it vouches for one it cannot read - news it does
+    need. Asked first, and over the raw body and its headers, which is why this
     takes `bytes` rather than a parsed payload: re-serializing a document to
     verify it is verifying a different document.
     """

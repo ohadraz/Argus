@@ -48,7 +48,7 @@ from postmortem_rendering import (
     synopsis_as_pdf,
     the_person_who_resolved,
 )
-from push_source import PushSource, PushUnverified
+from push_source import PushSource, PushUnreadable, PushUnverified
 from repository_index.records import record_pushed
 
 from web_app import reads
@@ -404,7 +404,9 @@ def receive_a_push(request: Request,
 
     `202` for a push that was recorded and for one there was nothing to record
     about alike. Both are deliveries that arrived intact, and a webhook that
-    answers an error for news it does not need is one somebody disables."""
+    answers an error for news it does not need is one somebody disables. One
+    that cannot be read is refused with a `422`, as an alert is: it is news
+    this does need, and the sender is told."""
     try:
         recorded = receive_push(
             body,
@@ -415,6 +417,14 @@ def receive_a_push(request: Request,
         )
     except PushUnverified as refused:
         raise HTTPException(status_code=401, detail=str(refused)) from refused
+    except PushUnreadable as unreadable:
+        # The sender's input rather than a fault here, as an alert's is: and
+        # whoever configured the webhook finds it in the sender's log of
+        # failed deliveries.
+        logger.warning("push payload rejected", exc_info=True)
+        raise HTTPException(
+            status_code=422, detail=f"the push could not be read: {unreadable}"
+        ) from unreadable
 
     return {"recorded": recorded}
 

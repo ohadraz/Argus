@@ -36,7 +36,8 @@ class PushSource(Protocol):
 
         Verified over the bytes that arrived before any of them is read:
         raises `PushUnverified` for a delivery the sender did not sign, or did
-        not sign as it arrived. `None` for one that is verified and is no push -
-        the host checking the address, or a delivery naming no commit.
+        not sign as it arrived. `None` for one that is verified and names no
+        commit - the host checking the address. Raises `PushUnreadable` for
+        one that is verified and is not in the sender's shape.
         """
         ...

@@ -11,11 +11,12 @@ wired, and everything else is handed it typed as the port.
 
 from __future__ import annotations
 
-from push_source.failures import PushUnverified
+from push_source.failures import PushUnreadable, PushUnverified
 from push_source.port import Pushed, PushSource
 
 __all__ = [
     "PushSource",
+    "PushUnreadable",
     "PushUnverified",
     "Pushed"
 ]

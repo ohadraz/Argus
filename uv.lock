@@ -51,6 +51,7 @@ members = [
     "argus-postmortem-rendering",
     "argus-postmortem-writing",
     "argus-push-source",
+    "argus-push-source-double",
     "argus-read-mcp-client",
     "argus-read-mcp-server",
     "argus-repository-index",
@@ -1342,13 +1343,28 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "argus-argus-testkit" },
+    { name = "argus-push-source-double" },
 ]
 
 [package.metadata]
 requires-dist = [{ name = "argus-core", editable = "modules/core" }]
 
 [package.metadata.requires-dev]
-dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
+dev = [
+    { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
+    { name = "argus-push-source-double", editable = "test_support/push_source_double" },
+]
+
+[[package]]
+name = "argus-push-source-double"
+version = "0.1.0"
+source = { editable = "test_support/push_source_double" }
+dependencies = [
+    { name = "argus-push-source" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "argus-push-source", editable = "modules/push_source" }]
 
 [[package]]
 name = "argus-read-mcp-client"
@@ -1671,6 +1687,7 @@ dev = [
     { name = "argus-deployment-platform-double" },
     { name = "argus-flag-provider-double" },
     { name = "argus-metrics-source-double" },
+    { name = "argus-push-source-double" },
     { name = "grimp" },
     { name = "httpx2" },
     { name = "import-linter" },
@@ -1699,6 +1716,7 @@ dev = [
     { name = "argus-deployment-platform-double", editable = "test_support/deployment_platform_double" },
     { name = "argus-flag-provider-double", editable = "test_support/flag_provider_double" },
     { name = "argus-metrics-source-double", editable = "test_support/metrics_source_double" },
+    { name = "argus-push-source-double", editable = "test_support/push_source_double" },
     { name = "grimp" },
     { name = "httpx2" },
     { name = "import-linter", specifier = ">=2.15" },
