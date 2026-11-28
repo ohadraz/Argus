@@ -39,6 +39,7 @@ members = [
     "argus-mcp-transport",
     "argus-message-intent",
     "argus-metrics-source",
+    "argus-metrics-source-double",
     "argus-mitigation",
     "argus-narration",
     "argus-oncall-source",
@@ -1006,6 +1007,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "argus-argus-testkit" },
+    { name = "argus-metrics-source-double" },
 ]
 
 [package.metadata]
@@ -1015,7 +1017,25 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
+dev = [
+    { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
+    { name = "argus-metrics-source-double", editable = "test_support/metrics_source_double" },
+]
+
+[[package]]
+name = "argus-metrics-source-double"
+version = "0.1.0"
+source = { editable = "test_support/metrics_source_double" }
+dependencies = [
+    { name = "argus-core" },
+    { name = "argus-metrics-source" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "argus-core", editable = "modules/core" },
+    { name = "argus-metrics-source", editable = "modules/metrics_source" },
+]
 
 [[package]]
 name = "argus-mitigation"
@@ -1629,6 +1649,7 @@ dev = [
     { name = "argus-code-host-double" },
     { name = "argus-deployment-platform-double" },
     { name = "argus-flag-provider-double" },
+    { name = "argus-metrics-source-double" },
     { name = "grimp" },
     { name = "httpx2" },
     { name = "import-linter" },
@@ -1655,6 +1676,7 @@ dev = [
     { name = "argus-code-host-double", editable = "test_support/code_host_double" },
     { name = "argus-deployment-platform-double", editable = "test_support/deployment_platform_double" },
     { name = "argus-flag-provider-double", editable = "test_support/flag_provider_double" },
+    { name = "argus-metrics-source-double", editable = "test_support/metrics_source_double" },
     { name = "grimp" },
     { name = "httpx2" },
     { name = "import-linter", specifier = ">=2.15" },

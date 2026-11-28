@@ -28,18 +28,38 @@ from argus_testkit import (
 )
 from core.models import MetricBucket, RuleLine, RuleReading, RuleSeries, SeriesQuery, Unit
 from metrics_source.minutes import Measure, MetricsUnavailable, SeriesKind
-from metrics_source.prometheus_adapter import buckets_between, what_the_series_is
+from metrics_source.prometheus_adapter import (
+    A_MINUTE_STEP,
+    DATA,
+    END,
+    ERROR,
+    ERROR_TYPE,
+    QUERY,
+    RANGE_QUERY_PATH,
+    RESULT,
+    START,
+    STEP,
+    VALUES,
+    buckets_between,
+    what_the_series_is,
+)
 from metrics_source.prometheus_settings import PrometheusSettings
 
-# Prometheus's own vocabulary, spelled out here rather than shared with the
-# module under test: the assertion is that Argus speaks *these* words, and a
-# constant imported from the speaker would agree with itself whatever it said.
-THE_RANGE_QUERY_PATH = "/api/v1/query_range"
-A_MINUTE_STEP = "60s"
+from metrics_source_test.framework import (
+    AN_ERROR,
+    BAD_DATA,
+    MATRIX,
+    METRIC,
+    RESULT_TYPE,
+    STATUS,
+    SUCCESS,
+)
 
-# What Argus asks for each field of a bucket, written out in full for the same
-# reason. These are also the expressions the demo app's stand-in answers, so a
-# change here is a change to a contract with a second repository.
+# What Argus asks for each field of a bucket, written out in full rather than
+# imported from the adapter: these are also the expressions the demo app's
+# stand-in answers, in a second repository nothing here can see, so a change
+# to the adapter's is a change to a contract with that repository - and this
+# is what says so.
 QUERY_FOR = {
     "error_rate": (
         'sum(rate(http_requests_total{code=~"5.."}[1m]))'
@@ -78,9 +98,9 @@ def test_every_question_is_put_to_prometheus_range_query_api() -> None:
                 get=_a_prometheus_answering({}, asked=asked))
         ) \
         .then(
-            _every_request_went_to(f"{SOME_BASE_URL}{THE_RANGE_QUERY_PATH}", asked),
+            _every_request_went_to(f"{SOME_BASE_URL}{RANGE_QUERY_PATH}", asked),
             _every_request_asked(step=A_MINUTE_STEP, of=asked),
-            _every_request_named(["query", "start", "end"], of=asked)
+            _every_request_named([QUERY, START, END], of=asked)
         )
 
 
@@ -316,7 +336,7 @@ def test_an_error_prometheus_reports_is_unavailability() -> None:
             attempting(lambda: buckets_between(
                 some_window_start, some_window_end,
                 settings=PrometheusSettings(prometheus_base_url=SOME_BASE_URL),
-                get=_a_prometheus_refusing_with(400, "bad_data", some_reason)))
+                get=_a_prometheus_refusing_with(400, BAD_DATA, some_reason)))
         ) \
         .then(
             all_of(
@@ -674,7 +694,7 @@ def _a_prometheus_refusing_with(status: int, error_type: str, error: str) -> Any
     def get(url: str, *, params: Mapping[str, str], **dont_care: Any) -> httpx2.Response:
         return httpx2.Response(
             status,
-            json={"status": "error", "errorType": error_type, "error": error},
+            json={STATUS: AN_ERROR, ERROR_TYPE: error_type, ERROR: error},
             request=httpx2.Request("GET", url, params=params)
         )
 
@@ -695,7 +715,7 @@ def _every_request_asked_from(start: float,
                               of: Kept[httpx2.Request]) -> Assertion[Any]:
     def assertion(_: Any) -> bool:
         windows = {
-            (float(request.url.params["start"]), float(request.url.params["end"]))
+            (float(request.url.params[START]), float(request.url.params[END]))
             for request in of.taken
         }
 
@@ -748,24 +768,24 @@ def _a_prometheus_answering(samples: Mapping[str, Sequence[tuple[float, str]]],
         if asked is not None:
             asked.take(request)
 
-        if params["query"] == refusing:
+        if params[QUERY] == refusing:
             return httpx2.Response(
                 400,
-                json={"status": "error", "errorType": "bad_data", "error": "dont-care"},
+                json={STATUS: AN_ERROR, ERROR_TYPE: BAD_DATA, ERROR: "dont-care"},
                 request=request
             )
 
-        values = [[at, value] for at, value in samples.get(params["query"], [])]
-        instances = 2 if params["query"] == in_two_series else 1
+        values = [[at, value] for at, value in samples.get(params[QUERY], [])]
+        instances = 2 if params[QUERY] == in_two_series else 1
 
         return httpx2.Response(
             200,
             json={
-                "status": "success",
-                "data": {
-                    "resultType": "matrix",
-                    "result": [
-                        {"metric": {"instance": f"dont-care-{instance}"}, "values": values}
+                STATUS: SUCCESS,
+                DATA: {
+                    RESULT_TYPE: MATRIX,
+                    RESULT: [
+                        {METRIC: {"instance": f"dont-care-{instance}"}, VALUES: values}
                         for instance in range(instances)
                     ] if values else []
                 }
@@ -800,7 +820,7 @@ def _every_request_went_to(expected: str, asked: Kept[httpx2.Request]) -> Assert
 
 def _every_request_asked(step: str, of: Kept[httpx2.Request]) -> Assertion[Any]:
     def assertion(_: Any) -> bool:
-        steps = {request.url.params.get("step") for request in of.taken}
+        steps = {request.url.params.get(STEP) for request in of.taken}
 
         if steps != {step}:
             raise AssertionError(

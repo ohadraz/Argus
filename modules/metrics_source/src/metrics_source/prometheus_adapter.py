@@ -35,27 +35,27 @@ logger = logging.getLogger(__name__)
 type Get = Callable[..., httpx2.Response]
 
 # Prometheus's range-query endpoint, after whatever base URL it is reached at.
-_THE_RANGE_QUERY_PATH: Final = "/api/v1/query_range"
+RANGE_QUERY_PATH: Final = "/api/v1/query_range"
 
 # The parameters it takes. `step` is a minute, because a minute is what a bucket
 # is.
-_QUERY: Final = "query"
-_START: Final = "start"
-_END: Final = "end"
-_STEP: Final = "step"
-_A_MINUTE_STEP: Final = "60s"
+QUERY: Final = "query"
+START: Final = "start"
+END: Final = "end"
+STEP: Final = "step"
+A_MINUTE_STEP: Final = "60s"
 
 _TIMEOUT_SECONDS: Final = 10.0
 
 # Where the samples are in Prometheus's answer: `data.result[*].values`, each a
 # `[unix_seconds, "value"]` pair.
-_DATA: Final = "data"
-_RESULT: Final = "result"
-_VALUES: Final = "values"
+DATA: Final = "data"
+RESULT: Final = "result"
+VALUES: Final = "values"
 
 # Where a refusal says why.
-_ERROR_TYPE: Final = "errorType"
-_ERROR: Final = "error"
+ERROR_TYPE: Final = "errorType"
+ERROR: Final = "error"
 
 _A_MINUTE: Final = timedelta(minutes=1)
 
@@ -145,6 +145,11 @@ def buckets_between(started_at: datetime,
     the end of the minute it ends in, finished or not - asking is what lets a
     source that can report that minute do so.
 
+    A window with no whole minute in it holds no minute, and is answered so
+    without asking: asked, its first minute's end is after its last's, a range
+    Prometheus refuses, and the refusal would read as a source nobody could
+    reach.
+
     `rule_series` is one more query, the paging rule's own, asked the same way
     and set on each minute it answers for. Where Prometheus refuses it, or it
     answers nothing, the window is served without it: the rule's query is
@@ -152,16 +157,22 @@ def buckets_between(started_at: datetime,
     costs the window its sixth series rather than the five every other
     judgement rests on.
     """
-    url = f"{settings.prometheus_base_url}{_THE_RANGE_QUERY_PATH}"
+    first = _the_first_minute_in(started_at)
+    last = _the_minute_of(ended_at)
+
+    if last < first:
+        return []
+
+    url = f"{settings.prometheus_base_url}{RANGE_QUERY_PATH}"
     window = {
-        _START: str((_the_first_minute_in(started_at) + _A_MINUTE).timestamp()),
-        _END: str((_the_minute_of(ended_at) + _A_MINUTE).timestamp()),
-        _STEP: _A_MINUTE_STEP
+        START: str((first + _A_MINUTE).timestamp()),
+        END: str((last + _A_MINUTE).timestamp()),
+        STEP: A_MINUTE_STEP
     }
     readings: dict[datetime, dict[str, float]] = defaultdict(dict)
 
     for field, query in QUERIES.items():
-        for minute, value in _samples_in(_asked(get, url, {_QUERY: query, **window})):
+        for minute, value in _samples_in(_asked(get, url, {QUERY: query, **window})):
             readings[minute][field] = value
 
     rule_readings = (
@@ -200,13 +211,13 @@ def _the_rules_readings(get: Get,
     would be whichever the answer happened to list last.
     """
     try:
-        answer = _asked(get, url, {_QUERY: rule_series.query, **window})
+        answer = _asked(get, url, {QUERY: rule_series.query, **window})
     except MetricsUnavailable:
         logger.warning("rule query refused", exc_info=True,
                        extra={"query": rule_series.query})
         return {}
 
-    series = len(answer[_DATA][_RESULT])
+    series = len(answer[DATA][RESULT])
 
     if series > 1:
         logger.warning("rule query matched several series",
@@ -235,8 +246,8 @@ def _samples_in(answer: Any) -> list[tuple[datetime, float]]:
     """
     return [
         (datetime.fromtimestamp(float(at), UTC) - _A_MINUTE, reading)
-        for series in answer[_DATA][_RESULT]
-        for at, value in series[_VALUES]
+        for series in answer[DATA][RESULT]
+        for at, value in series[VALUES]
         if math.isfinite(reading := float(value))
     ]
 
@@ -269,7 +280,7 @@ def _the_reason_in(response: httpx2.Response) -> str:
     try:
         envelope = response.json()
 
-        return f"{envelope[_ERROR_TYPE]}: {envelope[_ERROR]}"
+        return f"{envelope[ERROR_TYPE]}: {envelope[ERROR]}"
     except (ValueError, KeyError, TypeError):
         return response.text
 
