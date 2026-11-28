@@ -10,12 +10,14 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "argus-alert_source_double",
     "argus-argus_testkit",
 ]
 
 
 [tool.uv.sources]
 argus-core = { workspace = true }
+argus-alert_source_double = { workspace = true }
 argus-argus_testkit = { workspace = true }
 
 

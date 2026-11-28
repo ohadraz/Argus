@@ -19,7 +19,11 @@ import logging
 import pytest
 from alert_source import AlertUnreadable, OnlyResolved
 from alert_source.grafana import (
+    ALERTS,
     GRAFANA_SOURCE,
+    LABELS,
+    RESOLVED,
+    STATUS,
     GrafanaAlerts,
     parse_grafana_alert,
     reports_only_resolutions,
@@ -36,7 +40,7 @@ from argus_testkit import (
 from core import to_iso
 from core.models import ALERT_FIRING, NOTIFICATION_KEY, AlarmClaim, Alert, Reference
 
-from alert_source_test.framework.builders import a_grafana_payload
+from alert_source_test.framework.builders import FIRING, a_grafana_payload
 
 SOME_RULE = "some-rule"
 DONT_CARE_HEADERS: dict[str, str] = {}
@@ -57,7 +61,7 @@ def test_a_delivery_is_read_as_the_alert_it_carries() -> None:
 
 @pytest.mark.unit
 def test_a_delivery_of_resolutions_alone_is_read_as_only_resolved() -> None:
-    a_resolution = a_grafana_payload(rule_uid=SOME_RULE, status="resolved")
+    a_resolution = a_grafana_payload(rule_uid=SOME_RULE, status=RESOLVED)
 
     Scenario() \
         .when(
@@ -71,9 +75,9 @@ def test_a_delivery_of_resolutions_alone_is_read_as_only_resolved() -> None:
 @pytest.mark.parametrize("body", [
     b"not json at all",
     b"[]",
-    json.dumps({"alerts": [{"status": "firing"}]}).encode(),
-    json.dumps({"alerts": "firing"}).encode(),
-    json.dumps({"alerts": ["firing"]}).encode()
+    json.dumps({ALERTS: [{STATUS: FIRING}]}).encode(),
+    json.dumps({ALERTS: FIRING}).encode(),
+    json.dumps({ALERTS: [FIRING]}).encode()
 ], ids=["not-json", "not-an-object", "an-alert-naming-no-service", "alerts-that-are-a-string",
         "alerts-that-are-not-objects"])
 def test_a_delivery_not_in_grafana_s_shape_is_unreadable(body: bytes) -> None:
@@ -87,14 +91,14 @@ def test_a_delivery_not_in_grafana_s_shape_is_unreadable(body: bytes) -> None:
 def test_a_delivery_it_cannot_read_says_what_was_wrong_as_the_error_that_found_it() -> None:
     # What the sender is told after "the alert could not be read: ", so whoever
     # configured it can find the field.
-    an_alert_naming_no_labels = json.dumps({"alerts": [{"status": "firing"}]}).encode()
+    an_alert_naming_no_labels = json.dumps({ALERTS: [{STATUS: FIRING}]}).encode()
 
     Scenario() \
         .when(attempting(lambda: GrafanaAlerts().parse_delivery(an_alert_naming_no_labels,
                                                                 DONT_CARE_HEADERS))) \
         .then(all_of(
             an_error_was_raised(AlertUnreadable),
-            _it_says(repr(KeyError("labels")))
+            _it_says(repr(KeyError(LABELS)))
         ))
 
 
@@ -127,7 +131,7 @@ def test_parse_grafana_alert_does_not_leak_grafana_labels_nesting() -> None:
             lambda: parse_grafana_alert(payload)
         ) \
         .then(
-            _nothing_of_grafanas_came_through("labels")
+            _nothing_of_grafanas_came_through(LABELS)
         )
 
 
@@ -355,12 +359,12 @@ def test_parse_grafana_alert_reads_the_alert_that_is_firing() -> None:
     # A notification carries every alert of its group, and one that resolved can
     # come first. It never starts an incident, so the one read is the one firing.
     the_rule = "some-rule-still-firing"
-    some_resolved = a_grafana_payload(rule_uid="some-rule-that-resolved", status="resolved")
+    some_resolved = a_grafana_payload(rule_uid="some-rule-that-resolved", status=RESOLVED)
     some_firing = a_grafana_payload(rule_uid=the_rule)
 
     Scenario() \
         .given(
-            payload := {**some_firing, "alerts": [*some_resolved["alerts"], *some_firing["alerts"]]}
+            payload := {**some_firing, ALERTS: [*some_resolved[ALERTS], *some_firing[ALERTS]]}
         ) \
         .when(
             lambda: parse_grafana_alert(payload)
@@ -434,11 +438,11 @@ def test_parse_grafana_alert_names_the_incident_by_every_firing_the_notification
     # them, and one that resolved is still a firing the incident knew. Each is
     # a name the next notification can be matched by, whichever comes first.
     some_firing = a_grafana_payload(fingerprint="a1b2c3d4e5f60718")
-    some_resolved = a_grafana_payload(fingerprint="0f1e2d3c4b5a6978", status="resolved")
+    some_resolved = a_grafana_payload(fingerprint="0f1e2d3c4b5a6978", status=RESOLVED)
 
     Scenario() \
         .given(
-            payload := {**some_firing, "alerts": [*some_resolved["alerts"], *some_firing["alerts"]]}
+            payload := {**some_firing, ALERTS: [*some_resolved[ALERTS], *some_firing[ALERTS]]}
         ) \
         .when(
             lambda: parse_grafana_alert(payload)
@@ -456,7 +460,7 @@ def test_a_reminder_of_a_firing_names_it_as_the_first_notification_did() -> None
     the_first = a_grafana_payload(fingerprint=some_fingerprint)
     another = a_grafana_payload(fingerprint="0f1e2d3c4b5a6978",
                                 starts_at="2026-08-14T11:40:00Z")
-    a_reminder = {**the_first, "alerts": [*another["alerts"], *the_first["alerts"]]}
+    a_reminder = {**the_first, ALERTS: [*another[ALERTS], *the_first[ALERTS]]}
 
     Scenario() \
         .when(
@@ -508,14 +512,14 @@ def test_an_alert_with_no_fingerprint_names_no_firing() -> None:
 
 @pytest.mark.unit
 def test_a_notification_of_resolved_alerts_alone_reports_only_resolutions() -> None:
-    some_resolved = a_grafana_payload(rule_uid="some-rule-that-resolved", status="resolved")
-    some_other_resolved = a_grafana_payload(rule_uid="some-other-rule", status="resolved")
+    some_resolved = a_grafana_payload(rule_uid="some-rule-that-resolved", status=RESOLVED)
+    some_other_resolved = a_grafana_payload(rule_uid="some-other-rule", status=RESOLVED)
 
     Scenario() \
         .given(
             payload := {
                 **some_resolved,
-                "alerts": [*some_resolved["alerts"], *some_other_resolved["alerts"]]
+                ALERTS: [*some_resolved[ALERTS], *some_other_resolved[ALERTS]]
             }
         ) \
         .when(
@@ -530,14 +534,14 @@ def test_a_notification_of_resolved_alerts_alone_reports_only_resolutions() -> N
 def test_a_notification_with_one_alert_still_firing_reports_more_than_resolutions() -> None:
     # The envelope here reads `resolved`, and is not what decides: the one
     # alert still firing is what opens an incident.
-    some_resolved = a_grafana_payload(rule_uid="some-rule-that-resolved", status="resolved")
+    some_resolved = a_grafana_payload(rule_uid="some-rule-that-resolved", status=RESOLVED)
     some_firing = a_grafana_payload(rule_uid="some-rule-still-firing")
 
     Scenario() \
         .given(
             payload := {
                 **some_resolved,
-                "alerts": [*some_resolved["alerts"], *some_firing["alerts"]]
+                ALERTS: [*some_resolved[ALERTS], *some_firing[ALERTS]]
             }
         ) \
         .when(
@@ -550,8 +554,8 @@ def test_a_notification_with_one_alert_still_firing_reports_more_than_resolution
 
 @pytest.mark.unit
 @pytest.mark.parametrize("payload", [
-    {**a_grafana_payload(), "alerts": []},
-    {key: value for key, value in a_grafana_payload().items() if key != "alerts"}
+    {**a_grafana_payload(), ALERTS: []},
+    {key: value for key, value in a_grafana_payload().items() if key != ALERTS}
 ], ids=["empty", "absent"])
 def test_a_notification_of_no_alerts_reports_only_resolutions(payload: dict[str, object]) -> None:
     # Nothing in it is firing, so it opens nothing: answered as a notification
@@ -590,8 +594,8 @@ def test_a_claim_it_does_not_recognise_is_logged_as_a_warning(
 
 @pytest.mark.unit
 @pytest.mark.parametrize("payload", [
-    {**a_grafana_payload(), "alerts": []},
-    {key: value for key, value in a_grafana_payload().items() if key != "alerts"}
+    {**a_grafana_payload(), ALERTS: []},
+    {key: value for key, value in a_grafana_payload().items() if key != ALERTS}
 ], ids=["empty", "absent"])
 def test_a_notification_of_no_alerts_is_logged_as_a_warning(
     payload: dict[str, object], caplog: pytest.LogCaptureFixture

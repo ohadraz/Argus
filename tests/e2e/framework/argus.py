@@ -21,6 +21,14 @@ from typing import Any, Final
 
 import httpx2
 import psycopg
+from alert_source.grafana import (
+    ALERT_NAME_LABEL,
+    ALERTS,
+    GENERATOR_URL,
+    LABELS,
+    SERVICE_LABEL,
+    STARTS_AT,
+)
 from anthropic_double.clock import instants_in, moved_in
 from anthropic_double.recordings import RECORDINGS_DIR, load, load_arrival
 from anthropic_double.server import DEFAULT_BASE_URL as ANTHROPIC_DOUBLE_BASE_URL
@@ -52,6 +60,7 @@ from investigation_agent.tools.metrics import METRICS_TOOL
 from postmortem_writing.answer import SUBMIT_TOOL_NAME
 from postmortem_writing.grounding import JUDGE_TOOL_NAME
 
+from tests.e2e.framework.builders import a_link_to_the_rule
 from tests.framework.assertions import (
     some_confidence_was_given,
     the_cause_was_identified_as,
@@ -373,9 +382,9 @@ def _linking_to(rule_uid: str | None, payload: dict[str, Any]) -> dict[str, Any]
 
     return {
         **payload,
-        "alerts": [
-            {**alert, "generatorURL": f"http://grafana.local/alerting/grafana/{rule_uid}/view"}
-            for alert in payload["alerts"]
+        ALERTS: [
+            {**alert, GENERATOR_URL: a_link_to_the_rule(rule_uid)}
+            for alert in payload[ALERTS]
         ]
     }
 
@@ -387,7 +396,7 @@ def _stamped_now(payload: dict[str, Any]) -> dict[str, Any]:
 
     return {
         **payload,
-        "alerts": [{"startsAt": now, **alert} for alert in payload["alerts"]]
+        ALERTS: [{STARTS_AT: now, **alert} for alert in payload[ALERTS]]
     }
 
 
@@ -694,7 +703,7 @@ def argus_registered_an_incident_for_the_alert(
     """
     def assertion(response: httpx2.Response) -> bool:
         incident_id = incident_id_from(response)
-        alert = alert_payload["alerts"][0]
+        alert = alert_payload[ALERTS][0]
 
         # The column as it was stored, rather than the model read from it and
         # dumped again: a key the model drops on the way in is the thing looked
@@ -707,9 +716,9 @@ def argus_registered_an_incident_for_the_alert(
             raise AssertionError(f"No incident found with id [{incident_id}].")
 
         alert_in_db = row[0]
-        expected_service = alert["labels"]["service"]
+        expected_service = alert[LABELS][SERVICE_LABEL]
         actual_service = alert_in_db["service"]
-        expected_alert_name = alert["labels"]["alertname"]
+        expected_alert_name = alert[LABELS][ALERT_NAME_LABEL]
         actual_alert_name = alert_in_db["alert_name"]
 
         if actual_service != expected_service:
@@ -722,7 +731,7 @@ def argus_registered_an_incident_for_the_alert(
                 f"Expected alert_name [{expected_alert_name!r}], got [{actual_alert_name!r}]."
             )
 
-        if "labels" in alert_in_db:
+        if LABELS in alert_in_db:
             raise AssertionError(
                 f"Expected alert_payload to not leak Grafana's raw 'labels' "
                 f"nesting: [{alert_in_db!r}]."

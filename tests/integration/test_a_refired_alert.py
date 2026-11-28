@@ -33,6 +33,22 @@ from unittest.mock import create_autospec
 
 import httpx2
 import pytest
+from alert_source.grafana import (
+    ALERT_NAME_LABEL,
+    ALERTS,
+    ANNOTATIONS,
+    FINGERPRINT,
+    GENERATOR_URL,
+    GRAFANA_MANAGED,
+    GROUP_KEY,
+    LABELS,
+    RESOLVED,
+    SERVICE_LABEL,
+    STARTS_AT,
+    STATUS,
+    SUMMARY_ANNOTATION,
+    THE_ALERTING_PATH,
+)
 from apps.web import the_app_for
 from argus_testkit import Assertion, Scenario, all_of
 from chat_platform.slack import SlackSettings
@@ -47,6 +63,16 @@ from postgres import connect_from_env
 from push_source.github import GitHubPushSettings
 from web_app.app import oncall_platform_of
 
+from tests.framework.grafana import (
+    ENDS_AT,
+    EXTERNAL_URL,
+    FIRING,
+    GROUP_LABELS,
+    NOT_ENDED,
+    RECEIVER,
+    VERSION,
+)
+
 # The web process's application, as its root builds it.
 app = the_app_for(get_settings(),
                   pushes=GitHubPushSettings(),
@@ -58,10 +84,6 @@ THE_ON_CALL_PLATFORM = "PagerDuty"
 
 ALERTS_WEBHOOK: Final = "/webhooks/alerts"
 ONCALL_WEBHOOK: Final = "/webhooks/oncall"
-
-# Grafana's words for an alert's state, said on the envelope and on each alert.
-FIRING: Final = "firing"
-RESOLVED: Final = "resolved"
 
 SOME_SERVICE = "io-shop"
 SOME_OTHER_SERVICE = "fx-rates"
@@ -272,13 +294,13 @@ def _a_notification(*alerts: dict[str, Any]) -> dict[str, Any]:
     """One notification of `SOME_GROUP_KEY`'s group, carrying these alerts
     nested the way Grafana nests them - firing while any of them is."""
     return {
-        "receiver": "argus-webhook",
-        "status": FIRING if any(alert["status"] == FIRING for alert in alerts) else RESOLVED,
-        "alerts": list(alerts),
-        "groupLabels": {"alertname": SOME_ALERT_NAME},
-        "externalURL": "http://grafana.local",
-        "version": "1",
-        "groupKey": SOME_GROUP_KEY
+        RECEIVER: "argus-webhook",
+        STATUS: FIRING if any(alert[STATUS] == FIRING for alert in alerts) else RESOLVED,
+        ALERTS: list(alerts),
+        GROUP_LABELS: {ALERT_NAME_LABEL: SOME_ALERT_NAME},
+        EXTERNAL_URL: "http://grafana.local",
+        VERSION: "1",
+        GROUP_KEY: SOME_GROUP_KEY
     }
 
 
@@ -289,13 +311,13 @@ def _an_alert(fingerprint: str,
     """One alert of the group: `SOME_RULE` firing for `service`, the firing
     named by its fingerprint and the moment it started."""
     return {
-        "status": status,
-        "labels": {"alertname": SOME_ALERT_NAME, "service": service},
-        "annotations": {"summary": f"Error rate above threshold on {service}"},
-        "startsAt": starts_at,
-        "endsAt": "0001-01-01T00:00:00Z",
-        "generatorURL": f"http://grafana.local/alerting/grafana/{SOME_RULE}/view",
-        "fingerprint": fingerprint
+        STATUS: status,
+        LABELS: {ALERT_NAME_LABEL: SOME_ALERT_NAME, SERVICE_LABEL: service},
+        ANNOTATIONS: {SUMMARY_ANNOTATION: f"Error rate above threshold on {service}"},
+        STARTS_AT: starts_at,
+        ENDS_AT: NOT_ENDED,
+        GENERATOR_URL: f"http://grafana.local{THE_ALERTING_PATH}{GRAFANA_MANAGED}/{SOME_RULE}/view",
+        FINGERPRINT: fingerprint
     }
 
 

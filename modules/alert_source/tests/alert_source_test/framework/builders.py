@@ -2,27 +2,66 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Final
 
-from alert_source.grafana import CLAIM_ANNOTATION
+from alert_source.grafana import (
+    ALERT_NAME_LABEL,
+    ALERTS,
+    ANNOTATIONS,
+    CLAIM_ANNOTATION,
+    FINGERPRINT,
+    GENERATOR_URL,
+    GRAFANA_MANAGED,
+    GROUP_KEY,
+    KEYS_ARE_SEPARATED_BY,
+    LABELS,
+    ONSET_ANNOTATION,
+    SERVICE_LABEL,
+    SEVERITY_LABEL,
+    STALE_ENTRIES_FOUND_ANNOTATION,
+    STALE_ENTRY_KEYS_ANNOTATION,
+    STARTS_AT,
+    STATUS,
+    SUMMARY_ANNOTATION,
+    THE_ALERTING_PATH,
+)
+
+# The words of Grafana's webhook the adapter never reads - the receiver a
+# notification was sent through, when an alert ended and the zero time Grafana
+# writes there while it has not, and its word for an alert still firing, which
+# the adapter knows only as "not resolved". Declared here, once, for every
+# suite of the adapter's that writes as Grafana does.
+RECEIVER: Final = "receiver"
+ENDS_AT: Final = "endsAt"
+NOT_ENDED: Final = "0001-01-01T00:00:00Z"
+FIRING: Final = "firing"
+
+# Where the notifications are said to come from: a Grafana nobody runs.
+_A_GRAFANA: Final = "http://grafana.test"
 
 
 def a_grafana_payload(service: str = "kukibuki",
                       alert_name: str = "HighErrorRate",
+                      severity: str | None = "critical",
+                      summary: str | None = "Error rate above threshold",
                       onset: str | None = None,
                       claim: str | None = None,
                       stale_entry_keys: tuple[str, ...] | None = None,
                       rule_uid: str | None = None,
                       generator_url: str | None = None,
-                      status: str = "firing",
+                      status: str = FIRING,
                       group_key: str | None = None,
                       fingerprint: str | None = None,
-                      starts_at: str = "2026-08-14T10:15:00Z") -> dict[str, Any]:
+                      starts_at: str | None = "2026-08-14T10:15:00Z") -> dict[str, Any]:
     """One alert, firing unless `status` says otherwise, nested the way Grafana nests it.
 
     The whole envelope rather than the fields Argus wants, because the nesting
     is what the parser exists to undo - a fixture already flattened would test
     the parser against its own output.
+
+    `severity`, `summary` and `starts_at` are present by default, as on every
+    alert a rule in the estate raises; `None` leaves each out, for an alert
+    that says less.
 
     `onset` is absent by default, because almost no alert states one: a rule
     that fires on a series is reporting a minute Argus can measure for itself.
@@ -37,6 +76,9 @@ def a_grafana_payload(service: str = "kukibuki",
     plain string rather than as `AlarmClaim`, because a value no member spells
     is a case the parser has to answer for and a builder that could only produce
     members could not stage it.
+
+    `stale_entry_keys` writes the keys and their count beside them, as the check
+    that finds them does.
 
     `rule_uid` is the rule that fired, said the one place Grafana says it: in
     the link to the rule, `generatorURL`, in the shape its releases build.
@@ -55,46 +97,53 @@ def a_grafana_payload(service: str = "kukibuki",
     firing. The fingerprint is absent unless asked for, for the group key's
     reason.
     """
-    annotations = {"summary": f"Error rate above threshold on {service}"}
+    labels = {ALERT_NAME_LABEL: alert_name, SERVICE_LABEL: service}
+    annotations: dict[str, str] = {}
+
+    if severity is not None:
+        labels[SEVERITY_LABEL] = severity
+
+    if summary is not None:
+        annotations[SUMMARY_ANNOTATION] = summary
 
     if onset:
-        annotations["onset"] = onset
+        annotations[ONSET_ANNOTATION] = onset
 
     if claim is not None:
         annotations[CLAIM_ANNOTATION] = claim
 
     if stale_entry_keys is not None:
-        annotations["stale_entry_keys"] = ",".join(stale_entry_keys)
-        annotations["stale_entries_found"] = str(len(stale_entry_keys))
+        annotations[STALE_ENTRY_KEYS_ANNOTATION] = KEYS_ARE_SEPARATED_BY.join(stale_entry_keys)
+        annotations[STALE_ENTRIES_FOUND_ANNOTATION] = str(len(stale_entry_keys))
 
     alert: dict[str, Any] = {
-        "status": status,
-        "labels": {
-            "alertname": alert_name,
-            "service": service,
-            "severity": "critical"
-        },
-        "annotations": annotations,
-        "startsAt": starts_at,
-        "endsAt": "0001-01-01T00:00:00Z"
+        STATUS: status,
+        LABELS: labels,
+        ANNOTATIONS: annotations,
+        ENDS_AT: NOT_ENDED
     }
 
+    if starts_at is not None:
+        alert[STARTS_AT] = starts_at
+
     if fingerprint is not None:
-        alert["fingerprint"] = fingerprint
+        alert[FINGERPRINT] = fingerprint
 
     if rule_uid is not None:
-        alert["generatorURL"] = f"http://grafana.test/alerting/grafana/{rule_uid}/view?orgId=1"
+        alert[GENERATOR_URL] = (
+            f"{_A_GRAFANA}{THE_ALERTING_PATH}{GRAFANA_MANAGED}/{rule_uid}/view?orgId=1"
+        )
 
     if generator_url is not None:
-        alert["generatorURL"] = generator_url
+        alert[GENERATOR_URL] = generator_url
 
     payload: dict[str, Any] = {
-        "receiver": "argus-webhook",
-        "status": status,
-        "alerts": [alert]
+        RECEIVER: "argus-webhook",
+        STATUS: status,
+        ALERTS: [alert]
     }
 
     if group_key is not None:
-        payload["groupKey"] = group_key
+        payload[GROUP_KEY] = group_key
 
     return payload

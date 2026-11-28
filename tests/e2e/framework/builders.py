@@ -1,9 +1,40 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Final
 
+from alert_source.grafana import (
+    ALERT_NAME_LABEL,
+    ALERTS,
+    ANNOTATIONS,
+    FINGERPRINT,
+    GENERATOR_URL,
+    GRAFANA_MANAGED,
+    GROUP_KEY,
+    LABELS,
+    SERVICE_LABEL,
+    SEVERITY_LABEL,
+    STARTS_AT,
+    STATUS,
+    SUMMARY_ANNOTATION,
+    THE_ALERTING_PATH,
+)
 from core import to_iso
+
+from tests.framework.grafana import (
+    COMMON_ANNOTATIONS,
+    COMMON_LABELS,
+    ENDS_AT,
+    EXTERNAL_URL,
+    FIRING,
+    GROUP_LABELS,
+    NOT_ENDED,
+    RECEIVER,
+    VERSION,
+)
+
+# Where the alerts are said to come from: the Grafana the stack's alerts name.
+A_GRAFANA: Final = "http://grafana.local"
 
 # The words the shop's own monitoring pages with wherever its other rules do not
 # fire: its error-rate rule's summary (`_BY_DEFAULT` in the demo app's
@@ -44,32 +75,38 @@ def a_grafana_style_alert_with(service: str = "some-service",
     The link names the error-rate rule, whose words the summary is by default.
     Where a scenario is staged, sending the alert links its own rule instead.
     """
-    starts_at = {"startsAt": to_iso(started_at)} if started_at is not None else {}
+    starts_at = {STARTS_AT: to_iso(started_at)} if started_at is not None else {}
 
     return {
-        "receiver": "argus-webhook",
-        "status": "firing",
-        "alerts": [
+        RECEIVER: "argus-webhook",
+        STATUS: FIRING,
+        ALERTS: [
             {
-                "status": "firing",
-                "labels": {
-                    "alertname": alert_name,
-                    "service": service,
-                    "severity": severity,
+                STATUS: FIRING,
+                LABELS: {
+                    ALERT_NAME_LABEL: alert_name,
+                    SERVICE_LABEL: service,
+                    SEVERITY_LABEL: severity
                 },
-                "annotations": {
-                    "summary": summary,
+                ANNOTATIONS: {
+                    SUMMARY_ANNOTATION: summary
                 },
                 **starts_at,
-                "endsAt": "0001-01-01T00:00:00Z",
-                "generatorURL": f"http://grafana.local/alerting/grafana/{THE_ERROR_RATE_RULE}/view",
-                "fingerprint": "abc123def456",
+                ENDS_AT: NOT_ENDED,
+                GENERATOR_URL: a_link_to_the_rule(THE_ERROR_RATE_RULE),
+                FINGERPRINT: "abc123def456"
             }
         ],
-        "groupLabels": {"alertname": alert_name},
-        "commonLabels": {"alertname": alert_name, "service": service},
-        "commonAnnotations": {"summary": summary},
-        "externalURL": "http://grafana.local",
-        "version": "1",
-        "groupKey": f'{{}}/{{alertname="{alert_name}"}}',
+        GROUP_LABELS: {ALERT_NAME_LABEL: alert_name},
+        COMMON_LABELS: {ALERT_NAME_LABEL: alert_name, SERVICE_LABEL: service},
+        COMMON_ANNOTATIONS: {SUMMARY_ANNOTATION: summary},
+        EXTERNAL_URL: A_GRAFANA,
+        VERSION: "1",
+        GROUP_KEY: f'{{}}/{{{ALERT_NAME_LABEL}="{alert_name}"}}'
     }
+
+
+def a_link_to_the_rule(rule_uid: str) -> str:
+    """The link to a rule, in the shape Grafana's releases build it - the one
+    place its webhook names the rule that fired."""
+    return f"{A_GRAFANA}{THE_ALERTING_PATH}{GRAFANA_MANAGED}/{rule_uid}/view"

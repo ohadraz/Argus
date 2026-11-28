@@ -21,6 +21,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import httpx2
+from alert_source.grafana import GROUP_KEY
 from core import to_iso
 from oncall_source.pagerduty_settings import PagerDutyDeliverySettings
 from oncall_source.pagerduty_webhooks import (
@@ -127,4 +128,4 @@ def the_on_call_platform_delivers(delivery: dict[str, Any]) -> httpx2.Response:
 
 def _the_key_pagerduty_stamps(alert: dict[str, Any]) -> str:
     """The alert key PagerDuty's Grafana integration gives the alert it raises."""
-    return hashlib.sha256(alert["groupKey"].encode()).hexdigest()
+    return hashlib.sha256(alert[GROUP_KEY].encode()).hexdigest()

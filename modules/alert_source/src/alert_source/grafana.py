@@ -20,41 +20,59 @@ logger = logging.getLogger(__name__)
 # Whose names for an incident this parser records.
 GRAFANA_SOURCE: Final = "grafana"
 
-# Where Grafana puts the key of the alert group a notification is about: on the
-# envelope, not on any one alert.
-_GROUP_KEY: Final = "groupKey"
+# Grafana's words for its webhook, each named for the field that carries it.
+# Public because whatever writes a notification as Grafana does - the suites'
+# stand-ins - has to spell them as this module reads them, and a spelling
+# restated in two places drifts the moment one is corrected.
 
-# Where Grafana puts an alert's identity and the moment this firing of it began:
-# on each alert.
-_FINGERPRINT: Final = "fingerprint"
-_STARTS_AT: Final = "startsAt"
-# Between the two halves of a firing's name. A character neither a fingerprint
-# (hex) nor a timestamp (RFC 3339) carries.
-_FIRING_SEPARATOR: Final = "@"
+# On the envelope: the alerts the notification carries, and the key of the
+# alert group it is about.
+ALERTS: Final = "alerts"
+GROUP_KEY: Final = "groupKey"
+
+# On each alert: whether it is firing, its labels and annotations, its identity,
+# the moment this firing of it began, and the link to the rule that fired it.
+STATUS: Final = "status"
+LABELS: Final = "labels"
+ANNOTATIONS: Final = "annotations"
+FINGERPRINT: Final = "fingerprint"
+STARTS_AT: Final = "startsAt"
+GENERATOR_URL: Final = "generatorURL"
+
+# What Grafana calls an alert whose rule has stopped firing.
+RESOLVED: Final = "resolved"
+
+# The labels an alert is read by. Grafana's labels are the alert's identity.
+SERVICE_LABEL: Final = "service"
+ALERT_NAME_LABEL: Final = "alertname"
+SEVERITY_LABEL: Final = "severity"
+
+# The annotations an alert is read by.
+#
+# Every one of them is a convention two parties keep rather than a field this
+# parser happens to want: a rule in the estate writes it and this module reads
+# it. The claim's *values* need no constants of their own - they are
+# `AlarmClaim`'s members, declared once where the field they fill is declared.
+SUMMARY_ANNOTATION: Final = "summary"
+ONSET_ANNOTATION: Final = "onset"
+CLAIM_ANNOTATION: Final = "claim"
+STALE_ENTRY_KEYS_ANNOTATION: Final = "stale_entry_keys"
+STALE_ENTRIES_FOUND_ANNOTATION: Final = "stale_entries_found"
 
 # How a list of cache keys is written into a single annotation. Grafana carries
 # annotations as text, so a check reporting many entries renders them as one
 # string - and this is the character it renders between them.
-_KEYS_ARE_SEPARATED_BY: Final = ","
-
-# The annotation a rule says what it looked at in.
-#
-# Public and named, unlike the four annotations read below it, because this one
-# is a convention two parties keep rather than a field this parser happens to
-# want: a rule in the estate writes it and this module reads it, and a spelling
-# restated in both places is a fact that drifts the moment one is corrected.
-# Its *values* need no constants of their own - they are `AlarmClaim`'s members,
-# declared once where the field they fill is declared.
-CLAIM_ANNOTATION: Final = "claim"
-
-# What Grafana calls an alert whose rule has stopped firing.
-_RESOLVED: Final = "resolved"
+KEYS_ARE_SEPARATED_BY: Final = ","
 
 # Where in a link to a rule Grafana puts its uid: after this, past the source
 # segment below where there is one.
-_THE_ALERTING_PATH: Final = "/alerting/"
+THE_ALERTING_PATH: Final = "/alerting/"
 # The source segment Grafana's releases put before a managed rule's uid.
-_GRAFANA_MANAGED: Final = "grafana"
+GRAFANA_MANAGED: Final = "grafana"
+
+# Between the two halves of a firing's name. A character neither a fingerprint
+# (hex) nor a timestamp (RFC 3339) carries.
+_FIRING_SEPARATOR: Final = "@"
 
 
 class GrafanaAlerts:
@@ -94,28 +112,28 @@ def parse_grafana_alert(raw_payload: dict[str, Any]) -> Alert:
     """Deterministic parser for Grafana's unified-alerting webhook format -
     plain field mapping, no LLM call (spec §25 tracks generic, LLM-based
     ingestion as one more sender behind the same port)."""
-    alerts = raw_payload["alerts"]
+    alerts = raw_payload[ALERTS]
     # The first alert still firing. A notification carries every alert of its
     # group, a resolved one can come first, and a resolution never starts an
     # incident.
     alert = next(
-        (each for each in alerts if each.get("status") != _RESOLVED), alerts[0]
+        (each for each in alerts if each.get(STATUS) != RESOLVED), alerts[0]
     )
-    labels = alert["labels"]
-    annotations = alert.get("annotations", {})
+    labels = alert[LABELS]
+    annotations = alert.get(ANNOTATIONS, {})
     return Alert(
-        service=labels["service"],
-        alert_name=labels["alertname"],
-        severity=labels.get("severity"),
-        summary=annotations.get("summary"),
-        started_at=alert.get("startsAt"),
+        service=labels[SERVICE_LABEL],
+        alert_name=labels[ALERT_NAME_LABEL],
+        severity=labels.get(SEVERITY_LABEL),
+        summary=annotations.get(SUMMARY_ANNOTATION),
+        started_at=alert.get(STARTS_AT),
         # An annotation rather than a label, because Grafana's labels are the
         # alert's identity and a timestamp in one would make every firing a
         # different alert. Absent from almost every payload, and left unset
         # rather than defaulted to `startsAt`: an onset invented here would be
         # a measured minute's rival carrying none of its evidence, and would
         # be the minute somebody noticed rather than the minute it began.
-        stated_onset=annotations.get("onset"),
+        stated_onset=annotations.get(ONSET_ANNOTATION),
         # What the rule looked at, which decides whether a window holding no
         # departure contradicts this alarm or says nothing about it.
         #
@@ -137,12 +155,12 @@ def parse_grafana_alert(raw_payload: dict[str, Any]) -> Alert:
         # tries: the count travels beside the keys and the alert refuses itself
         # when the two disagree, which catches a bad split and a truncated list
         # with one rule.
-        stale_entry_keys=_the_keys_listed_in(annotations.get("stale_entry_keys")),
-        stale_entries_found=annotations.get("stale_entries_found"),
+        stale_entry_keys=_the_keys_listed_in(annotations.get(STALE_ENTRY_KEYS_ANNOTATION)),
+        stale_entries_found=annotations.get(STALE_ENTRIES_FOUND_ANNOTATION),
         # The link to the rule, which is the only place the webhook names it:
         # Grafana's payload has no field for the rule that fired.
-        rule=_the_rule_linked_from(alert.get("generatorURL")),
-        references=(*_the_names_grafana_pages_with(raw_payload.get(_GROUP_KEY)),
+        rule=_the_rule_linked_from(alert.get(GENERATOR_URL)),
+        references=(*_the_names_grafana_pages_with(raw_payload.get(GROUP_KEY)),
                     *_the_firings_in(alerts))
     )
 
@@ -156,12 +174,12 @@ def reports_only_resolutions(raw_payload: dict[str, Any]) -> bool:
     One carrying no alerts at all answers the same way - nothing in it is
     firing - though Grafana never sends one, so it is said.
     """
-    alerts = raw_payload.get("alerts", [])
+    alerts = raw_payload.get(ALERTS, [])
 
     if not alerts:
         logger.warning("notification carried no alerts")
 
-    return all(alert.get("status") == _RESOLVED for alert in alerts)
+    return all(alert.get(STATUS) == RESOLVED for alert in alerts)
 
 
 def _the_rule_linked_from(generator_url: str | None) -> str | None:
@@ -176,10 +194,10 @@ def _the_rule_linked_from(generator_url: str | None) -> str | None:
     if not generator_url:
         return None
 
-    _, found, rest = urlsplit(generator_url).path.partition(_THE_ALERTING_PATH)
+    _, found, rest = urlsplit(generator_url).path.partition(THE_ALERTING_PATH)
     segments = [segment for segment in rest.split("/") if segment]
 
-    if segments[:1] == [_GRAFANA_MANAGED]:
+    if segments[:1] == [GRAFANA_MANAGED]:
         segments = segments[1:]
 
     return segments[0] if found and segments else None
@@ -228,10 +246,10 @@ def _the_firings_in(alerts: list[dict[str, Any]]) -> tuple[Reference, ...]:
         Reference(
             source=GRAFANA_SOURCE,
             kind=ALERT_FIRING,
-            value=f"{alert[_FINGERPRINT]}{_FIRING_SEPARATOR}{alert.get(_STARTS_AT, '')}"
+            value=f"{alert[FINGERPRINT]}{_FIRING_SEPARATOR}{alert.get(STARTS_AT, '')}"
         )
         for alert in alerts
-        if alert.get(_FINGERPRINT)
+        if alert.get(FINGERPRINT)
     )
 
 
@@ -274,4 +292,4 @@ def _the_keys_listed_in(listed: str | None) -> tuple[str, ...] | None:
     if not listed:
         return None
 
-    return tuple(listed.split(_KEYS_ARE_SEPARATED_BY))
+    return tuple(listed.split(KEYS_ARE_SEPARATED_BY))

@@ -51,6 +51,20 @@ from typing import Any, Final, NamedTuple
 
 import httpx2
 import psycopg
+from alert_source.grafana import (
+    ALERT_NAME_LABEL,
+    ALERTS,
+    ANNOTATIONS,
+    FINGERPRINT,
+    GENERATOR_URL,
+    GROUP_KEY,
+    LABELS,
+    SERVICE_LABEL,
+    SEVERITY_LABEL,
+    STARTS_AT,
+    STATUS,
+    SUMMARY_ANNOTATION,
+)
 from anthropic_double.recordings import RECORDINGS_DIR, load, question_beside
 from core import get_settings, to_iso, utc_now
 from core.embedding import collection_for
@@ -133,7 +147,12 @@ from tests.e2e.framework.argus import (
     the_model_answers_from,
     the_rule_is_firing,
 )
-from tests.e2e.framework.builders import THE_ERROR_RATE_RULE, THE_ERROR_RATE_RULES_WORDS
+from tests.e2e.framework.builders import (
+    A_GRAFANA,
+    THE_ERROR_RATE_RULE,
+    THE_ERROR_RATE_RULES_WORDS,
+    a_link_to_the_rule,
+)
 from tests.e2e.framework.chat import (
     RECORDED_INTENT_INFORMATION,
     RECORDED_INTENT_RESOLVE,
@@ -167,6 +186,17 @@ from tests.e2e.framework.world import (
     the_recorded_anchor_was_staged,
     the_shops_window,
     the_target_environment_was_put_back,
+)
+from tests.framework.grafana import (
+    COMMON_ANNOTATIONS,
+    COMMON_LABELS,
+    ENDS_AT,
+    EXTERNAL_URL,
+    FIRING,
+    GROUP_LABELS,
+    NOT_ENDED,
+    RECEIVER,
+    VERSION,
 )
 
 ARGUS_WEB_BASE_URL = "http://localhost:8000"
@@ -1193,29 +1223,29 @@ def _an_alert_for(service: str,
     linked = THE_ERROR_RATE_RULE if rule_uid is None else rule_uid
 
     return {
-        "receiver": "argus-webhook",
-        "status": "firing",
-        "alerts": [
+        RECEIVER: "argus-webhook",
+        STATUS: FIRING,
+        ALERTS: [
             {
-                "status": "firing",
-                "labels": {
-                    "alertname": alert_name,
-                    "service": service,
-                    "severity": "critical",
+                STATUS: FIRING,
+                LABELS: {
+                    ALERT_NAME_LABEL: alert_name,
+                    SERVICE_LABEL: service,
+                    SEVERITY_LABEL: "critical"
                 },
-                "annotations": {"summary": summary},
-                "startsAt": to_iso(utc_now()),
-                "endsAt": "0001-01-01T00:00:00Z",
-                "generatorURL": f"http://grafana.local/alerting/grafana/{linked}/view",
-                "fingerprint": "abc123def456"
+                ANNOTATIONS: {SUMMARY_ANNOTATION: summary},
+                STARTS_AT: to_iso(utc_now()),
+                ENDS_AT: NOT_ENDED,
+                GENERATOR_URL: a_link_to_the_rule(linked),
+                FINGERPRINT: "abc123def456"
             }
         ],
-        "groupLabels": {"alertname": alert_name},
-        "commonLabels": {"alertname": alert_name, "service": service},
-        "commonAnnotations": {"summary": summary},
-        "externalURL": "http://grafana.local",
-        "version": "1",
-        "groupKey": f'{{}}/{{alertname="{alert_name}"}}',
+        GROUP_LABELS: {ALERT_NAME_LABEL: alert_name},
+        COMMON_LABELS: {ALERT_NAME_LABEL: alert_name, SERVICE_LABEL: service},
+        COMMON_ANNOTATIONS: {SUMMARY_ANNOTATION: summary},
+        EXTERNAL_URL: A_GRAFANA,
+        VERSION: "1",
+        GROUP_KEY: f'{{}}/{{{ALERT_NAME_LABEL}="{alert_name}"}}'
     }
 
 
