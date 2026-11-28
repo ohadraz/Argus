@@ -10,6 +10,7 @@ resolution-markers = [
 members = [
     "argus-alert-source",
     "argus-alerting-platform",
+    "argus-alerting-platform-double",
     "argus-anthropic-double",
     "argus-apps",
     "argus-argus-testkit",
@@ -164,6 +165,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "argus-alerting-platform-double" },
     { name = "argus-argus-testkit" },
 ]
 
@@ -174,7 +176,25 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "argus-argus-testkit", editable = "test_support/argus_testkit" }]
+dev = [
+    { name = "argus-alerting-platform-double", editable = "test_support/alerting_platform_double" },
+    { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
+]
+
+[[package]]
+name = "argus-alerting-platform-double"
+version = "0.1.0"
+source = { editable = "test_support/alerting_platform_double" }
+dependencies = [
+    { name = "argus-alerting-platform" },
+    { name = "argus-core" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "argus-alerting-platform", editable = "modules/alerting_platform" },
+    { name = "argus-core", editable = "modules/core" },
+]
 
 [[package]]
 name = "argus-anthropic-double"
@@ -1603,6 +1623,7 @@ source = { virtual = "." }
 
 [package.dev-dependencies]
 dev = [
+    { name = "argus-alerting-platform-double" },
     { name = "argus-anthropic-double" },
     { name = "argus-argus-testkit" },
     { name = "argus-code-host-double" },
@@ -1628,6 +1649,7 @@ dev = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "argus-alerting-platform-double", editable = "test_support/alerting_platform_double" },
     { name = "argus-anthropic-double", editable = "test_support/anthropic_double" },
     { name = "argus-argus-testkit", editable = "test_support/argus_testkit" },
     { name = "argus-code-host-double", editable = "test_support/code_host_double" },

@@ -70,7 +70,7 @@ PERCENT_UNIT: Final = "percent"
 MILLISECONDS_UNIT: Final = "ms"
 SECONDS_UNIT: Final = "s"
 BYTES_UNIT: Final = "bytes"
-_UNITS: Final = {
+UNITS: Final = {
     PERCENT_OF_ONE_UNIT: Unit.SHARE_OF_ONE,
     PERCENT_UNIT: Unit.PERCENT,
     MILLISECONDS_UNIT: Unit.MILLISECONDS,
@@ -133,14 +133,14 @@ GTE: Final = "gte"
 LT: Final = "lt"
 LTE: Final = "lte"
 OUTSIDE_RANGE: Final = "outside_range"
-_WORSE_WHEN: Final[dict[str, WorseWhen]] = {
+WORSE_WHEN: Final[dict[str, WorseWhen]] = {
     GT: "above",
     GTE: "above",
     LT: "below",
     LTE: "below"
 }
 # The evaluators a reading exactly on the threshold fires under.
-_FIRES_ON_THE_LINE: Final = frozenset({GTE, LTE})
+FIRES_ON_THE_LINE: Final = frozenset({GTE, LTE})
 
 # The state Grafana's rules API gives a rule that is not firing or pending.
 INACTIVE: Final = "inactive"
@@ -366,7 +366,7 @@ def _the_series_in(definition: dict[str, Any]) -> RuleSeries | None:
                 return None
 
             [condition] = model[CONDITIONS]
-            worse_when = _WORSE_WHEN.get(condition[EVALUATOR][TYPE])
+            worse_when = WORSE_WHEN.get(condition[EVALUATOR][TYPE])
 
             if worse_when is None:
                 return None
@@ -431,7 +431,7 @@ def _the_panels_unit(rule: str,
     found = next((panel for panel in panels if str(panel.get(ID)) == str(panel_id)), {})
     unit = _an_object(_an_object(found.get(FIELD_CONFIG)).get(DEFAULTS)).get(UNIT)
 
-    return _UNITS.get(unit) if isinstance(unit, str) else None
+    return UNITS.get(unit) if isinstance(unit, str) else None
 
 
 def _an_object(value: Any) -> dict[str, Any]:
@@ -454,7 +454,7 @@ def _the_line_of(evaluator: dict[str, Any]) -> RuleLine | None:
     if isinstance(at, bool) or not isinstance(at, int | float):
         return None
 
-    return RuleLine(at=float(at), fires_on_it=evaluator[TYPE] in _FIRES_ON_THE_LINE)
+    return RuleLine(at=float(at), fires_on_it=evaluator[TYPE] in FIRES_ON_THE_LINE)
 
 
 def _the_state_of(rule: str, answer: dict[str, Any]) -> dict[str, Any]:

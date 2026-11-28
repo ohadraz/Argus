@@ -1,0 +1,26 @@
+[project]
+name = "argus-alerting_platform_double"
+version = "0.1.0"
+requires-python = ">=3.14"
+
+# The port it stands in for, whose values it answers in. Nothing else: it is
+# held to that port by the port's own suite, and anything it knew beyond the
+# port would be something no suite holds it to.
+dependencies = [
+    "argus-core",
+    "argus-alerting_platform",
+]
+
+
+[tool.uv.sources]
+argus-core = { workspace = true }
+argus-alerting_platform = { workspace = true }
+
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/alerting_platform_double"]

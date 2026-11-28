@@ -89,6 +89,8 @@ from argus_testkit.logs import one_record_was_logged
 from argus_testkit.scenario import Scenario, attempting
 from core.models import RuleLine, RuleSeries, SeriesQuery, Unit, WorseWhen
 
+from alerting_platform_test.framework import FIRING, NO_DATA
+
 SOME_RULE = "some-rule"
 SOME_OTHER_RULE = "some-other-rule"
 SOME_FOLDER = "some-folder"
@@ -104,13 +106,14 @@ SOME_PANEL = 4
 SOME_OTHER_QUERY = "avg(some_other_ratio)"
 
 # Grafana's other words for a rule's state in its Prometheus-compatible answer,
-# which Argus never reads by name: anything but inactive is not normal.
-FIRING = "firing"
+# which Argus never reads by name: anything but inactive is not normal. Its
+# word for a firing rule is the framework's, which serves it to the port's
+# suite too.
 PENDING = "pending"
 
-# And its other words for how the rule's last evaluation went.
+# And its other words for how the rule's last evaluation went, `nodata` among
+# them, likewise the framework's.
 ERRORED = "error"
-NO_DATA = "nodata"
 
 
 @pytest.mark.unit
